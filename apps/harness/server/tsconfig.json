@@ -1,7 +1,8 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022"],
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "module": "ESNext",
     "moduleResolution": "bundler"

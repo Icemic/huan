@@ -1,5 +1,9 @@
 minimumReleaseAge: 4320
 
+# 例外：assistant-ui 生态（本项目 UI 基座）跟随最新版本，不受发布龄约束。
+minimumReleaseAgeExclude:
+  - '@assistant-ui/*'
+
 packages:
   - packages/*
   - apps/*

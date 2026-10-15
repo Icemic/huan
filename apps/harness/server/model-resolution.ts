@@ -1,8 +1,8 @@
 import {
+  discoverAndLoadExtensions,
   ModelRegistry,
   ModelRuntime,
   SettingsManager,
-  discoverAndLoadExtensions,
 } from '@earendil-works/pi-coding-agent'
 import type { ServerConfig } from './config.js'
 

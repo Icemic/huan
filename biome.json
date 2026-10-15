@@ -1,6 +1,13 @@
 {
   "files": {
-    "includes": ["**", "!**/src/locales", "!**/dist", "!**/node_modules"]
+    "includes": [
+      "**",
+      "!**/src/locales",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/components/ui",
+      "!**/components/assistant-ui"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -16,6 +23,11 @@
     "formatter": {
       "quoteStyle": "single",
       "semicolons": "asNeeded"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

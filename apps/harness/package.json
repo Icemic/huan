@@ -13,17 +13,23 @@
     "lingui:compile": "lingui compile"
   },
   "dependencies": {
-    "@assistant-ui/react": "0.15.28",
-    "@assistant-ui/react-markdown": "^0.14.21",
+    "@assistant-ui/react": "^0.15.28",
+    "@assistant-ui/react-markdown": "^0.14.22",
     "@assistant-ui/react-pi": "0.0.29",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@hono/node-server": "^2.1.4",
     "@huan/protocol": "workspace:*",
     "@lingui/core": "^6.8.0",
     "@lingui/react": "^6.8.0",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0",
     "hono": "4.13.12",
+    "lucide-react": "^1.55.0",
+    "radix-ui": "^1.8.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "remark-gfm": "^4.0.1",
+    "tw-shimmer": "^0.4.13",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
