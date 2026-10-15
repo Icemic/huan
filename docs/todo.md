@@ -1,0 +1,79 @@
+# 待办
+
+**最后更新**：2026-10-15
+**说明**：当前迭代待办 + 后续里程碑概览。迭代文档见 `docs/iteration/2026-10/`。
+
+---
+
+## 当前迭代
+
+### 迭代① monorepo 骨架与包边界（✅ 已完成 2026-10-15）
+
+文档：`docs/iteration/2026-10/2026-10-15-feat-monorepo-skeleton.md`
+
+- [x] workspace 基础：root package.json、pnpm-workspace.yaml、tsconfig.base.json、Biome、.gitignore
+- [x] `packages/protocol` 骨架（版本常量占位）
+- [x] `packages/core` 骨架（占位）
+- [x] `packages/react` 骨架（占位）
+- [x] `packages/history` 骨架（占位）
+- [x] `apps/harness` 脚手架：Vite + React 19 + Tailwind v4 + Lingui + Zustand
+- [x] Vitest 根配置 + 占位测试
+- [x] root 脚本：dev / build / check / test / lint
+- [x] 文档：dev-guide.md、AGENTS.md 速览补齐、todo.md
+- [ ] git 首次提交（待执行）
+
+验证记录：check / test / build / dev 浏览器验证 / lingui extract 全部通过（详见迭代文档 §9）。
+
+### 迭代② 最小闭环应用（下一步）
+
+文档：`docs/iteration/2026-10/2026-10-15-feat-minimal-loop.md`
+
+- [ ] Node 宿主服务（Hono + createPiNodeClient + 官方路由契约）
+- [ ] SSE 端点与流式验证（经 Vite 代理）
+- [ ] 前端接入：usePiRuntime + assistant-ui Thread 主题
+- [ ] 会话列表（新建/打开/重命名/归档/删除）
+- [ ] 模型与 Thinking 切换
+- [ ] Host UI：工具卡片审批控件 + 侧通道
+- [ ] 中断、Steer / Follow-up、队列展示
+- [ ] 多窗口长期订阅与幂等处理
+- [ ] Zustand 接入窗口本地状态
+- [ ] Lingui 文案接入
+- [ ] 全量验证（含多窗口、断线恢复、对照 Pi CLI）
+
+---
+
+## 后续里程碑概览
+
+### M2 Checkpoint 与变更审查（下一里程碑，D-18 优先）
+
+- [ ] 内容寻址快照后端设计：存储布局、忽略策略、大文件阈值、重命名识别
+- [ ] 快照触发：run / 工具调用边界
+- [ ] ChangeSet 与 manifest diff
+- [ ] Monaco Diff 审查视图（文件级接受/撤销）
+- [ ] 选择性恢复 + 外部改动冲突检测
+- [ ] Provider 契约落地（`@huan/history`）
+
+### M3 日用强化
+
+- [ ] Pi 配置/扩展生态兼容（对照 CLI 加载行为）
+- [ ] 文件树与代码浏览（Monaco 查看）
+- [ ] 常用交互打磨（按真实使用痛点）
+- [ ] 公共层固化（D-14 阶段 2：纯 reducer/投影 + 自研 Controller）
+
+### M4 末语工坊接入
+
+- [ ] 设计启动（M4 开始前细化边界，D-17）
+- [ ] Editor Bridge、编辑器上下文工具、专用 Tool UI、事务撤销适配
+
+---
+
+## 待细化事项
+
+| 事项 | 计划处理时机 |
+| --- | --- |
+| 快照存储位置与忽略策略细节 | M2 设计时 |
+| 会话分支 / 树导航 UI | 公共层固化阶段（D-15） |
+| 桌面宿主评估（Electron / Tauri / 其他） | 闭环验收后（D-12） |
+| OS 级沙箱升级（编辑器 Agent） | 面向不可信项目或第三方分发时（D-20） |
+| 附件能力（目前仅图片 passthrough） | 按需求评估 |
+| skills / extensions 在 UI 中的呈现 | 按需求评估 |

@@ -1,0 +1,11 @@
+minimumReleaseAge: 21600
+
+packages:
+  - packages/*
+  - apps/*
+
+catalog:
+  typescript: ^5.9.3
+
+overrides:
+  rolldown: 1.2.12

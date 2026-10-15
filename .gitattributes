@@ -1,0 +1,8 @@
+# 统一以 LF 存储与检出，避免跨平台行尾漂移
+* text=auto eol=lf
+
+# 二进制文件不做行尾处理
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

@@ -1,0 +1,26 @@
+{
+  "name": "huan",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @huan/harness dev",
+    "build": "pnpm --filter @huan/harness build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "pnpm lint && pnpm typecheck",
+    "test": "vitest run",
+    "lingui:extract": "pnpm --filter @huan/harness lingui:extract",
+    "lingui:compile": "pnpm --filter @huan/harness lingui:compile"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "typescript": "catalog:",
+    "vite": "8.3.1",
+    "vitest": "5.0.3"
+  }
+}
