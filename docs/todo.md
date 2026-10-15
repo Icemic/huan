@@ -77,3 +77,6 @@
 | OS 级沙箱升级（编辑器 Agent） | 面向不可信项目或第三方分发时（D-20） |
 | 附件能力（目前仅图片 passthrough） | 按需求评估 |
 | skills / extensions 在 UI 中的呈现 | 按需求评估 |
+| CI 建立（frozen-lockfile 安装 + check + test + build） | 闭环跑通后按需（顾问 review 延后项） |
+| 宿主访问凭证完整设计 | 迭代②（§3.5 已有基础方案） |
+| `@huan/react` peerDependencies 声明 | 首次实现组件时 |

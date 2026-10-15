@@ -167,3 +167,27 @@ huan/
 
 - `.po`（`src/locales/zh-CN.po`）为提取产物，需提交版本控制（构建依赖其存在；首次克隆后若缺失先跑 `pnpm lingui:extract`）。
 - dev-guide 已记录已知陷阱：Vite 8 插件 API 变化、rolldown 版本固定、workspace 包安装方式、HMR 中间态报错。
+
+### 顾问 review 修复（2026-10-15）
+
+采纳项（已完成）：
+
+- Vitest 收集范围补齐 `.test.tsx` 与 `apps/*/server/**`；新增根 `tsconfig.json` 覆盖 `vitest.config.ts`（修复编辑器诊断与检查盲点）。
+- `check` 脚本纳入测试；`typecheck` 追加根配置检查。
+- `@types/node` 固定 22.20.4（与最低支持 Node 22 对齐，避免类型允许调用不存在的 API）。
+- rolldown override 补退出条件注释。
+- 文档糖移修正：dev-guide 行尾说明（LF）、技术架构 lint “待定”改为已定。
+- Host UI 幂等设计修正：由宿主而非客户端保证（已回写迭代②文档并补双客户端验收项）。
+- 技术架构 §4/§4.1 快照-订阅措辞统一（同一订阅入口交付初始快照 + 实时事件，无两步间隙）。
+
+驳回项（不采纳）：
+
+- 包边界自动检查工具（依赖图扫描 / 禁用 Node 内置模块的 lint 规则）：当前 4 个包规模下成本高于收益，由编译器与 review 兼顾；代码量显著增长后再评估。
+- 立即建立 CI：骨架期无远程协作需求；记入 todo，闭环跑通后按需建立。
+
+延后项（对应迭代处理）：
+
+- 宿主侧访问凭证完整设计 → 迭代②（§3.5）；桌面壳阶段再评估远程形态。
+- `packages/react` 的 peerDependencies 声明 → 首次实现组件时。
+- 应用 tsconfig 按 browser/server 拆分 → `server/` 真实出现时（已列入迭代②实施清单）。
+- Node 原生 ESM 输出策略 → 宿主形态（D-12）确定后。

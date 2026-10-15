@@ -8,4 +8,6 @@ catalog:
   typescript: ^5.9.3
 
 overrides:
+  # 临时约束：Vite 8 依赖的 rolldown 新版本不满足 15 天发布龄，固定到 1.2.12。
+  # 退出条件：升级 Vite 时验证 rolldown 新版已满足发布龄约束后即可移除。
   rolldown: 1.2.12

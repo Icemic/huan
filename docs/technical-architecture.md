@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 语言 | TypeScript（strict） | 全量 TS，无 JS 混写 |
 | 前端框架 | React 19 | 函数式组件 + Hooks |
-| 构建 | Vite（应用）；tsc（包声明） | 开发服务器与生产构建 |
+| 构建 | Vite（应用，rolldown 内核）；tsc --noEmit（类型检查） | 开发服务器与生产构建；包零构建直引源码（见 §2 与 dev-guide §4.1） |
 | 样式 | Tailwind CSS v4 | Utility-first |
 | 基础组件 | shadcn 模式：组件源码拷入项目 | 对话框、按钮、菜单、树等；无头逻辑用 Base UI（默认）或 Radix |
 | 聊天 UI | `@assistant-ui/react` + `@assistant-ui/react-pi` | 逻辑层直接依赖；主题组件经 CLI 拷入 |
@@ -24,7 +24,7 @@
 | i18n | Lingui（源语言中文，首期仅中文包） | 编译期宏（D-22/D-25） |
 | 包管理 | pnpm workspaces | monorepo；`@huan/*` 命名空间（D-13） |
 | 测试 | Vitest | 单元与集成 |
-| Lint/Format | 待定（Biome 或 ESLint+Prettier） | 骨架迭代时定 |
+| Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
 **运行形态（首期）**：Node 宿主进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与宿主持有方式暂不锁定（D-12）；协议层按可替换传输设计。
@@ -98,7 +98,7 @@ react-pi 已知缺口（调研核对）：无 fork/树导航、队列不可逐�
 - 约定：
   - 命令（request/response）带 `requestId`；长操作用事件汇报状态。
   - 事件带 `sessionId`、必要时 `runId` / `toolCallId` 与单调序号。
-  - 重连先拉权威 `snapshot` 再订阅更新，不依赖事件重放。
+  - 重连与首次订阅采用同一机制：订阅入口先交付带 `seq` 的权威快照，再在同一连接上接续实时事件（无「先请求快照再连接」的两步间隙）。有 `seq` 可用于发现缺口，但不依赖事件重放。
   - 协议显式版本化；未知事件/字段宽容处理。
   - 自定义 Host UI `kind` 使用版本化 schema 校验（`kind` 命名如 `editor.select-node`）。
 - 传输可替换：首期 HTTP/SSE（官方样例形态）；Electron 主进程共置、Tauri sidecar 或未来本地 IPC 都实现同一 `PiClient` 契约。

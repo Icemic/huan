@@ -21,11 +21,11 @@
 pnpm install          # 安装全部 workspace 依赖
 pnpm dev              # 启动 apps/harness 开发服务器（Vite，默认 5173）
 pnpm build            # 生产构建（tsc --noEmit && vite build）
-pnpm check            # lint（Biome）+ 全 workspace 类型检查
+pnpm check            # lint（Biome）+ 全 workspace 类型检查 + 测试
 pnpm lint             # 仅 Biome 检查
 pnpm lint:fix         # Biome 自动修复
-pnpm typecheck        # 全 workspace tsc --noEmit
-pnpm test             # Vitest 单元测试（根运行，覆盖 packages/*/src 与 apps/*/src）
+pnpm typecheck        # 全 workspace tsc --noEmit（含根配置文件）
+pnpm test             # Vitest 单元测试（根运行，覆盖 packages/*/src、apps/*/src 与 apps/*/server）
 pnpm lingui:extract   # 提取文案到 src/locales/zh-CN.po
 pnpm lingui:compile   # 编译文案（构建链已内置，一般不需要单独跑）
 ```
@@ -59,7 +59,7 @@ huan/
 ### 4.2 代码规范
 
 - 注释一律中文（AGENTS.md 规定）。
-- Biome 负责 lint + format：2 空格缩进、单引号、无分号；行尾 CRLF（Windows 开发环境）。
+- Biome 负责 lint + format：2 空格缩进、单引号、无分号；行尾统一 LF（`.gitattributes` 同步约束，避免跨平台漂移）。
 - TS strict 全开，附带 `noUncheckedIndexedAccess`、`verbatimModuleSyntax`。
 
 ### 4.3 i18n（Lingui v6）

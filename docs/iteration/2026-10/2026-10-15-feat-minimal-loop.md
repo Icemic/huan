@@ -86,9 +86,18 @@ GET    /api/pi/threads/:id/events      → SSE of PiClientEvent
 
 1. 打开的会话视图采用长期订阅（对 `controller.connect()` 的等效用法），消除「空闲会话不转直播」缺口。
 2. 验证：窗口 A 发送，窗口 B 实时可见流式输出；关闭任一窗口不影响运行与另一窗口。
-3. Host UI 重复响应（两窗口同时响应）：按幂等处理（先到生效）；验证 bridge 行为，不幂等则在客户端拦截。
+3. **Host UI 幂等由宿主保证**：唯一权威宿主按「检查待处理 → 原子标记已响应 → 执行」处理响应；重复/过期响应返回稳定结果。客户端禁用按钮仅负责交互体验，不作为并发控制机制（两个窗口各自去重无法保证「先到生效」）。若 react-pi bridge 已具备该语义则直接复用，但必须用「两客户端同时响应」的集成测试证明。
 
-### 3.5 配置与凭据
+### 3.5 宿主安全边界
+
+宿主进程以用户权限运行且持有 Pi 凭据，必须限制暴露面：
+
+- **只监听 loopback**（`127.0.0.1`），不使用 `0.0.0.0`。
+- **校验 `Origin` / `Host`**：仅接受允许的来源（开发期为 Vite dev server 地址）。CORS 与 Vite 代理都不是鉴权机制，需在宿主侧显式校验。
+- **访问凭证**：宿主启动时生成随机 token，经环境变量传给前端（Vite `define` 注入）；SSE 与 HTTP 端点均校验。若 `createPiHttpClient` 使用原生 `EventSource`（不支持自定义 header），改用 fetch 流或查询参数传递。
+- 将来开放远程访问时另行设计认证与工作区授权，不直接暴露本地宿主。
+
+### 3.6 配置与凭据
 
 - 模型与凭据：复用 Pi 用户配置（`~/.pi`），已 `pi /login` 的用户无需额外配置；支持 `PI_PROVIDER` / `PI_MODEL_ID` 环境变量覆盖（记录于 dev-guide）。
 - 工作目录：启动宿主时参数/环境变量指定（默认可在 dev-guide 固定为测试目录）；工作目录选择 UI 暂不做。
@@ -96,7 +105,8 @@ GET    /api/pi/threads/:id/events      → SSE of PiClientEvent
 ## 4. 兼容性与依赖
 
 - 锁 react-pi 与 `@earendil-works/pi-coding-agent` 的 peer 版本组合，安装时验证；记录于 lockfile 与 dev-guide。
-- Node >= 22.19；Windows/macOS 路径按 Node 语义处理。
+- Node >= 22.19；`@types/node` 固定 22.x 主版本，与最低支持运行时对齐（避免类型允许调用 Node 22 不存在的 API）。
+- Windows/macOS 路径按 Node 语义处理。
 - Pi 会话文件写入 Pi 默认位置（正常行为，不修改 Pi 内部历史结构）。
 
 ## 5. 验证（验收标准）
@@ -108,9 +118,10 @@ GET    /api/pi/threads/:id/events      → SSE of PiClientEvent
 5. 会话列表：新建 / 打开 / 重命名 / 归档 / 删除；切换会话不串消息。
 6. 模型与 Thinking 切换生效，当前值显示正确。
 7. 断线恢复：刷新页面后完整恢复当前会话快照；Host UI 待处理请求仍可见。
-8. 多窗口：A 发 B 见流式输出；关闭 A 不影响 B 与运行；同时响应同一 Host UI 请求无异常。
+8. 多窗口：A 发 B 见流式输出；关闭 A 不影响 B 与运行；**两客户端同时响应同一 Host UI 请求只生效一次**（集成测试验证宿主幂等）。
 9. Steer / Follow-up：运行中输入可排队（Enter=follow-up，Ctrl+Shift+Enter=steer），队列可整体清空并恢复到输入框。
-10. 对照 Pi CLI 抽查：新建会话初始状态、中断后状态、会话命名行为与 CLI 一致。
+10. 订阅竞态：建立/恢复 SSE 时持续产生事件，最终投影与权威快照一致（先快照后订阅无丢事件窗口）。
+11. 对照 Pi CLI 抽查：新建会话初始状态、中断后状态、会话命名行为与 CLI 一致。
 
 ## 6. 回滚
 
@@ -123,22 +134,25 @@ GET    /api/pi/threads/:id/events      → SSE of PiClientEvent
 | react-pi 与 Pi SDK 版本不兼容 | 安装时即验证；对照官方 with-pi 例子的行为基线 |
 | SSE 经 Vite 代理缓冲导致非流式 | 优先验证逐字输出；必要时手动配置代理或前端直连宿主端口 |
 | usePiRuntime 缺口（空闲会话不直播） | §3.4 长期订阅方案；若 API 不足则用 refresh + 订阅组合 |
-| Host UI 并发响应非幂等 | 客户端层拦截重复响应 |
+| Host UI 并发响应非幂等 | 宿主侧原子幂等（§3.4-3）；集成测试覆盖 |
+| 生事件丢失（快照与订阅间隙） | 采用 react-pi 同一订阅入口提供的「先快照后实时」语义；用 §5-10 的并发测试验证 |
+| Node 直接运行 TS 的边界 | 宿主用 tsx 运行；`server/` 纳入独立 tsconfig 检查，避免「能跑但未检查」 |
 | Windows 终端/进程管理差异 | dev-guide 记录两平台启动方式（如 concurrently 或双终端） |
 
 ## 8. 实施清单
 
-1. 宿主服务骨架（Hono + 路由表 + 静态配置）
+1. 宿主服务骨架（Hono + 路由表 + 静态配置 + loopback/Origin/token 安全边界）
 2. `createPiNodeClient` 接入与 SSE 端点
 3. 前端：PiRuntimeProvider + Thread 主题组件接入
 4. 会话列表 UI（列表/新建/重命名/归档/删除）
 5. 模型与 Thinking 切换 UI
-6. Host UI：工具卡片审批控件 + 侧通道组件
+6. Host UI：工具卡片审批控件 + 侧通道组件 + 宿主侧幂等
 7. 中断、Steer / Follow-up、队列展示
-8. 多窗口长期订阅与幂等处理
+8. 多窗口长期订阅与订阅竞态验证
 9. Zustand 窗口本地状态接入
 10. Lingui 文案接入
-11. 全量验证（§5）与 dev-guide 更新
+11. `server/` tsconfig 与 typecheck 接入（独立检查范围）
+12. 全量验证（§5）与 dev-guide 更新
 
 ## 9. 完成口径
 
