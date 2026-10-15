@@ -20,19 +20,19 @@
 - [x] Vitest 根配置 + 占位测试
 - [x] root 脚本：dev / build / check / test / lint
 - [x] 文档：dev-guide.md、AGENTS.md 速览补齐、todo.md
-- [ ] git 首次提交（待执行）
+- [x] git 首次提交
 
 验证记录：check / test / build / dev 浏览器验证 / lingui extract 全部通过（详见迭代文档 §9）。
 
-### 迭代② 最小闭环应用（下一步）
+### 迭代② 最小闭环应用（进行中）
 
 文档：`docs/iteration/2026-10/2026-10-15-feat-minimal-loop.md`
 
-- [ ] Node 宿主服务（Hono + createPiNodeClient + 官方路由契约）
-- [ ] SSE 端点与流式验证（经 Vite 代理）
-- [ ] 前端接入：usePiRuntime + assistant-ui Thread 主题
-- [ ] 会话列表（新建/打开/重命名/归档/删除）
-- [ ] 模型与 Thinking 切换
+- [x] Node 宿主服务（Hono + createPiNodeClient + 官方路由契约 + loopback/Origin/token 安全边界）
+- [x] 默认模型解析（加载用户扩展提取 provider 注册 + 默认模型，自定义 provider 可用）
+- [x] SSE 端点与流式验证（经 Vite 代理逐字输出）
+- [x] 前端接入：usePiRuntime + assistant-ui Thread 主题（含会话列表、Reasoning 折叠）
+- [ ] 模型与 Thinking 切换（选择器 UI 已接，目录当前为本地 mock；待 supervisor 装配修复）
 - [ ] Host UI：工具卡片审批控件 + 侧通道
 - [ ] 中断、Steer / Follow-up、队列展示
 - [ ] 多窗口长期订阅与幂等处理
@@ -80,3 +80,4 @@
 | CI 建立（frozen-lockfile 安装 + check + test + build） | 闭环跑通后按需（顾问 review 延后项） |
 | 宿主访问凭证完整设计 | 迭代②（§3.5 已有基础方案） |
 | `@huan/react` peerDependencies 声明 | 首次实现组件时 |
+| **react-pi supervisor 缺口**：不加载用户扩展，`getAvailableModels` 与 `setModel` 拿不到扩展注册的 provider（如 my-provider）。当前对策：模型选择器用本地 mock（`pi-model-selector.tsx`）。正确修法：supervisor 的 `getModelRuntime()` 接入扩展加载（stage 2 自研宿主的既定职责）。处理时机：公共层固化阶段 | |
