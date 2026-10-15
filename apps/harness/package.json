@@ -12,9 +12,14 @@
     "lingui:compile": "lingui compile"
   },
   "dependencies": {
+    "@assistant-ui/react": "0.15.28",
+    "@assistant-ui/react-markdown": "^0.14.21",
+    "@assistant-ui/react-pi": "0.0.29",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@huan/protocol": "workspace:*",
     "@lingui/core": "^6.8.0",
     "@lingui/react": "^6.8.0",
+    "hono": "4.13.12",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"
@@ -25,10 +30,12 @@
     "@lingui/vite-plugin": "^6.8.0",
     "@rolldown/plugin-babel": "0.2.4",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.15",
     "vite": "8.3.1"
   }
 }

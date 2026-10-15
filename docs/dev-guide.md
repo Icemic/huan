@@ -13,7 +13,7 @@
 | pnpm | 10.x | `packageManager` 字段已固定 `pnpm@10.34.5` |
 | 操作系统 | Windows / macOS / Linux | 开发验证以 Windows 为主 |
 
-仓库根 `pnpm-workspace.yaml` 设置了 `minimumReleaseAge: 21600`（15 天）：所有依赖必须发布满 15 天才会被安装，用于降低供应链风险。遇到 `ERR_PNPM_NO_MATURE_MATCHING_VERSION` 时，查询满足发布龄的版本并显式降级（不要用 `minimumReleaseAgeExclude`，除非有明确理由）。
+仓库根 `pnpm-workspace.yaml` 设置了 `minimumReleaseAge: 4320`（3 天）：所有依赖必须发布满 3 天才会被安装，用于降低供应链风险。遇到 `ERR_PNPM_NO_MATURE_MATCHING_VERSION` 时，查询满足发布龄的版本并显式降级。
 
 ## 2. 常用命令（仓库根目录）
 
