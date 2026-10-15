@@ -27,7 +27,9 @@ export function loadConfig(): ServerConfig {
     port: Number(process.env.HUAN_PORT ?? 8788),
     workspacePath,
     agentDir: process.env.PI_CODING_AGENT_DIR?.trim() || getAgentDir(),
-    allowedOrigins: (process.env.HUAN_ALLOWED_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173')
+    allowedOrigins: (
+      process.env.HUAN_ALLOWED_ORIGINS ?? 'http://localhost:8799,http://127.0.0.1:8799'
+    )
       .split(',')
       .map((origin) => origin.trim())
       .filter((origin) => origin.length > 0),

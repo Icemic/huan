@@ -15,6 +15,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 8799,
+    strictPort: true,
     proxy: {
       '/api/pi': {
         target: 'http://127.0.0.1:8788',

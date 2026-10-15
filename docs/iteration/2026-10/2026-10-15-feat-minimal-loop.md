@@ -40,7 +40,7 @@
 ### 3.1 进程与端口
 
 ```
-浏览器 (Vite dev, 5173)
+浏览器 (Vite dev, 8799)
    │  fetch / SSE
    ▼  /api/pi/**（Vite server.proxy 转发）
 Node 宿主进程 (8788)：@huan/core 之上，装配 createPiNodeClient

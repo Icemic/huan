@@ -19,7 +19,7 @@
 
 ```bash
 pnpm install          # 安装全部 workspace 依赖
-pnpm dev              # 启动 apps/harness 开发服务器（Vite，默认 5173）
+pnpm dev              # 启动 apps/harness 开发服务器（Vite，端口 8799）
 pnpm build            # 生产构建（tsc --noEmit && vite build）
 pnpm check            # lint（Biome）+ 全 workspace 类型检查 + 测试
 pnpm lint             # 仅 Biome 检查
@@ -83,7 +83,7 @@ huan/
 ## 6. 验证方式
 
 - 常规验证：`pnpm check && pnpm test`。
-- 界面验证：`pnpm dev` 后打开 http://localhost:5173/ 。
+- 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
 - 容器与检查的覆盖范围：typecheck 覆盖全部 workspace 包；测试根运行（`vitest.config.ts` 统一 include）。
 
 ## 7. 迭代②预告（开发环境相关）
