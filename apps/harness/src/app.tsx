@@ -1,4 +1,5 @@
 import { usePiThreadState } from '@assistant-ui/react-pi'
+import { Trans } from '@lingui/react/macro'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
@@ -12,7 +13,7 @@ function ReadinessBanner() {
   if (!readiness || readiness.state === 'ready') return null
   return (
     <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-      {readiness.message ?? 'Pi 运行时没有可用模型。'}
+      {readiness.message ?? <Trans>Pi 运行时没有可用模型。</Trans>}
     </div>
   )
 }

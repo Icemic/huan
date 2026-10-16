@@ -7,6 +7,6 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
-#: src/main.tsx:15
-msgid "骨架已就绪"
-msgstr "骨架已就绪"
+#: src/app.tsx:16
+msgid "Pi 运行时没有可用模型。"
+msgstr "Pi 运行时没有可用模型。"

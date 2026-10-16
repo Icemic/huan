@@ -453,9 +453,22 @@ const ThreadSuggestionItem: FC = () => {
   )
 }
 
+/** 排队中的消息（运行期间提交的 steer / follow-up）。
+ *  react-pi 只支持整体清空队列，因此这里仅做展示，不提供逐项操作。 */
+const ComposerQueue: FC = () => (
+  <ComposerPrimitive.Queue>
+    {({ queueItem }) => (
+      <div className="border-foreground/10 text-muted-foreground mb-1 rounded-(--composer-radius) border border-dashed px-3 py-1.5 text-sm">
+        {queueItem.prompt}
+      </div>
+    )}
+  </ComposerPrimitive.Queue>
+)
+
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
+      <ComposerQueue />
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"

@@ -86,8 +86,44 @@ huan/
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
 - 容器与检查的覆盖范围：typecheck 覆盖全部 workspace 包；测试根运行（`vitest.config.ts` 统一 include）。
 
-## 7. 迭代②预告（开发环境相关）
+## 7. 迭代②：宿主与前端（已实现）
 
-- Node 宿主进程：`apps/harness/server/`，用 tsx 运行，默认端口 8788。
-- Vite dev 配置将加入 `/api/pi` 代理指向宿主（避免 CORS）。
-- 需要本机已通过 `pi /login` 完成 Pi 认证，或设置 `PI_PROVIDER` / `PI_MODEL_ID` 环境变量。
+### 7.1 启动方式（两个终端）
+
+```bash
+# 终端 1：Node 宿主（Pi SDK 运行于此）
+pnpm --filter @huan/harness dev:server
+
+# 终端 2：前端
+pnpm dev          # → http://localhost:8799/
+```
+
+前端经 Vite 代理（`/api/pi` → `127.0.0.1:8788`）访问宿主，避免 CORS。
+
+### 7.2 宿主配置
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HUAN_PORT` | 8788 | 宿主端口 |
+| `HUAN_WORKSPACE` | `tmp/agent-workspace`（仓库内） | Agent 工作目录 |
+| `HUAN_ALLOWED_ORIGINS` | `http://localhost:8799,http://127.0.0.1:8799` | 允许的来源 |
+| `HUAN_TOKEN` | 空（不校验） | 访问凭证（开发期留空） |
+| `PI_PROVIDER` / `PI_MODEL_ID` | 无 | 覆盖默认模型；缺省时读取 Pi settings.json |
+| `PI_CODING_AGENT_DIR` | Pi 默认（`~/.pi/agent`） | Pi 配置目录 |
+
+宿主的默认模型解析链路（`server/model-resolution.ts`）：加载用户扩展 → 提取扩展注册的 provider（如自定义 provider）→ 注册进 ModelRuntime → `refresh()` → 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`。**这是必须的**：Pi SDK 不会自动加载扩展，也不读取 settings.json 的默认模型。
+
+### 7.3 认证与模型
+
+- 已通过 `pi /login` 完成认证的机器无需额外配置。
+- 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主中自动可用。
+- 浏览器端的模型选择器目前使用本地 mock（见 `pi-model-selector.tsx` 注释）；原因：react-pi supervisor 的内部 ModelRuntime 未加载扩展，`getAvailableModels` / `setModel` 拿不到自定义 provider，详见 `docs/todo.md` 的 supervisor 缺口条目。
+
+### 7.4 验证 Host UI 的方法（可复用）
+
+在**工作目录**下创建 `.pi/extensions/` 临时扩展（如 `tmp/agent-workspace/.pi/extensions/ask-user.ts`），注册一个在 `execute` 中调用 `ctx.ui.confirm` / `ctx.ui.select` 的工具；重启宿主即可在对话中触发审批控件。验证完毕后删除该文件。扩展 API 见 `@earendil-works/pi-coding-agent` 的 `ToolDefinition` 与 `ExtensionAPI` 类型。
+
+### 7.5 已知行为（非 bug）
+
+- 空闲会话的实时订阅由应用层 `PiLiveSubscription` 组件维持（react-pi 默认只在运行中连接）；组件在 `src/components/pi-live-subscription.tsx`，依赖运行时内部对象中的 `controller`（未在公共类型声明，已用类型断言标注）。
+- 队列（steer / follow-up）只做展示，不提供逐项操作（react-pi 无逐项 API，只支持整体清空）。
