@@ -1,6 +1,7 @@
 import { usePiThreadState } from '@assistant-ui/react-pi'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
+import { PiLiveSubscription } from '@/components/pi-live-subscription'
 import { PiModelSelector } from '@/components/pi-model-selector'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -20,6 +21,7 @@ function ReadinessBanner() {
 export function App() {
   return (
     <PiRuntimeProvider>
+      <PiLiveSubscription />
       <TooltipProvider>
         <div className="flex h-dvh flex-col overflow-hidden">
           <header className="flex items-center gap-3 border-b px-4 py-2">

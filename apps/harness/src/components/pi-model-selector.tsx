@@ -1,10 +1,10 @@
-import { usePiRuntimeExtras, usePiSession, type PiThinkingLevel } from '@assistant-ui/react-pi'
+import { type PiThinkingLevel, usePiRuntimeExtras, usePiSession } from '@assistant-ui/react-pi'
 import {
-  ModelSelectorRoot,
+  type ModelOption,
   ModelSelectorContent,
+  ModelSelectorRoot,
   ModelSelectorTrigger,
   ModelSelectorValue,
-  type ModelOption,
 } from '@/components/assistant-ui/elements/model-selector.aui'
 
 /**

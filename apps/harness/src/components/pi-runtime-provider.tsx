@@ -1,6 +1,6 @@
 import { AssistantRuntimeProvider, SimpleImageAttachmentAdapter } from '@assistant-ui/react'
 import { createPiHttpClient, usePiRuntime } from '@assistant-ui/react-pi'
-import { useMemo, type ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 /**
  * 把浏览器端的 PiClient（HTTP/SSE 经 /api/pi）接成 Pi 运行时。
