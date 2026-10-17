@@ -1445,4 +1445,133 @@ export default function (pi) {
       await rm(join(extensionDir, 'ab-marker.ts'), { force: true })
     }
   }, 90_000)
+
+  it('快照与后续 SDK 改写隔离（消息对象不得被原地替换污染）', async () => {
+    // 缺口背景（顾问指出，已核对 SDK 源码）：扩展在 `message_end` hook 返回
+    // 替换消息时，SDK 用 `_replaceMessageInPlace()`（delete 所有键 + assign）
+    // **原地改写**已进入 `state.messages` 的对象。因此在 hook 等待期间取得的
+    // 快照，即使复制了数组，其消息对象仍会被随后改写。
+    // 修复：`isolateMessages()` 逐条浅复制消息对象。
+    //
+    // 握手：hook 在 message_end 时写 entered 并阻塞；测试在此期间取快照，
+    // 放行（hook 返回替换文本）后再看同一份快照——原快照必须保持原内容。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const enteredFile = join(workspace, 'snapshot-isolation-entered')
+    const releaseFile = join(workspace, 'snapshot-isolation-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('message_end', async (event) => {
+    if (event.message.role !== 'assistant') return undefined
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
+    const release = ${JSON.stringify(releaseFile)}
+    while (!existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    // 返回替换消息：SDK 会原地改写已有对象。
+    return { message: { ...event.message, content: [{ type: 'text', text: 'REPLACED_BY_HOOK' }] } }
+  })
+}
+`
+    await writeFile(join(extensionDir, 'replace-message.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+
+    try {
+      globalThis.fetch = (async () => {
+        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
+        const body =
+          chunk({
+            id: 'chatcmpl-iso',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'iso',
+            choices: [
+              {
+                index: 0,
+                delta: { role: 'assistant', content: 'ORIGINAL_TEXT' },
+                finish_reason: null,
+              },
+            ],
+          }) +
+          chunk({
+            id: 'chatcmpl-iso',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'iso',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          }) +
+          'data: [DONE]\n\n'
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      await isolated.sendMessage(id, { content: '触发替换' })
+      await waitForFile(enteredFile, 60_000)
+
+      // hook 仍阻塞时取快照（此时对象尚未被替换）。
+      const during = await isolated.getThread(id)
+      const assistantDuring = during.messages.find((message) => message.role === 'assistant')
+      expect(JSON.stringify(assistantDuring)).toContain('ORIGINAL_TEXT')
+
+      // 同一时点另建订阅：直接保留订阅者拿到的消息引用（不自行复制），
+      // 用于单独验证「交付给订阅者的对象」也被隔离。
+      let subscribedAssistant: unknown
+      const unsubscribe = isolated.subscribe(
+        id,
+        (event) => {
+          if (event.type !== 'snapshot') return
+          subscribedAssistant = event.snapshot.messages.find(
+            (message) => message.role === 'assistant',
+          )
+        },
+        { includeSnapshot: true },
+      )
+      // 断言订阅确实拿到了助手消息（避免空集合导致的假通过）。
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(JSON.stringify(subscribedAssistant)).toContain('ORIGINAL_TEXT')
+
+      // 放行 hook → SDK 原地改写消息对象。
+      await writeFile(releaseFile, 'go')
+      const deadline = Date.now() + 30_000
+      while (Date.now() < deadline) {
+        const current = await isolated.getThread(id)
+        if (
+          current.metadata.status === 'idle' &&
+          current.messages.some((m) => m.role === 'assistant')
+        )
+          break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      // 权威快照已反映替换（确认替换确实发生）。
+      const after = await isolated.getThread(id)
+      const assistantAfter = after.messages.find((message) => message.role === 'assistant')
+      expect(JSON.stringify(assistantAfter)).toContain('REPLACED_BY_HOOK')
+
+      // 核心断言：**先前取得的快照**不得被改写（隔离生效）。
+      expect(JSON.stringify(assistantDuring)).toContain('ORIGINAL_TEXT')
+      expect(JSON.stringify(assistantDuring)).not.toContain('REPLACED_BY_HOOK')
+      // 订阅者保留的引用同样不得被污染。
+      expect(JSON.stringify(subscribedAssistant)).toContain('ORIGINAL_TEXT')
+      expect(JSON.stringify(subscribedAssistant)).not.toContain('REPLACED_BY_HOOK')
+      unsubscribe()
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'replace-message.ts'), { force: true })
+    }
+  }, 90_000)
 })

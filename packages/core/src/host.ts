@@ -441,11 +441,28 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return undefined
   }
 
+  /**
+   * 快照的消息隔离：数组与消息对象都复制。
+   *
+   * 两个真实的可变源（均已核对 SDK 源码）：
+   * 1. `session.messages` 是 agent-core 的活跃数组，后续轮次会直接 push；
+   * 2. 扩展在 `message_end` hook 中返回替换消息时，SDK 用
+   *    `_replaceMessageInPlace()` **原地改写**已有消息对象（delete + assign），
+   *    因此仅复制数组仍不够——已交付给订阅者的消息对象会随后变化。
+   *
+   * 浅复制单个消息足以覆盖上述两个路径：SDK 内建路径的原地改写只作用于
+   * 消息对象的顶层键（替换 `content` 是替换引用，旧快照保留的原引用不受影响）。
+   * 注意这是**边界而非全量保证**：扩展若自行修改已有 content 内部结构，
+   * 或调用方改动返回值，共享对象仍可能变化。
+   */
+  const isolateMessages = (messages: readonly unknown[]): HarnessAgentMessage[] =>
+    messages.map((message) => ({ ...(message as object) })) as HarnessAgentMessage[]
+
   const snapshotOf = (record: ThreadRecord): HarnessThreadSnapshot => {
     const pending = record.uiBridge.pending()
     return {
       metadata: metadataOf(record),
-      messages: record.session.messages as HarnessAgentMessage[],
+      messages: isolateMessages(record.session.messages),
       readiness: deriveReadiness({
         model: record.session.model
           ? { provider: record.session.model.provider, id: record.session.model.id }
