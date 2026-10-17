@@ -339,7 +339,14 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const openSession = async (
     sessionManager: SessionManager,
     cwd: string,
-    opts: { isNew: boolean; signal?: AbortSignal },
+    opts: {
+      isNew: boolean
+      signal?: AbortSignal
+      /** 新会话的显式模型（优先于宿主启动时解析的默认模型）。 */
+      model?: HarnessDefaultModel
+      /** 新会话的 Thinking 级别（在模型应用后设置）。 */
+      thinkingLevel?: HarnessThinkingLevel
+    },
   ): Promise<ThreadRecord> => {
     const openedGeneration = generation
     throwIfOpenCancelled(opts.signal, openedGeneration)
@@ -351,11 +358,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
+    // 新会话：显式模型 > 启动时解析的默认模型；冷打开不传，由 SDK 从会话记录恢复。
+    const newSessionModel = opts.model ?? resolvedDefault
     const { session, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
-      // 新会话用默认模型；冷打开不传，由 SDK 从会话记录恢复。
-      ...(opts.isNew && resolvedDefault ? { model: resolvedDefault } : {}),
+      ...(opts.isNew && newSessionModel ? { model: newSessionModel } : {}),
     })
     // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
     if (modelFallbackMessage) {
@@ -365,6 +373,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (openWasCancelled(opts.signal, openedGeneration)) {
       session.dispose()
       throwOpenCancelled()
+    }
+
+    // Thinking 级别在模型应用之后设置（SDK 的 setModel 自身会调整级别）。
+    if (opts.isNew && opts.thinkingLevel) {
+      try {
+        await session.setThinkingLevel(opts.thinkingLevel)
+      } catch (error) {
+        diagnostics.push(`Thinking 级别设置（${cwd}）：${String(error)}`)
+      }
+      throwIfOpenCancelled(opts.signal, openedGeneration)
     }
 
     const threadId = session.sessionId
@@ -659,8 +677,23 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     async createThread(input?: HarnessCreateThreadInput) {
       assertActive()
       const cwd = input?.workspacePath ?? workspacePath
+      // 显式模型：按 registry 校验并解析为模型对象（找不到时报错，不静默回退）。
+      let explicitModel: HarnessDefaultModel | undefined
+      if (input?.model) {
+        const resolved = modelRuntime.getModel(input.model.provider, input.model.modelId)
+        if (!resolved) {
+          throw new Error(
+            `${input.model.provider}/${input.model.modelId} is not in Pi's model registry`,
+          )
+        }
+        explicitModel = resolved
+      }
       const sessionManager = SessionManager.create(cwd)
-      const record = await openSession(sessionManager, cwd, { isNew: true })
+      const record = await openSession(sessionManager, cwd, {
+        isNew: true,
+        ...(explicitModel ? { model: explicitModel } : {}),
+        ...(input?.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+      })
       invalidateCatalog(cwd)
       if (input?.title) record.session.setSessionName(input.title)
       if (input?.initialMessage) await send(record, input.initialMessage, () => false)

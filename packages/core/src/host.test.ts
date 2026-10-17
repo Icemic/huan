@@ -57,6 +57,62 @@ describe('会话生命周期', () => {
     await host.deleteThread(snapshot.metadata.id)
   })
 
+  it('创建时显式指定模型（空白页选模型场景）覆盖默认模型', async () => {
+    const snapshot = await host.createThread({
+      model: { provider: 'my-provider', modelId: 'gpt-5.6-luna' },
+    })
+    expect(snapshot.metadata.config?.provider).toBe('my-provider')
+    expect(snapshot.metadata.config?.modelId).toBe('gpt-5.6-luna')
+    // 读回（冷/热一致）。
+    const after = await host.getThread(snapshot.metadata.id)
+    expect(after.metadata.config?.modelId).toBe('gpt-5.6-luna')
+    await host.deleteThread(snapshot.metadata.id)
+  })
+
+  it('创建时指定的模型不存在则报错（不静默回退默认模型）', async () => {
+    await expect(
+      host.createThread({ model: { provider: 'nope', modelId: 'missing' } }),
+    ).rejects.toThrow(/not in Pi's model registry/)
+  })
+
+  it('创建时指定 thinkingLevel 生效（或按模型能力被规范到合法级别）', async () => {
+    const snapshot = await host.createThread({
+      model: { provider: 'my-provider', modelId: 'gpt-5.6-luna' },
+      thinkingLevel: 'low',
+    })
+    // SDK 会按模型能力规范化级别（可能 clamp 到 off 等），只断言是合法值。
+    expect(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']).toContain(
+      snapshot.metadata.config?.thinkingLevel,
+    )
+    await host.deleteThread(snapshot.metadata.id)
+  })
+
+  it('首条消息使用创建时指定的模型（initialMessage 路径）', async () => {
+    const snapshot = await host.createThread({
+      model: { provider: 'my-provider', modelId: 'gpt-5.6-terra' },
+      initialMessage: { content: '只回答一个数字：1+1=?' },
+    })
+    const id = snapshot.metadata.id
+    // 等待运行结束（首条 assistant 消息写出实际使用的模型）。
+    const deadline = Date.now() + 60_000
+    let assistantModel: string | undefined
+    while (Date.now() < deadline) {
+      const current = await host.getThread(id)
+      const assistant = current.messages.find((message) => message.role === 'assistant')
+      if (assistant) {
+        const provider = (assistant as { provider?: string }).provider
+        const model = (assistant as { model?: string }).model
+        if (provider && model) {
+          assistantModel = `${provider}/${model}`
+          break
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    expect(assistantModel).toBe('my-provider/gpt-5.6-terra')
+    await host.deleteThread(id)
+  }, 90_000)
+
   it('setModel 生效（快照 config 更新）且能切回', async () => {
     const created = await host.createThread()
     const id = created.metadata.id

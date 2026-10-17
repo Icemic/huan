@@ -98,6 +98,13 @@ export type HarnessSendMessageInput = {
 export type HarnessCreateThreadInput = {
   workspacePath?: string
   title?: string
+  /**
+   * 新会话首次使用的模型（可选；缺省时由宿主按环境变量/settings 解析）。
+   * 显式指定可让「先选模型再发第一条消息」在不额外往返的情况下生效。
+   */
+  model?: { provider: string; modelId: string }
+  /** 新会话的 Thinking 级别（可选；在模型应用之后生效）。 */
+  thinkingLevel?: HarnessThinkingLevel
   initialMessage?: HarnessSendMessageInput
 }
 

@@ -51,6 +51,7 @@ import {
   UserMessageAttachments,
 } from '@/components/assistant-ui/elements/attachment.aui'
 import { File, getFileHref } from '@/components/assistant-ui/elements/file'
+import { PiModelSelector } from '@/components/pi-model-selector'
 import { ThreadFollowupSuggestions } from '@/components/assistant-ui/elements/follow-up-suggestions.aui'
 import { Image } from '@/components/assistant-ui/elements/image'
 import { MarkdownText } from '@/components/assistant-ui/elements/markdown-text'
@@ -499,7 +500,10 @@ const ComposerAction: FC = () => {
 
   return (
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
-      <ComposerAddAttachment />
+      <div className="flex items-center gap-1">
+        <ComposerAddAttachment />
+        <PiModelSelector />
+      </div>
       <div className="flex items-center gap-1.5">
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>

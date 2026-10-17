@@ -1,5 +1,5 @@
 import { type PiThinkingLevel, usePiRuntimeExtras, usePiSession } from '@assistant-ui/react-pi'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -8,6 +8,7 @@ import {
   ModelSelectorValue,
 } from '@/components/assistant-ui/elements/model-selector.aui'
 import { piHttpClient } from './pi-http-client'
+import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
 
 type CatalogModel = {
   provider: string
@@ -15,6 +16,12 @@ type CatalogModel = {
   name?: string
   availableThinkingLevels?: readonly string[]
 }
+
+/**
+ * react-pi 在空白会话（尚未创建后端会话）时的占位 threadId。
+ * 来源：`EMPTY_THREAD_STATE = createPiThreadState("__pending__")`。
+ */
+const PENDING_THREAD_ID = '__pending__'
 
 /**
  * 把宿主返回的模型目录映射为选择器条目。
@@ -35,13 +42,21 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
 }
 
 /**
- * 模型选择器接线：模型目录来自宿主真实注册表（含扩展 provider），
- * 当前值来自当前会话 metadata.config，切换经 extras.setModel / setThinkingLevel。
+ * 模型选择器接线：模型目录来自宿主真实注册表（含扩展 provider）；
+ * 当前值来自当前会话 metadata.config；切换经 extras.setModel / setThinkingLevel。
+ *
+ * 新会话（空白页，threadId 为占位值）的特殊处理：
+ * react-pi 此时使用 NOOP controller，`setModel` 是空操作（会被静默丢弃）。
+ * 因此把选择写入草稿 store，由包装客户端在创建请求中携带（见 pi-http-client.ts），
+ * 保证首条消息就使用选定模型。
  */
 export function PiModelSelector() {
   const session = usePiSession()
   const extras = usePiRuntimeExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
+
+  // 草稿（模块级 store，同步可读）；订阅以便展示即时反馈。
+  const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
 
   useEffect(() => {
     let active = true
@@ -58,23 +73,55 @@ export function PiModelSelector() {
     }
   }, [])
 
+  // 会话确认后清除草稿（此后以会话自身的 config 为准）。
+  const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID
+  useEffect(() => {
+    if (!isPendingThread) setDraftModel(undefined)
+  }, [isPendingThread])
+
   const provider = session?.config?.provider
   const modelId = session?.config?.modelId
-  const currentKey = provider && modelId ? `${provider}/${modelId}` : undefined
+  const confirmedKey = provider && modelId ? `${provider}/${modelId}` : undefined
+  const draftKey = draft ? `${draft.provider}/${draft.modelId}` : undefined
+  // 展示优先级：新会话草稿 > 会话实际配置。
+  const displayKey = isPendingThread ? (draftKey ?? confirmedKey) : (confirmedKey ?? draftKey)
+
+  const onValueChange = useCallback(
+    (key: string) => {
+      if (key === displayKey) return
+      const next = models.find((model) => model.id === key)
+      if (!next) return
+      const [nextProvider, ...rest] = key.split('/')
+      const providerId = nextProvider ?? ''
+      const nextModelId = rest.join('/')
+      if (isPendingThread) {
+        // 新会话：写入草稿，等创建请求携带（首条消息即生效）。
+        setDraftModel({
+          provider: providerId,
+          modelId: nextModelId,
+          ...(draft?.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
+        })
+        return
+      }
+      void extras.setModel({ provider: providerId, modelId: nextModelId })
+    },
+    [displayKey, models, isPendingThread, draft?.thinkingLevel, extras],
+  )
 
   return (
     <ModelSelectorRoot
       models={models}
-      {...(currentKey ? { value: currentKey } : {})}
-      onValueChange={(key) => {
-        if (key === currentKey) return
-        const next = models.find((model) => model.id === key)
-        if (!next) return
-        const [nextProvider, ...rest] = key.split('/')
-        void extras.setModel({ provider: nextProvider ?? '', modelId: rest.join('/') })
-      }}
+      {...(displayKey ? { value: displayKey } : {})}
+      onValueChange={onValueChange}
       {...(session?.config?.thinkingLevel ? { effort: session.config.thinkingLevel } : {})}
-      onEffortChange={(level) => void extras.setThinkingLevel(level as PiThinkingLevel)}
+      onEffortChange={(level) => {
+        if (isPendingThread) {
+          // 新会话：Thinking 级别一并写入草稿（随创建请求应用）。
+          if (draft) setDraftModel({ ...draft, thinkingLevel: level as PiThinkingLevel })
+          return
+        }
+        void extras.setThinkingLevel(level as PiThinkingLevel)
+      }}
     >
       <ModelSelectorTrigger>
         <ModelSelectorValue showEffort />

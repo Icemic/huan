@@ -3,7 +3,6 @@ import { Trans } from '@lingui/react/macro'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
-import { PiModelSelector } from '@/components/pi-model-selector'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -27,9 +26,6 @@ export function App() {
         <div className="flex h-dvh flex-col overflow-hidden">
           <header className="flex items-center gap-3 border-b px-4 py-2">
             <span className="font-semibold">幻</span>
-            <div className="ml-auto flex items-center gap-2">
-              <PiModelSelector />
-            </div>
           </header>
           <ReadinessBanner />
           <div className="flex min-h-0 flex-grow">

@@ -269,6 +269,34 @@ apps/harness/server（HTTP 路由 + 安全边界）
 - 目录缓存持久化：重启重扫（当前实测耗时可接受）。
 - 用户需重启宿主进程以加载新实现。
 
+### 后续修复（2026-10-17，用户反馈「新会话选模型不生效」）
+
+**现象**：新建会话时选其他模型，首条消息仍用默认模型（deepseek-v4.1-flash）。
+
+**根因**（读 react-pi 源码）：
+
+1. `react-pi` 的 `usePiRuntime` 在空白会话（无 threadId）时用 `NOOP_CONTROLLER`，其 `setModel` 是**空操作**（静默丢弃）；
+2. 空白态的 `usePiSession()` 返回 `metadata.id === "__pending__"`（`EMPTY_THREAD_STATE = createPiThreadState("__pending__")`），非空值——依赖 `!session?.id` 判断新会话会失败；
+3. 会话创建发生在**首条消息发送时**（`newThreadStore.onNew` → `initialize()` → `createThread` → `sendMessage`），创建与发送之间无插入点；
+4. 但 **`client` 是我们传入的** → `await client.createThread()` 是可靠的前置注入点（与 React 渲染/effect 调度无关）。
+
+**修复（三层，按「不发明轮子、用官方机制」原则）**：
+
+| 层 | 改动 |
+| --- | --- |
+| `@huan/protocol` | `HarnessCreateThreadInput` 新增 `model?: {provider, modelId}` 与 `thinkingLevel?` |
+| `@huan/core` | `createThread` 接受显式模型（经 registry 校验，找不到报错不静默回退）；`openSession` 接受 `model`/`thinkingLevel` 并在创建 session 时应用（`thinkingLevel` 在模型后设置） |
+| `apps/harness` | `pi-model-draft.ts`（模块级草稿 store，同步可读）；`pi-http-client.ts` 包装 `createThread` 注入草稿；选择器改用 `__pending__` 判定新会话并写入草稿 |
+
+**验证**（含顾问建议的决定性用例）：
+
+- 创建请求体实测：`{"model":{"provider":"my-provider","modelId":"gpt-5.6-terra"}}`（草稿确实随创建携带）；
+- 首条 assistant 消息的实际 `provider/model` = `my-provider/gpt-5.6-terra`（非默认 deepseek）；
+- 单元/集成测试新增 4 条：创建时指定模型、模型不存在报错、thinkingLevel 生效（含按模型能力规范化）、首条消息用指定模型（真实 LLM 调用）；
+- 共 42 测试通过。
+
+**注**：UI 布局调整——模型选择器从 header 移到输入框下方（+ 号右侧），蓝本 = VSCode Copilot chat（用户确认的长期 UI 参考）。
+
 ### 顾问 review（实施后，2026-10-17）
 
 对实现逐条以源码验证后处理（13 条意见）：
