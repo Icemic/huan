@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SessionManager } from '@earendil-works/pi-coding-agent'
@@ -18,6 +19,20 @@ let workspace: string
 let host: HarnessHost
 /** 测试期间直接落盘的探针会话文件（Pi 统一存到用户 sessions 目录，需单独清理）。 */
 const sessionFileToCleanup: string[] = []
+
+/** 等待文件出现（确定性握手：避免用固定睡眠猜执行阶段）。 */
+async function waitForFile(filePath: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      await stat(filePath)
+      return
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+  throw new Error(`等待文件超时：${filePath}`)
+}
 
 beforeAll(async () => {
   workspace = await mkdtemp(join(tmpdir(), 'huan-host-test-'))
@@ -414,20 +429,26 @@ describe('发送接受语义', () => {
 
 describe('预检窗口取消（顾问审查要求：确定性竞态）', () => {
   it('预检期间取消不会启动模型调用（不产生助手消息）', async () => {
-    // 用工作目录下的临时扩展注入可暂停的 input hook：停住预检，期间取消，再放行。
+    // 确定性握手：input hook 写 entered 标记后阻塞，测试据此确认已进入预检窗口；
+    // 取消后放行，并用 agent_settled 作为「本次发送已彻底结束」的信号。
     const extensionDir = join(workspace, '.pi', 'extensions')
     await mkdir(extensionDir, { recursive: true })
-    const releaseFile = join(workspace, 'release-hook')
+    const enteredFile = join(workspace, 'input-hook-entered')
+    const releaseFile = join(workspace, 'input-hook-release')
+    const settledFile = join(workspace, 'agent-settled')
     const extensionSource = `
-import { writeFileSync } from 'node:fs'
+import { existsSync, writeFileSync } from 'node:fs'
 export default function (pi) {
-  pi.on('input', async (event) => {
+  pi.on('input', async () => {
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
     const release = ${JSON.stringify(releaseFile)}
-    // 挂起直到测试创建放行文件（无超时：测试负责收尾）。
-    while (!(await import('node:fs')).existsSync(release)) {
+    while (!existsSync(release)) {
       await new Promise((resolve) => setTimeout(resolve, 20))
     }
     return undefined
+  })
+  pi.on('agent_settled', async () => {
+    writeFileSync(${JSON.stringify(settledFile)}, 'settled')
   })
 }
 `
@@ -438,41 +459,990 @@ export default function (pi) {
       agentDir,
       refreshCatalogOnStart: false,
     })
+    // 模型请求计数：断言取消后**零请求**（比「无产出文本」更强，
+    // 能捕获「已发出但尚未返回」的请求）。
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
 
-    const created = await isolated.createThread()
-    const id = created.metadata.id
+    try {
+      globalThis.fetch = ((input: unknown, init?: unknown) => {
+        fetchCalls += 1
+        return realFetch(input as Parameters<typeof fetch>[0], init as Parameters<typeof fetch>[1])
+      }) as typeof fetch
 
-    // 发起发送（会停在 input hook 的预检阶段），随后取消。
-    const sending = isolated.sendMessage(id, { content: 'this must never run' })
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    await isolated.cancelRun(id)
-    // 放行预检：若取消未兜底，prompt 会继续进入 _runAgentPrompt 并产生助手消息。
-    await writeFile(releaseFile, 'go')
-    await sending
+      const created = await isolated.createThread()
+      const id = created.metadata.id
 
-    // 等待充分时间，断言模型未产出内容。
-    // 注：SDK 的取消语义会记录一条 stopReason='aborted' 的占位助手消息（与在跑
-    // 期间点取消的行为一致）；关键区别是「没有模型实际产出的文本」。
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-    const snapshot = await isolated.getThread(id)
-    const assistantMessages = snapshot.messages.filter((message) => message.role === 'assistant')
+      // 发起发送（会停在 input hook 的预检阶段）；等待确认已进入预检窗口后取消。
+      const sending = isolated.sendMessage(id, { content: 'this must never run' })
+      await waitForFile(enteredFile, 20_000)
+      await isolated.cancelRun(id)
+      // 放行预检：若取消未兜底，prompt 会继续进入 _runAgentPrompt 并调用模型。
+      await writeFile(releaseFile, 'go')
+      await sending
 
-    const producedText = assistantMessages.flatMap((message) => {
-      const content = (message as { content?: unknown }).content
-      if (!Array.isArray(content)) return []
-      return content.filter(
-        (part): part is { type: string; text: string } =>
-          typeof part === 'object' &&
-          part !== null &&
-          (part as { type?: string }).type === 'text' &&
-          typeof (part as { text?: string }).text === 'string' &&
-          (part as { text: string }).text.length > 0,
-      )
-    })
-    // 无任何模型产出的文本；若取消未生效，模型会正常回答（包含文本）。
-    expect(producedText).toEqual([])
+      // 等待「本次发送彻底结束」的确定性信号（而非固定睡眠猜模型耗时）。
+      // 注：取消路径可能不触发 agent_settled（未真正启动运行），因此这里只作为
+      // 有则更好的边界；关键断言是下面的「零模型请求」。
+      await waitForFile(settledFile, 5_000).catch(() => {
+        // 取消未启动运行时不会有 settled，属预期。
+      })
+      // 给可能正在发出中的请求留出极短窗口，避免「请求已发出但计数未到」。
+      await new Promise((resolve) => setTimeout(resolve, 500))
 
-    await isolated.dispose()
-    await rm(join(extensionDir, 'pause-input.ts'), { force: true })
+      const snapshot = await isolated.getThread(id)
+      const assistantMessages = snapshot.messages.filter((message) => message.role === 'assistant')
+
+      const producedText = assistantMessages.flatMap((message) => {
+        const content = (message as { content?: unknown }).content
+        if (!Array.isArray(content)) return []
+        return content.filter(
+          (part): part is { type: string; text: string } =>
+            typeof part === 'object' &&
+            part !== null &&
+            (part as { type?: string }).type === 'text' &&
+            typeof (part as { text?: string }).text === 'string' &&
+            (part as { text: string }).text.length > 0,
+        )
+      })
+      // 模型请求必须为零：取消不得让 provider 真正收到调用。
+      expect(fetchCalls).toBe(0)
+      // 断言边界：取消后没有模型产出的文本（thinking/toolCall/报错不在本测试承诺内）。
+      expect(producedText).toEqual([])
+      expect(snapshot.metadata.status).toBe('idle')
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'pause-input.ts'), { force: true })
+    }
   }, 60_000)
+
+  it('预检期取消不吞掉后续真实失败（运行级归属隔离）', async () => {
+    // 防住「集合级取消判定」最隐蔽的缺陷：已取消的 A 仍卡在预检（在途标记为
+    // cancelled）时，B 也发出并真实失败——B 的失败不得被 A 的取消标记掩盖。
+    // 设计语义（准入闸门）：B 会等 A 的运行收尾后才开始自己的预检，
+    // 而不是并发越过预检；因此这里也顺带验证串行化的顺序性。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const enteredFile = join(workspace, 'isolate-entered')
+    const releaseFile = join(workspace, 'isolate-release')
+    const bEnteredFile = join(workspace, 'isolate-b-entered')
+    // hook 只阻塞带 PAUSE_MARKER 的输入（A），B 不受阻塞；
+    // B 进入预检时写标记，用于断言「B 在 A 之后才进入预检」。
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('input', async (event) => {
+    if (!event.text.includes('PAUSE_MARKER')) {
+      writeFileSync(${JSON.stringify(bEnteredFile)}, 'entered')
+      return undefined
+    }
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
+    const release = ${JSON.stringify(releaseFile)}
+    while (!existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'isolate-input.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+
+    try {
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：停在预检 → 取消（保持阻塞，A 的 cancelled 标记仍在集合中）。
+      const sendingA = isolated.sendMessage(id, { content: 'PAUSE_MARKER must never run' })
+      await waitForFile(enteredFile, 20_000)
+      await isolated.cancelRun(id)
+
+      // B：真实失败（mock fetch 返回 400；400 不触发 SDK 自动重试）。
+      // 准入闸门使 B 等待 A 的启动窗口，B 尚未进入预检。
+      globalThis.fetch = (async () =>
+        new Response('{"error":{"message":"boom from test"}}', {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })) as unknown as typeof fetch
+      const sendingB = isolated.sendMessage(id, { content: 'this must fail' })
+      // B 不得在 A 结算前进入预检（闸门已验证占窗者未释放）。
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(existsSync(bEnteredFile)).toBe(false)
+
+      // 释放 A：A 的运行被兜底中止并结算，随后 B 才开始预检并真实失败。
+      await writeFile(releaseFile, 'go')
+      await sendingA
+      await sendingB
+
+      const deadlineB = Date.now() + 30_000
+      let snapshot = await isolated.getThread(id)
+      while (Date.now() < deadlineB) {
+        snapshot = await isolated.getThread(id)
+        if (snapshot.metadata.status === 'failed') break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+
+      // A 的取消标记不得吞掉 B 的失败。
+      expect(snapshot.metadata.status).toBe('failed')
+      expect(snapshot.lastError).toContain('boom from test')
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'isolate-input.ts'), { force: true })
+    }
+  }, 90_000)
+
+  it('取消窗口内的输入不泄漏进队列（输入守卫在提交点拒收）', async () => {
+    // 根因（SDK 行为）：`prompt()` 在 input hook 之后才判定「流式中 → 入队」，
+    // 因此「已取消但仍在 hook 里」的输入会在此后入队，滞留到下次运行被执行。
+    // 宿主注入的 input 守卫扩展在提交点用 `handled` 拒收它。
+    //
+    // 时序（在闸门语义下）：A 运行中 → B 停 input hook（此刻 isStreaming 为真，
+    // 闸门按「正常运行」放行 B 走 SDK 排队分支，不进占窗）→ 取消 B → 放行 hook
+    // → B 不得进入队列（守卫拒收 + 提交点拒绝兜底）。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const enteredFile = join(workspace, 'guard-entered')
+    const releaseFile = join(workspace, 'guard-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('input', async (event) => {
+    if (!event.text.includes('QUEUE_MARKER')) return undefined
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
+    const release = ${JSON.stringify(releaseFile)}
+    while (!existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'guard-input.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      // mock 慢速成功响应：A 保持流式约 4 秒（给取消留出窗口），随后自然结束。
+      globalThis.fetch = (async () => {
+        fetchCalls += 1
+        await new Promise((resolve) => setTimeout(resolve, 4_000))
+        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
+        const body =
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [
+              { index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null },
+            ],
+          }) +
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          }) +
+          'data: [DONE]\n\n'
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：启动运行并保持流式。
+      await isolated.sendMessage(id, { content: 'hold the stream open' })
+      const deadlineRunning = Date.now() + 20_000
+      while (Date.now() < deadlineRunning) {
+        if ((await isolated.getThread(id)).metadata.status === 'running') break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      // B：进入 input hook 后阻塞（此刻 A 流式中，闸门按正常运行放行）。
+      const sendingB = isolated.sendMessage(id, { content: 'QUEUE_MARKER must be dropped' })
+      await waitForFile(enteredFile, 20_000)
+
+      // 取消 B（A 也一并中止）；B 仍在 hook 中。
+      const cancelling = isolated.cancelRun(id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await isolated.cancelRun(id).catch(() => {})
+      // 放行 B：守卫/提交点应拒收它，不得入队。
+      await writeFile(releaseFile, 'go')
+      await sendingB
+      await cancelling.catch(() => {})
+
+      // 等运行结算。
+      const deadlineIdle = Date.now() + 30_000
+      while (Date.now() < deadlineIdle) {
+        if ((await isolated.getThread(id)).metadata.status === 'idle') break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+
+      const snapshot = await isolated.getThread(id)
+      // 核心断言 1：已取消的输入不得滞留队列（否则下次运行会执行它）。
+      expect(snapshot.metadata.queuedMessages ?? []).toEqual([])
+      // 核心断言 2：被取消的 B 不得触发模型请求（只应有 A 的 1 次）。
+      expect(fetchCalls).toBe(1)
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'guard-input.ts'), { force: true })
+    }
+  }, 90_000)
+
+  it('运行中的排队不因闸门被推迟（steer/followUp 即时入队）', async () => {
+    // 防回归：闸门若对「正常运行中」也等待结算，steer/follow-up 会被推迟到
+    // 整次运行结束后才送达，破坏排队语义（迭代③ §3.3 契约）。
+    // 断言：B 在 A 仍流式时即被接受并入队，且 clearQueue 能取回其文本。
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+
+    try {
+      // mock 慢速成功响应：A 保持流式足够久（给 B 入队留出窗口）。
+      globalThis.fetch = (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 6_000))
+        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
+        const body =
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [
+              { index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null },
+            ],
+          }) +
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          }) +
+          'data: [DONE]\n\n'
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：启动运行并保持流式。
+      await isolated.sendMessage(id, { content: 'hold the stream open' })
+      const deadlineRunning = Date.now() + 20_000
+      while (Date.now() < deadlineRunning) {
+        if ((await isolated.getThread(id)).metadata.status === 'running') break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      // B：运行中发送——必须及时被接受（不得等 A 结算）。
+      const startedAt = Date.now()
+      await isolated.sendMessage(id, { content: 'queued while running' })
+      expect(Date.now() - startedAt).toBeLessThan(2_000)
+
+      // B 已进入 SDK 队列（此时 A 仍在运行）。
+      const deadlineQueued = Date.now() + 5_000
+      let metadata = (await isolated.getThread(id)).metadata
+      while (Date.now() < deadlineQueued) {
+        metadata = (await isolated.getThread(id)).metadata
+        if ((metadata.queuedMessages ?? []).length > 0) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      expect((metadata.queuedMessages ?? []).map((item) => item.content)).toContain(
+        'queued while running',
+      )
+
+      // clearQueue 能取回它（队列语义完整）。
+      const cleared = await isolated.clearQueue(id)
+      const clearedTexts = [...cleared.steering, ...cleared.followUp]
+      expect(clearedTexts).toContain('queued while running')
+
+      await isolated.cancelRun(id)
+      // 等结算，避免影响后续用例。
+      const deadlineIdle = Date.now() + 30_000
+      while (Date.now() < deadlineIdle) {
+        if ((await isolated.getThread(id)).metadata.status === 'idle') break
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+    }
+  }, 90_000)
+
+  it('扩展的延迟触发运行（triggerTurn）在退休后不得发出请求', async () => {
+    // 路径（SDK agent-session.js:1805）：扩展 `sendMessage(..., { triggerTurn: true })`
+    // 在结算窗口（`_isEmittingAgentSettled`）被压入 `_deferredSettledActions`，
+    // 之后直接调 `_runAgentPrompt`——不经输入守卫、不经 `preflightResult`。
+    // 宿主唯一够得到的钩子是 `agent_start`（退休兜底中止）。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const settledEnteredFile = join(workspace, 'trigger-settled-entered')
+    const settledReleaseFile = join(workspace, 'trigger-settled-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('agent_settled', async () => {
+    if (!existsSync(${JSON.stringify(settledEnteredFile)})) {
+      writeFileSync(${JSON.stringify(settledEnteredFile)}, 'entered')
+      // 在结算窗口内提交一个「触发运行」的自定义消息（即被延迟的动作）。
+      pi.sendMessage(
+        { customType: 'test-trigger', content: [{ type: 'text', text: 'TRIGGER_MARKER' }] },
+        { triggerTurn: true },
+      )
+      const release = ${JSON.stringify(settledReleaseFile)}
+      while (!existsSync(release)) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+  })
+}
+`
+    await writeFile(join(extensionDir, 'trigger-turn.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1
+        return new Response('{"error":{"message":"must not be called twice"}}', {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：自然结束（mock 400 一次），停在扩展的 settled hook（延迟动作已入队）。
+      await isolated.sendMessage(id, { content: 'A finishes naturally' })
+      await waitForFile(settledEnteredFile, 60_000)
+      expect(fetchCalls).toBe(1)
+
+      // 会话退休（dispose）；随后放行 settled hook 触发延迟动作。
+      await isolated.dispose()
+      await writeFile(settledReleaseFile, 'go')
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+
+      // 核心断言：延迟触发的运行在 `agent_start` 处被中止，不得发出模型请求。
+      expect(fetchCalls).toBe(1)
+    } finally {
+      globalThis.fetch = realFetch
+      await rm(join(extensionDir, 'trigger-turn.ts'), { force: true })
+    }
+  }, 90_000)
+
+  it('shutdown handler 内提交的延迟运行不得逃逸（退休收尾二次清空）', async () => {
+    // 缺口背景（顾问指出）：退休入口的清空发生在 `emitShutdown()` **之前**，
+    // 若扩展的 `session_shutdown` handler 再次提交 `sendMessage(triggerTurn)`，
+    // 该动作会在 `_isEmittingAgentSettled` 期间重新进入 `_deferredSettledActions`，
+    // 并在宿主 dispose/退订后被 SDK 执行——此时没有任何防线能拦。
+    // 修复：`emitShutdown` 之后**再清一次**（与 dispose 同步链内，中间不插 await）。
+    //
+    // 注：「SDK 已 splice 取走的局部批次」由同组的第二次 settled 握手用例覆盖，
+    // 此处只验证成员数组在收尾后不再残留（提交两个动作以增强区分度）。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const settledEnteredFile = join(workspace, 'shutdown-settled-entered')
+    const settledReleaseFile = join(workspace, 'shutdown-settled-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('agent_settled', async () => {
+    if (!existsSync(${JSON.stringify(settledEnteredFile)})) {
+      writeFileSync(${JSON.stringify(settledEnteredFile)}, 'entered')
+      const release = ${JSON.stringify(settledReleaseFile)}
+      while (!existsSync(release)) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+  })
+  pi.on('session_shutdown', () => {
+    // 收尾期间连续提交两个延迟动作：第一个被清空拦下；第二个若在清空
+    // 与 dispose 之间被 SDK 取走，则只能由 agent 级兜底订阅中止。
+    pi.sendMessage(
+      { customType: 'shutdown-trigger-1', content: [{ type: 'text', text: 'SHUTDOWN_MARKER' }] },
+      { triggerTurn: true },
+    )
+    pi.sendMessage(
+      { customType: 'shutdown-trigger-2', content: [{ type: 'text', text: 'SHUTDOWN_MARKER' }] },
+      { triggerTurn: true },
+    )
+  })
+}
+`
+    await writeFile(join(extensionDir, 'shutdown-trigger.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1
+        return new Response('{"error":{"message":"must not be called twice"}}', {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：自然结束，停在阻塞的 settled hook —— 结算窗口。
+      await isolated.sendMessage(id, { content: 'A finishes naturally' })
+      await waitForFile(settledEnteredFile, 60_000)
+      expect(fetchCalls).toBe(1)
+
+      // dispose：跑到 emitShutdown（此时扩展重新入队延迟动作）并完成收尾。
+      await isolated.dispose()
+      // 放行 settled hook：SDK 会执行已捕获的延迟动作（若有）。
+      await writeFile(settledReleaseFile, 'go')
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+
+      // 核心断言：shutdown 期间提交的延迟运行不得发出模型请求。
+      expect(fetchCalls).toBe(1)
+    } finally {
+      globalThis.fetch = realFetch
+      await rm(join(extensionDir, 'shutdown-trigger.ts'), { force: true })
+    }
+  }, 90_000)
+
+  it('SDK 已取走的延迟批次（splice 局部数组）不得逃逸（agent 级兜底）', async () => {
+    // 顾问指出的最深缺口，已由探针实证：
+    // SDK 在 `_emitAgentSettled()` 里先 `splice(0)` 把延迟动作取入**局部**数组，
+    // 再逐个 `await action()`。若退休发生在「第一个动作的运行进行中」，
+    // 后续动作在局部数组里——清空成员数组够不到；只能由直连 `session.agent`
+    // 的兜底订阅在 `agent_start` 处中止（探针实测：不保留订阅时请求数 2→3）。
+    //
+    // 时序（与探针一致）：
+    // 1. A 完成（请求#1）→ hook#1 提交两个 triggerTurn 动作 X、Y 并阻塞；
+    // 2. 放行 hook#1 → SDK splice 取走 [X, Y] → 执行 X（请求#2）→ 进入 hook#2 并阻塞；
+    //    此时 Y 在 SDK 的局部数组里；
+    // 3. 此刻 dispose（清空成员数组无效；session 已空闲，abort 也不留意图）；
+    // 4. 放行 hook#2 → 外层循环继续执行 Y → 必须被 agent 级订阅中止。
+    // 断言：最终请求数为 2（A + X），Y 不得产生请求#3。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const entered1File = join(workspace, 'splice-entered-1')
+    const release1File = join(workspace, 'splice-release-1')
+    const entered2File = join(workspace, 'splice-entered-2')
+    const release2File = join(workspace, 'splice-release-2')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+let count = 0
+export default function (pi) {
+  pi.on('agent_settled', async () => {
+    count += 1
+    if (count === 1) {
+      pi.sendMessage({ customType: 'x', content: [{ type: 'text', text: 'X' }] }, { triggerTurn: true })
+      pi.sendMessage({ customType: 'y', content: [{ type: 'text', text: 'Y' }] }, { triggerTurn: true })
+      writeFileSync(${JSON.stringify(entered1File)}, 'entered')
+      while (!existsSync(${JSON.stringify(release1File)})) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    } else if (count === 2) {
+      writeFileSync(${JSON.stringify(entered2File)}, 'entered')
+      while (!existsSync(${JSON.stringify(release2File)})) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+  })
+}
+`
+    await writeFile(join(extensionDir, 'splice-batch.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      globalThis.fetch = (async () => {
+        fetchCalls += 1
+        return new Response('{"error":{"message":"batch probe"}}', {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：1 次请求，停在 hook#1（两个延迟动作已提交）。
+      await isolated.sendMessage(id, { content: 'A finishes naturally' })
+      await waitForFile(entered1File, 60_000)
+      expect(fetchCalls).toBe(1)
+
+      // 放行 hook#1 → SDK 取走 [X, Y] 并执行 X（请求#2）→ 进入 hook#2 阻塞。
+      await writeFile(release1File, 'go')
+      await waitForFile(entered2File, 60_000)
+      expect(fetchCalls).toBe(2)
+
+      // 此刻 Y 在 SDK 局部数组里：dispose 后放行 hook#2，Y 不得启动。
+      await isolated.dispose()
+      await writeFile(release2File, 'go')
+      await new Promise((resolve) => setTimeout(resolve, 3_000))
+
+      // 核心断言：Y 被 agent 级订阅中止，请求数仍为 2。
+      expect(fetchCalls).toBe(2)
+    } finally {
+      globalThis.fetch = realFetch
+      await rm(join(extensionDir, 'splice-batch.ts'), { force: true })
+    }
+  }, 120_000)
+
+  it('等待已取消运行结算的发送可被再次取消唤醒（不悬挂）', async () => {
+    // 路径：A 运行中 → 取消（A 的 settled 因扩展 hook 阻塞迟迟不到）→
+    // B 进入闸门，等待 `run.settled` → 再次取消 → B 必须能退出该等待，
+    // 而不是悬挂到 A 最终结算（SDK 层无法中断永久阻塞的 hook）。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const settledEnteredFile = join(workspace, 'settled-hook-entered')
+    const settledReleaseFile = join(workspace, 'settled-hook-release')
+    const bEnteredFile = join(workspace, 'settle-b-entered')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('agent_settled', async () => {
+    if (!existsSync(${JSON.stringify(settledEnteredFile)})) {
+      writeFileSync(${JSON.stringify(settledEnteredFile)}, 'entered')
+      const release = ${JSON.stringify(settledReleaseFile)}
+      while (!existsSync(release)) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+  })
+  pi.on('input', async (event) => {
+    if (event.text.includes('B_MARKER')) writeFileSync(${JSON.stringify(bEnteredFile)}, 'entered')
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'pause-settled.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+
+    try {
+      // 慢响应：A 保持运行，直到取消；取消后其 settled hook 会阻塞。
+      globalThis.fetch = (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20_000))
+        return new Response('{"error":{"message":"slow"}}', {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      await isolated.sendMessage(id, { content: 'hold for cancel' })
+      const deadlineRunning = Date.now() + 20_000
+      while (Date.now() < deadlineRunning) {
+        if ((await isolated.getThread(id)).metadata.status === 'running') break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      // 取消 A：其 settled hook 将阻塞（进入等待）。
+      void isolated.cancelRun(id).catch(() => {})
+      await waitForFile(settledEnteredFile, 30_000)
+
+      // B：进入闸门，等待 A 的 settled（A 被取消 → 走 run.settled 分支）。
+      const sendingB = isolated.sendMessage(id, { content: 'B_MARKER waits for settled' })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      // B 尚未进入预检：它还在等 A 结算。
+      expect(existsSync(bEnteredFile)).toBe(false)
+
+      // 再次取消：B 必须被唤醒并退出（而非悬挂在 run.settled 上）。
+      const cancelWake = Date.now() + 5_000
+      await isolated.cancelRun(id)
+      const bFinished = await Promise.race([
+        sendingB.then(
+          () => true,
+          () => true,
+        ),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 3_000)),
+      ])
+      expect(bFinished).toBe(true)
+      expect(Date.now()).toBeLessThan(cancelWake)
+
+      // 放行 settled hook，收尾。
+      await writeFile(settledReleaseFile, 'go')
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'pause-settled.ts'), { force: true })
+    }
+  }, 90_000)
+
+  it('结算窗口内的发送可被取消（延迟动作不得逃过取消追踪）', async () => {
+    // 根因（SDK 行为）：`_emitAgentSettled()` 期间 `_isEmittingAgentSettled` 为真，
+    // `prompt()` 会把调用静默压入 `_deferredSettledActions` 并**立即返回**
+    // （agent-session.js:1517）。若宿主在此时放行新发送，它会误判「已接受」
+    // 并移除跟踪；此后取消再也够不到它，放行 settled hook 后输入仍会启动。
+    // 宿主的对策：闸门等待任一在途运行的 `settled`；且提交点对已取消发送抛错。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const settledEnteredFile = join(workspace, 'defer-settled-entered')
+    const settledReleaseFile = join(workspace, 'defer-settled-release')
+    const bEnteredFile = join(workspace, 'defer-b-entered')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('agent_settled', async () => {
+    if (!existsSync(${JSON.stringify(settledEnteredFile)})) {
+      writeFileSync(${JSON.stringify(settledEnteredFile)}, 'entered')
+      const release = ${JSON.stringify(settledReleaseFile)}
+      while (!existsSync(release)) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+  })
+  pi.on('input', async (event) => {
+    if (event.text.includes('B_MARKER')) writeFileSync(${JSON.stringify(bEnteredFile)}, 'entered')
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'pause-deferred.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      // mock 成功的最小 SSE 响应：A 恰好发出 1 次请求并自然结束
+      // （避免真实模型的多轮工具调用干扰计数）。
+      globalThis.fetch = (async () => {
+        fetchCalls += 1
+        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
+        const body =
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [
+              { index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null },
+            ],
+          }) +
+          chunk({
+            id: 'chatcmpl-test',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'test',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          }) +
+          'data: [DONE]\n\n'
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        })
+      }) as unknown as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // A：自然结束（不取消），但停在阻塞的 settled hook —— 即「结算窗口」。
+      await isolated.sendMessage(id, { content: 'A finishes naturally' })
+      await waitForFile(settledEnteredFile, 60_000)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      // B：在结算窗口中间发送。
+      const sendingB = isolated.sendMessage(id, { content: 'B_MARKER must not slip through' })
+      let bOutcome: 'pending' | 'settled' = 'pending'
+      void sendingB.then(
+        () => {
+          bOutcome = 'settled'
+        },
+        () => {
+          bOutcome = 'settled'
+        },
+      )
+
+      // 【闸门独有信号】在**任何取消之前**：B 仍在闸门等待（pending）。
+      // 若闸门缺失，SDK 会把 B 静默压入延迟队列并**立即返回**（settled）——
+      // 此时尚未取消，其他取消防线无法掩盖差异。
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(bOutcome).toBe('pending')
+      // 且 B 尚未进入预检（input hook 未执行）。
+      expect(existsSync(bEnteredFile)).toBe(false)
+
+      // 取消 B：闸门等待应被唤醒，B 及时返回（不悬挂到 A 结算）。
+      await isolated.cancelRun(id)
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(bOutcome).toBe('settled')
+
+      // 放行 A 的 settled hook：被取消的 B 不得启动运行。
+      await writeFile(settledReleaseFile, 'go')
+      await sendingB.catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+
+      // 核心断言：只应有 A 的 1 次请求；被取消的 B 不得发出模型请求。
+      expect(fetchCalls).toBe(1)
+      const snapshot = await isolated.getThread(id)
+      expect(snapshot.metadata.status).toBe('idle')
+    } finally {
+      globalThis.fetch = realFetch
+      await isolated.dispose()
+      await rm(join(extensionDir, 'pause-deferred.ts'), { force: true })
+    }
+  }, 120_000)
+})
+
+describe('装配与生命周期竞态（顾问审查要求：确定性）', () => {
+  it('装配期间 dispose：创建被取消，且 dispose 后操作全部拒绝', async () => {
+    // 确定性握手：扩展进入 session_start 后写 entered 标记再阻塞；
+    // 测试等到 entered（证明装配已进入目标窗口），在**仍阻塞时**完成 dispose，
+    // 然后放行——此时若缺少最后一次取消检查，创建会成功并发布失效 record。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const enteredFile = join(workspace, 'start-hook-entered')
+    const releaseFile = join(workspace, 'start-hook-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('session_start', async () => {
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
+    const release = ${JSON.stringify(releaseFile)}
+    while (!existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  })
+}
+`
+    await writeFile(join(extensionDir, 'pause-start.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+
+    // 提前挂载结果处理，避免取消后的未处理 rejection。
+    let createOutcome: { ok: true } | { ok: false; error: unknown } | undefined
+    const creating = isolated
+      .createThread()
+      .then(
+        () => ({ ok: true }) as const,
+        (error: unknown) => ({ ok: false, error }) as const,
+      )
+      .then((outcome) => {
+        createOutcome = outcome
+        return outcome
+      })
+
+    // 等待扩展明确进入 session_start（而非靠固定睡眠猜时序）。
+    await waitForFile(enteredFile, 20_000)
+    // 仍阻塞时完成 dispose：此后放行装配。
+    await isolated.dispose()
+    await writeFile(releaseFile, 'go')
+
+    const outcome = await creating
+    expect(createOutcome?.ok).toBe(false)
+    if (!outcome.ok) expect(String(outcome.error)).toMatch(/cancelled|disposed/i)
+
+    // dispose 后所有操作都必须拒绝 / 幂等。
+    await expect(isolated.listThreads()).rejects.toThrow(/disposed/)
+    await expect(isolated.createThread()).rejects.toThrow(/disposed/)
+    await expect(isolated.dispose()).resolves.toBeUndefined()
+
+    await rm(join(extensionDir, 'pause-start.ts'), { force: true })
+  }, 60_000)
+
+  it('预检通过后（before_agent_start 阻塞）dispose：零模型请求', async () => {
+    // 缺口背景（顾问指出）：输入守卫只能拦「尚未通过守卫」的输入；
+    // 通过守卫后停在 before_agent_start 的 prompt，在 dispose 排空超时后
+    // 仍可能继续进入 `_runAgentPrompt()` 启动运行（此时宿主已退订，
+    // 无 agent_start 可兜底）。宿主的对策是在 `preflightResult('started')`
+    // 中检查 retired 并抛出（SDK 不捕获该回调异常，prompt 以拒绝收尾）。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const enteredFile = join(workspace, 'before-start-entered')
+    const releaseFile = join(workspace, 'before-start-release')
+    const extensionSource = `
+import { existsSync, writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('before_agent_start', async () => {
+    writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
+    const release = ${JSON.stringify(releaseFile)}
+    while (!existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'pause-before-start.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const realFetch = globalThis.fetch
+    let fetchCalls = 0
+
+    try {
+      globalThis.fetch = ((input: unknown, init?: unknown) => {
+        fetchCalls += 1
+        return realFetch(input as Parameters<typeof fetch>[0], init as Parameters<typeof fetch>[1])
+      }) as typeof fetch
+
+      const created = await isolated.createThread()
+      const id = created.metadata.id
+
+      // 发送：停在 before_agent_start（已过输入守卫）。
+      const sending = isolated.sendMessage(id, { content: 'must not reach provider' })
+      await waitForFile(enteredFile, 20_000)
+
+      // dispose（排空有 5s 上限；此处 hook 仍阻塞，排空必然超时）。
+      await isolated.dispose()
+      // 放行：若 retired 检查缺失，prompt 会继续启动运行并发出模型请求。
+      await writeFile(releaseFile, 'go')
+      await sending.catch(() => {})
+      await new Promise((resolve) => setTimeout(resolve, 1_500))
+
+      expect(fetchCalls).toBe(0)
+    } finally {
+      globalThis.fetch = realFetch
+      await rm(join(extensionDir, 'pause-before-start.ts'), { force: true })
+    }
+  }, 60_000)
+
+  it('A/B 双会话的扩展动作互不串扰（每 live session 独立装配）', async () => {
+    // 机制背景（已核对 SDK，并用探针实测）：
+    // - 扩展 API 持有**装配级 runtime** 引用（`createExtensionAPI(extension, runtime, ...)`）；
+    // - `ExtensionRunner.bindCore()` 把 sendMessage/setModel/appendEntry 等动作写入该 runtime
+    //   （runner.js：「Copy actions into the shared runtime」）；
+    // - 每次装配产出**不同** runtime（探针实测）。
+    // 因此若两个 live session 复用同一套装配产物，后打开者会把先打开者的动作目标改到自己身上。
+    //
+    // 验证分两段，覆盖「启动时」与「启动后」两个窗口：
+    // 1. session_start 注入 marker（走共享 runtime 通道）；
+    // 2. 两个会话都 live 之后，通过扩展命令再次触发 marker（携带目标会话 id），
+    //    确认动作打到正确的会话。仅第 1 段无法排除「启动后串扰」。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const extensionSource = `
+export default function (pi) {
+  pi.on('session_start', async () => {
+    pi.sendMessage({ customType: 'ab-start', content: 'start-marker', display: true })
+  })
+  pi.registerCommand('ping-marker', {
+    description: 'send a marker through the shared-runtime action channel',
+    handler: async (args, ctx) => {
+      pi.sendMessage({
+        customType: 'ab-ping',
+        content: 'ping:' + args + ':' + ctx.sessionManager.getSessionId(),
+        display: true,
+      })
+    },
+  })
+}
+`
+    await writeFile(join(extensionDir, 'ab-marker.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+
+    try {
+      const a = await isolated.createThread()
+      const b = await isolated.createThread()
+      expect(a.metadata.id).not.toBe(b.metadata.id)
+
+      const countMarkers = (snapshot: { messages: readonly { role: string }[] }, type: string) =>
+        snapshot.messages.filter(
+          (message) =>
+            message.role === 'custom' && (message as { customType?: string }).customType === type,
+        ).length
+
+      // 段 1：各自恰好 1 条启动 marker（共享 runtime 时 A 为 0、B 为 2）。
+      const afterStartA = await isolated.getThread(a.metadata.id)
+      const afterStartB = await isolated.getThread(b.metadata.id)
+      expect(countMarkers(afterStartA, 'ab-start')).toBe(1)
+      expect(countMarkers(afterStartB, 'ab-start')).toBe(1)
+
+      // 段 2：两会话都 live 后，经扩展命令触发动作，确认打到正确会话。
+      // 依次 A → B → A，验证不是「只有最后绑定的会话生效」。
+      await isolated.sendMessage(a.metadata.id, { content: '/ping-marker aa' })
+      await isolated.sendMessage(b.metadata.id, { content: '/ping-marker bb' })
+      await isolated.sendMessage(a.metadata.id, { content: '/ping-marker a2' })
+
+      const afterA = await isolated.getThread(a.metadata.id)
+      const afterB = await isolated.getThread(b.metadata.id)
+      const pingsOf = (snapshot: { messages: readonly unknown[] }) =>
+        snapshot.messages
+          .filter(
+            (message) =>
+              (message as { role?: string }).role === 'custom' &&
+              (message as { customType?: string }).customType === 'ab-ping',
+          )
+          .map((message) => String((message as { content?: unknown }).content))
+
+      const pingsA = pingsOf(afterA)
+      const pingsB = pingsOf(afterB)
+      // A 收到自己那条 aa 与 a2（且携带 A 的会话 id）；B 收到 bb。
+      expect(pingsA.some((text) => text.includes('ping:aa:'))).toBe(true)
+      expect(pingsA.some((text) => text.includes('ping:a2:'))).toBe(true)
+      expect(pingsA.every((text) => text.includes(a.metadata.id))).toBe(true)
+      expect(pingsB.length).toBe(1)
+      expect(pingsB[0]).toContain('ping:bb:')
+      expect(pingsB[0]).toContain(b.metadata.id)
+    } finally {
+      // 统一收尾：登记落盘会话，释放宿主，清理扩展。
+      for (const id of []) void id
+      await isolated.dispose()
+      await rm(join(extensionDir, 'ab-marker.ts'), { force: true })
+    }
+  }, 90_000)
 })

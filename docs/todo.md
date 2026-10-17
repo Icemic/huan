@@ -19,8 +19,19 @@
 - [x] `server/` 迁移（删除 model-resolution）+ 前端模型选择器去 mock
 - [x] 测试：映射穷尽+fixture 单测；集成测试（并发订阅/删除幂等/接受语义）
 - [x] 端到端验证（API 级）+ 文档
-- [ ] 遗留：预检窗口取消、装配期 dispose、A/B 扩展隔离（需 fake 装配）
+- [x] 竞态测试：预检窗口取消、装配期 dispose、A/B 扩展隔离（含取消语义修复，见「取消语义收敛」迭代）
 - [ ] 遗留：事件回放验证（依赖迭代④浏览器侧）
+
+### 取消语义收敛与竞态测试（✅ 已完成 2026-10-17）
+
+文档：`docs/iteration/2026-10/2026-10-17-bugfix-cancel-semantics.md`
+
+- [x] 取消语义修复：`agent_settled.aborted` 为权威判据，取消不再误报为失败
+- [x] 预检取消兜底：准入闸门（串行化预检段）+ `agent_start` 中止 + 输入守卫扩展（ALS 归属）
+- [x] 收尾排空：`dispose`/`delete` 等待在途发送退出（5s 上限）+ `retired` 提交点拒收
+- [x] 延迟动作拦截：成员数组清空 + 收尾二次清空 + agent 级兜底订阅（覆盖 SDK `splice` 局部批次）
+- [x] 测试：64 项全绿，含 9 条竞态用例（8 条经变异验证有效）
+- [ ] 遗留：扩展显式 `steer` 路径的排队用例
 
 ### 迭代② 最小闭环应用（✅ 已完成 2026-10-16）
 
@@ -80,7 +91,8 @@
 | `@huan/react` peerDependencies 声明 | 首次实现组件时 |
 | **react-pi supervisor 缺口（历史会话模型覆盖）**：✅ 已由迭代③自研宿主修复（新/冷语义分离，实测验证） | — |
 | **react-pi supervisor 缺口（模型目录）**：✅ 已由迭代③自研宿主修复（官方装配 + 共享 modelRuntime，实测 11 个模型可见） | — |
-| 宿主测试遗留：预检窗口取消、装配期 dispose、A/B 双会话扩展隔离（需可暂停的 fake 装配控制时序） | 迭代④ 或专项 |
+| **宿主竞态测试遗留**：✅ 已由「迭代③补丁」完成（预检取消、装配期 dispose、A/B 隔离、入队泄漏、settled 唤醒；59 项测试 + 变异验证） | — |
+| **事件回放验证**：映射结果经 JSON 往返送入真实 reducer | 迭代④（浏览器侧接入后） |
 | **`agentDir` 未用于会话存储**：宿主的 `agentDir` 目前只影响凭据/模型/扩展，`SessionManager.create/list` 仍用全局 sessions 目录（`getDefaultAgentDir()` 推导）。若要求“自定义 Pi 配置目录”完整隔离，需按 `agentDir` 显式传 sessionDir（SDK 未导出 `getDefaultSessionDir`，需自算路径）；否则在文档中明确 `agentDir` 不含 sessions | 下一迭代或按需 |
 | 事件回放验证：映射结果经 JSON 往返送入真实 reducer/Controller | 迭代④（浏览器侧接入后） |
 | 迭代④：`@huan/react` 边界（公共 hook + 自研 Controller）+ 前端换用 @huan/protocol 类型 | 下一迭代 |

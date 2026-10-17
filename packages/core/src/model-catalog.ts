@@ -9,6 +9,7 @@
  */
 import {
   createAgentSessionServices,
+  type InlineExtension,
   ModelRegistry,
   ModelRuntime,
   SettingsManager,
@@ -71,11 +72,16 @@ export async function createHostServices(options: {
   cwd: string
   agentDir: string | undefined
   modelRuntime: ModelRuntime
+  /** 宿主注入的合成扩展（追加在文件扩展之后；用于输入守卫等提交前拦截）。 */
+  extensionFactories?: InlineExtension[]
 }) {
   const services = await createAgentSessionServices({
     cwd: options.cwd,
     ...(options.agentDir ? { agentDir: options.agentDir } : {}),
     modelRuntime: options.modelRuntime,
+    ...(options.extensionFactories?.length
+      ? { resourceLoaderOptions: { extensionFactories: options.extensionFactories } }
+      : {}),
   })
   return services
 }
