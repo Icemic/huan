@@ -7,18 +7,20 @@
 
 ## 当前迭代
 
-### 迭代③ 公共层宿主自研（🔄 设计中）
+### 迭代③ 公共层宿主自研（✅ 已完成 2026-10-17）
 
 文档：`docs/iteration/2026-10/2026-10-17-feat-core-host.md`
 
-- [ ] `@huan/protocol`：协议类型定义 + 版本策略
-- [ ] `@huan/core`：`createHarnessHost` 宿主（会话生命周期、事件映射、Host UI 桥）
-- [ ] 装配层：共享 modelRuntime + 按 cwd 每会话独立装配 + 诊断呈现
-- [ ] 修复：历史会话模型恢复（新/冷语义分离）
-- [ ] 修复：模型目录可见（`getAvailableModels`/`setModel` 真实目录）
-- [ ] `server/` 迁移（删除 model-resolution）+ 前端模型选择器去 mock
-- [ ] 测试：映射（穷尽+fixture+回放）+ 集成（竞态/隔离/接受语义）
-- [ ] 端到端验证 + 技术架构 §4 措辞同步 + 文档
+- [x] `@huan/protocol`：协议类型定义 + 版本策略
+- [x] `@huan/core`：`createHarnessHost` 宿主（会话生命周期、事件映射、Host UI 桥）
+- [x] 装配层：共享 modelRuntime + 按 cwd 每会话独立装配 + 诊断呈现
+- [x] 修复：历史会话模型恢复（新/冷语义分离）
+- [x] 修复：模型目录可见（`getAvailableModels`/`setModel` 真实目录）
+- [x] `server/` 迁移（删除 model-resolution）+ 前端模型选择器去 mock
+- [x] 测试：映射穷尽+fixture 单测；集成测试（并发订阅/删除幂等/接受语义）
+- [x] 端到端验证（API 级）+ 文档
+- [ ] 遗留：预检窗口取消、装配期 dispose、A/B 扩展隔离（需 fake 装配）
+- [ ] 遗留：事件回放验证（依赖迭代④浏览器侧）
 
 ### 迭代② 最小闭环应用（✅ 已完成 2026-10-16）
 
@@ -76,6 +78,9 @@
 | CI 建立（frozen-lockfile 安装 + check + test + build） | 闭环跑通后按需（顾问 review 延后项） |
 | 宿主访问凭证完整设计 | 迭代②（§3.5 已有基础方案） |
 | `@huan/react` peerDependencies 声明 | 首次实现组件时 |
-| **react-pi supervisor 缺口（历史会话模型覆盖）**：由迭代③自研宿主修复（新/冷语义分离）；历史记录见迭代②文档 §10 与 `docs/iteration/2026-10/2026-10-17-feat-core-host.md` | 迭代③ |
-| **react-pi supervisor 缺口（模型目录）**：由迭代③自研宿主修复（官方装配 `createAgentSessionServices` + 共享 modelRuntime） | 迭代③ |
+| **react-pi supervisor 缺口（历史会话模型覆盖）**：✅ 已由迭代③自研宿主修复（新/冷语义分离，实测验证） | — |
+| **react-pi supervisor 缺口（模型目录）**：✅ 已由迭代③自研宿主修复（官方装配 + 共享 modelRuntime，实测 11 个模型可见） | — |
+| 宿主测试遗留：预检窗口取消、装配期 dispose、A/B 双会话扩展隔离（需可暂停的 fake 装配控制时序） | 迭代④ 或专项 |
+| 事件回放验证：映射结果经 JSON 往返送入真实 reducer/Controller | 迭代④（浏览器侧接入后） |
+| 迭代④：`@huan/react` 边界（公共 hook + 自研 Controller）+ 前端换用 @huan/protocol 类型 | 下一迭代 |
 | Zustand 窗口本地状态：当前无自主状态需要管理（会话选择/草稿均由 react-pi 内部管理）；出现窗口级状态需求（如布局偏好、多窗口差异化视图）时引入 | |

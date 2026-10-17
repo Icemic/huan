@@ -1,9 +1,36 @@
 /**
  * @huan/core：Pi SDK 集成与运行时生命周期（Node 侧）。
  *
- * 迭代②接入 Pi SDK 与 react-pi Node 客户端后，此处导出：
- * - 宿主装配（会话生命周期、事件订阅、资源加载配置）
- * - 受限宿主 profile（编辑器方向：受控资源加载与工具面）
- * 当前为空占位，不预设接口。
+ * 迭代③起提供自研宿主 `createHarnessHost`（替代 react-pi 的 Node supervisor）：
+ * - 会话生命周期（新建、冷打开、删除、归档）与并发语义；
+ * - 事件映射、快照投影、Host UI 桥；
+ * - 模型目录（官方装配入口，扩展 provider 可见）与默认模型解析。
+ *
+ * 约束：Node 专用（依赖 Pi SDK）；不依赖 React；协议类型全部来自 @huan/protocol。
  */
-export {}
+
+export { deriveContextUsage } from './context-usage.js'
+export type { MappedSessionEventResult, MapSessionEventContext } from './event-mapping.js'
+export { mapSessionEvent } from './event-mapping.js'
+export type { HarnessDefaultModel, HarnessHost, HarnessHostOptions } from './host.js'
+export { createHarnessHost } from './host.js'
+export type { HostUiBridge, HostUiBridgeDeps } from './host-ui.js'
+export { HarnessUnsupportedHostUiError } from './host-ui.js'
+export type { SessionCatalogInfo } from './metadata.js'
+
+export {
+  baseName,
+  deriveReadiness,
+  latestSessionName,
+  mapColdMetadata,
+  mapQueuedMessages,
+  mapSessionInfo,
+  readinessFromSessionContext,
+} from './metadata.js'
+export {
+  createHostServices,
+  createSharedModelRuntime,
+  listModelCatalog,
+  refreshModelCatalog,
+  resolveDefaultModel,
+} from './model-catalog.js'

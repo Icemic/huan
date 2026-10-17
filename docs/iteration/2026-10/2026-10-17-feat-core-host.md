@@ -2,7 +2,7 @@
 
 - **日期**：2026-10-17
 - **分类**：feat
-- **状态**：设计中
+- **状态**：已完成（2026-10-17）
 - **决策依据**：D-05（react-pi 不成为公共 API 唯一基础）、D-14（分步采用：固化期以纯 reducer/投影 + 自研 Controller 为边界）、D-02（共享库不共享运行实例）；技术架构 §2/§3/§4
 
 ---
@@ -227,3 +227,48 @@ apps/harness/server（HTTP 路由 + 安全边界）
 | 11 | 快照-订阅时序；`generation` 不是重放保护 | 重要 | 属实（两者职责不同） | 采纳：§3.3 行为契约 4 |
 | 12 | 应显式实例化；应用负责唯一持有与关闭 | 重要 | 同意 | 采纳：§3.3 入口说明 |
 | 13 | 归档延后合理；回滚描述不全；文档一致性（技术架构 `requestId`/`sessionId` vs `threadId+seq`） | 可选/重要 | 属实 | 采纳：§3.7、§5、§7-10 |
+
+---
+
+## 10. 实施记录（2026-10-17）
+
+### 交付
+
+| 包 | 内容 |
+| --- | --- |
+| `@huan/protocol` | `messages.ts`（消息/内容/会话记录镜像）、`thread.ts`（元数据/快照/事件/Host UI/模型/就绪度）、`client.ts`（HarnessClient）、`queue.ts`（队列 ID 方案） |
+| `@huan/core` | `host.ts`（createHarnessHost）、`model-catalog.ts`（装配/目录/默认模型）、`event-mapping.ts`（穷尽映射）、`host-ui.ts`（四类交互桥）、`context-usage.ts`（冷读用量）、`metadata.ts`（目录/快照映射） |
+| `apps/harness` | `server/index.ts` 换用 `createHarnessHost`（删除 `model-resolution.ts`）；前端新增 `pi-http-client.ts`（单例）与模型选择器去 mock |
+
+### 验收结果（§4）
+
+| # | 验收项 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 启动模型解析 fail-fast + 诊断呈现 | ✅ | 启动日志与 `diagnostics()`（实测发现并修复：启动引导装配缺失导致解析失败） |
+| 2 | 新建会话用默认模型 | ✅ | API 实测：`my-provider/deepseek-v4.1-flash`；集成测试覆盖 |
+| 3 | 历史会话模型恢复三态 | ✅ | 实测：重启后冷读与 live 均 `my-provider/gpt-5.6-luna`（修复前为 deepseek 覆盖） |
+| 4 | `getAvailableModels` 真实目录 | ✅ | API：11 个模型含 6 个 `my-provider/*`；集成测试断言含扩展模型 |
+| 5 | `setModel` 生效并持久 | ✅ | 实测：切换后 config 更新、重启后仍生效 |
+| 6 | 并发/竞态集成测试 | ◐ | 已覆盖：并发订阅共享 record、删除幂等、cancel 未打开会话；**未覆盖**：预检窗口取消、装配期 dispose、A/B 扩展隔离（依赖可暂停的 fake 装配，记入遗留） |
+| 7 | 发送接受语义 | ✅ | 实测 HTTP 200 快速返回；集成测试断言 < 30s（实际约 < 1s） |
+| 8 | 事件映射三层验证 | ◐ | 穷尽（编译期 never 兜底）✅；fixture 单测 13 条 ✅；回放（经真实 reducer）未做（依赖迭代④的浏览器侧，记入遗留） |
+| 9 | 既有功能不回退 | ✅ | API 级：事件序列 `snapshot → agent_start → turn_start → message_* → message_update*`；LLM 真实回复 "ok"，状态回 idle。UI 抽查待用户重启宿主后确认 |
+| 10 | 协议结构 + 真实客户端端到端 | ✅ | 结构等价由 `createPiHttpClient` 实际消费新宿主验证（浏览器端未改动即可工作） |
+| 11 | check + build | ✅ | `pnpm check`（37 测试）与 `pnpm build` 均通过 |
+
+### 实施中发现并修复的问题
+
+1. **启动引导装配缺失**：默认模型解析发生在首次会话装配之前，此时共享 modelRuntime 尚无扩展 provider（解析失败）。修复：启动时先做一次引导装配（经官方 `createAgentSessionServices`）注册 provider，再解析默认模型。
+2. **Pi 落盘时机**：无消息的新会话**不落盘**（`appendModelChange`/`setSessionName` 不写文件，仅首条消息写入）。这是 SDK 既有行为（supervisor 同），集成测试与文档按此修正。
+3. **SSE 背压在传输层**：宿主只负责事件投递，慢客户端断开属 `server/` 职责（已在那里实现），Core 中误留的常量已删。
+
+### 遗留（不阻塞迭代完成）
+
+- 预检窗口取消、装配期 dispose、A/B 双会话扩展隔离：需可暂停的 fake 装配控制时序，记入 `docs/todo.md`。
+- 事件回放验证（映射→JSON 往返→真实 reducer/Controller）：依赖迭代④浏览器侧接入。
+- 目录缓存持久化：重启重扫（当前实测耗时可接受）。
+- 用户需重启宿主进程以加载新实现。
+
+### 顾问 review（实施后）
+
+见 `docs/iteration/2026-10/` 对应记录与 `docs/todo.md`；实施后 review 的修复项已逐条落地。

@@ -50,6 +50,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.1.4
         version: 2.1.4(hono@4.13.12)
+      '@huan/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@huan/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -132,6 +135,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.1.0
+        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)
       '@huan/protocol':
         specifier: workspace:*
         version: link:../protocol

@@ -1,23 +1,20 @@
-import { createPiNodeClient } from '@assistant-ui/react-pi/node'
 import { serve } from '@hono/node-server'
+import { createHarnessHost } from '@huan/core'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { loadConfig } from './config.js'
-import { resolveDefaultModel } from './model-resolution.js'
 import { createHostGuard, createSecurityMiddleware } from './security.js'
 
 const config = loadConfig()
-const defaultModel = await resolveDefaultModel(config)
-if (defaultModel) {
-  console.log(`[huan] 默认模型：${defaultModel.provider}/${defaultModel.id}`)
-} else {
-  console.warn('[huan] 未解析到默认模型；新会话将没有预设模型')
-}
-const piClient = createPiNodeClient({
+const host = await createHarnessHost({
   workspacePath: config.workspacePath,
   ...(config.agentDir ? { agentDir: config.agentDir } : {}),
-  ...(defaultModel ? { model: defaultModel } : {}),
 })
+for (const diagnostic of host.diagnostics()) {
+  console.warn(`[huan] ${diagnostic}`)
+}
+console.log('[huan] 宿主已装配（@huan/core）')
+const piClient = host
 
 const app = new Hono()
 

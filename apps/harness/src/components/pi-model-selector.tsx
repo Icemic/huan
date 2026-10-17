@@ -1,4 +1,5 @@
 import { type PiThinkingLevel, usePiRuntimeExtras, usePiSession } from '@assistant-ui/react-pi'
+import { useEffect, useState } from 'react'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -6,32 +7,56 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/assistant-ui/elements/model-selector.aui'
+import { piHttpClient } from './pi-http-client'
+
+type CatalogModel = {
+  provider: string
+  modelId: string
+  name?: string
+  availableThinkingLevels?: readonly string[]
+}
 
 /**
- * 临时 mock：模型目录。
+ * 把宿主返回的模型目录映射为选择器条目。
  *
- * react-pi 的 supervisor 未加载用户扩展，getAvailableModels 拿不到扩展注册的
- * provider（如 my-provider），会回退到不含认证的内置全量目录。在宿主装配
- * 打通前，先以本地常量提供当前在用的模型（见 docs/todo.md 待细化事项）。
+ * id 采用 `provider/modelId` 复合形式（与 setModel 的参数拆分一致）。
  */
-const MOCK_MODELS: readonly ModelOption[] = [
-  {
-    id: 'my-provider/deepseek-v4.1-flash',
-    name: 'deepseek-v4.1-flash',
-    description: 'my-provider',
-  },
-]
+function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
+  return infos.map((info) => ({
+    id: `${info.provider}/${info.modelId}`,
+    name: info.name ?? info.modelId,
+    description: info.provider,
+    ...(info.availableThinkingLevels?.length
+      ? {
+          efforts: info.availableThinkingLevels.map((level) => ({ id: level, name: level })),
+        }
+      : {}),
+  }))
+}
 
 /**
- * 模型选择器接线：把模型目录与当前会话配置接到通用选择器组件。
- *
- * - 模型目录：当前为本地 mock（见上方说明）；
- * - 当前值来自当前会话 metadata.config；
- * - 切换后调用 extras.setModel / setThinkingLevel。
+ * 模型选择器接线：模型目录来自宿主真实注册表（含扩展 provider），
+ * 当前值来自当前会话 metadata.config，切换经 extras.setModel / setThinkingLevel。
  */
 export function PiModelSelector() {
   const session = usePiSession()
   const extras = usePiRuntimeExtras()
+  const [models, setModels] = useState<readonly ModelOption[]>([])
+
+  useEffect(() => {
+    let active = true
+    piHttpClient
+      .getAvailableModels()
+      .then((infos) => {
+        if (active) setModels(toModelOptions(infos as readonly CatalogModel[]))
+      })
+      .catch(() => {
+        // 目录拉取失败不阻塞 UI：选择器保持为空，具体错误由会话区呈现。
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const provider = session?.config?.provider
   const modelId = session?.config?.modelId
@@ -39,13 +64,11 @@ export function PiModelSelector() {
 
   return (
     <ModelSelectorRoot
-      models={MOCK_MODELS}
+      models={models}
       {...(currentKey ? { value: currentKey } : {})}
       onValueChange={(key) => {
-        // 与当前值相同时跳过：setModel 会经 supervisor 的模型注册表校验，
-        // 而该注册表尚未加载扩展注册的 provider（见上方 mock 说明）。
         if (key === currentKey) return
-        const next = MOCK_MODELS.find((model) => model.id === key)
+        const next = models.find((model) => model.id === key)
         if (!next) return
         const [nextProvider, ...rest] = key.split('/')
         void extras.setModel({ provider: nextProvider ?? '', modelId: rest.join('/') })

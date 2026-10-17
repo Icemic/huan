@@ -112,14 +112,20 @@ pnpm dev          # → http://localhost:8799/
 | `PI_PROVIDER` / `PI_MODEL_ID` | 无 | 覆盖默认模型；缺省时读取 Pi settings.json |
 | `PI_CODING_AGENT_DIR` | Pi 默认（`~/.pi/agent`） | Pi 配置目录 |
 
-宿主的默认模型解析链路（`server/model-resolution.ts`）：**加载用户扩展 → 提取扩展注册的 provider（原生 provider 与配置 provider）→ 注册进 ModelRuntime → `refresh()` → 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`**。链路分两态：未配置默认模型时返回 `undefined`（不阻断启动）；已配置但解析不到则抛错（早失败，避免「静默无模型」）。这是必须的：**SDK 的 `createAgentSession` 不消费扩展的 provider 注册**（实测会话内运行时解析不到扩展 provider，报 "No models available"；SDK 另提供 `createAgentSessionServices` 官方装配 API，当前未采用，若采用可省去手工复现）。
+宿主的默认模型解析链路（`@huan/core` 的 `model-catalog.ts` + `host.ts`）：**启动引导装配 → 共享 modelRuntime（provider 注册）→ 显式目录刷新（可联网）→ 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`**。要点：
+
+- 默认模型在**宿主启动时固定解析**（env 优先）；`settings.json` 的修改需重启宿主生效（`setModel` 的 `persist` 默认 false，会话级切换不写全局默认）。
+- 每次冷打开会**按目标 cwd 重新装配** settings/扩展/资源；共享的只有 modelRuntime（provider 注册为合并语义，重装配幂等）。
+- 装配期自带的目录刷新为 `allowNetwork: false`（不拉取扩展远程模型列表）；联网刷新是宿主启动时的**显式**动作。
+- 装配诊断（扩展注册失败、目录刷新错误）经 `host.diagnostics()` 返回，应用在启动时打印。
 
 ### 7.3 认证与模型
 
 - 已通过 `pi /login` 完成认证的机器无需额外配置。
-- 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主中自动可用。
-- 浏览器端的模型选择器目前使用本地 mock（见 `pi-model-selector.tsx` 注释）；原因：react-pi supervisor 的内部 ModelRuntime 未加载扩展，`getAvailableModels` / `setModel` 拿不到自定义 provider，详见 `docs/todo.md` 的 supervisor 缺口条目。
-- **历史会话的模型恢复存在缺口**（react-pi 上游，待公共层固化阶段修复）：冷打开历史会话时，supervisor 会把宿主默认模型强加到该会话上，覆盖会话自身记录的模型。实测复现与可行修法见 `docs/todo.md` 的「supervisor 缺口（历史会话模型覆盖）」条目。当前影响：跨会话恢复后实际使用的模型可能与记录不一致（相同 provider 下功能可用，但可能非用户预期）。
+- 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主与模型选择器中均可用（迭代③起）。
+- 模型选择器读取宿主真实注册表（含扩展 provider）；切换经 `setModel`（会话级，不修改全局默认）。
+- **历史会话模型**：冷打开时由 SDK 从会话记录恢复（宿主不传默认模型）；如历史模型不可用/未配置认证，SDK 会回退到可用模型。恢复逻辑依赖 `sdk.js` 的「未传 model 才恢复」行为（已实测验证）。
+- 目录刷新：启动时联网刷新一次（扩展 `fetchModels`）；失败保留缓存目录并记入 `host.diagnostics()`。
 
 ### 7.4 验证 Host UI 的方法（可复用）
 
