@@ -21,10 +21,11 @@ export type { SessionCatalogInfo } from './metadata.js'
 export {
   baseName,
   deriveReadiness,
-  latestSessionName,
+  extractMessageText,
   mapColdMetadata,
   mapQueuedMessages,
   mapSessionInfo,
+  normalizeTitle,
   readinessFromSessionContext,
 } from './metadata.js'
 export {

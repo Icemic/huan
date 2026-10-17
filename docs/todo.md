@@ -81,6 +81,7 @@
 | **react-pi supervisor 缺口（历史会话模型覆盖）**：✅ 已由迭代③自研宿主修复（新/冷语义分离，实测验证） | — |
 | **react-pi supervisor 缺口（模型目录）**：✅ 已由迭代③自研宿主修复（官方装配 + 共享 modelRuntime，实测 11 个模型可见） | — |
 | 宿主测试遗留：预检窗口取消、装配期 dispose、A/B 双会话扩展隔离（需可暂停的 fake 装配控制时序） | 迭代④ 或专项 |
+| **`agentDir` 未用于会话存储**：宿主的 `agentDir` 目前只影响凭据/模型/扩展，`SessionManager.create/list` 仍用全局 sessions 目录（`getDefaultAgentDir()` 推导）。若要求“自定义 Pi 配置目录”完整隔离，需按 `agentDir` 显式传 sessionDir（SDK 未导出 `getDefaultSessionDir`，需自算路径）；否则在文档中明确 `agentDir` 不含 sessions | 下一迭代或按需 |
 | 事件回放验证：映射结果经 JSON 往返送入真实 reducer/Controller | 迭代④（浏览器侧接入后） |
 | 迭代④：`@huan/react` 边界（公共 hook + 自研 Controller）+ 前端换用 @huan/protocol 类型 | 下一迭代 |
 | Zustand 窗口本地状态：当前无自主状态需要管理（会话选择/草稿均由 react-pi 内部管理）；出现窗口级状态需求（如布局偏好、多窗口差异化视图）时引入 | |

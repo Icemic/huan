@@ -2,7 +2,8 @@ import { harnessQueueItemId } from '@huan/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   deriveReadiness,
-  latestSessionName,
+  extractMessageText,
+  mapColdMetadata,
   mapQueuedMessages,
   mapSessionInfo,
 } from './metadata.js'
@@ -69,21 +70,6 @@ describe('deriveReadiness', () => {
   })
 })
 
-describe('latestSessionName', () => {
-  it('取最新的 session_info 记录', () => {
-    const branch = [
-      { id: '1', parentId: null, timestamp: 't', type: 'session_info', name: '旧名' },
-      { id: '2', parentId: '1', timestamp: 't', type: 'message', message: {} },
-      { id: '3', parentId: '2', timestamp: 't', type: 'session_info', name: '新名' },
-    ]
-    expect(latestSessionName(branch as never)).toBe('新名')
-  })
-
-  it('无 session_info 时返回 undefined', () => {
-    expect(latestSessionName([] as never)).toBeUndefined()
-  })
-})
-
 describe('mapQueuedMessages', () => {
   it('产出 steer 与 follow-up 两类条目，ID 采用 "<mode>:<index>" 方案', () => {
     const queued = mapQueuedMessages(['转向'], ['追加1', '追加2'])
@@ -96,5 +82,65 @@ describe('mapQueuedMessages', () => {
 
   it('空队列返回空数组', () => {
     expect(mapQueuedMessages([], [])).toEqual([])
+  })
+})
+
+describe('extractMessageText（与 Pi extractTextContent 同口径）', () => {
+  it('字符串内容原样返回（不 trim）', () => {
+    expect(extractMessageText({ content: '  你好  ' })).toBe('  你好  ')
+  })
+
+  it('内容块数组只取 text 块，用空格拼接（不 trim、不过滤空白块）', () => {
+    expect(
+      extractMessageText({
+        content: [
+          { type: 'text', text: '甲 ' },
+          { type: 'image', data: 'x', mimeType: 'image/png' },
+          { type: 'text', text: ' 乙' },
+        ],
+      }),
+    ).toBe('甲   乙')
+  })
+
+  it('无非文本块或空数组返回 undefined', () => {
+    expect(
+      extractMessageText({ content: [{ type: 'image', data: 'x', mimeType: 'p' }] }),
+    ).toBeUndefined()
+    expect(extractMessageText({ content: [] })).toBeUndefined()
+    expect(extractMessageText({})).toBeUndefined()
+  })
+
+  it('空字符串内容返回 undefined（交调用方回退）', () => {
+    expect(extractMessageText({ content: '' })).toBeUndefined()
+  })
+})
+
+describe('mapSessionInfo 标题占位值处理', () => {
+  it('Pi 的 "(no messages)" 占位值不使用，回退文件名', () => {
+    const metadata = mapSessionInfo({ ...baseInfo, firstMessage: '(no messages)' })
+    expect(metadata.title).toBe('2026-10-17T00-00-00-000Z_abc.jsonl')
+  })
+
+  it('纯空白首条消息回退文件名', () => {
+    const metadata = mapSessionInfo({ ...baseInfo, firstMessage: '   ' })
+    expect(metadata.title).toBe('2026-10-17T00-00-00-000Z_abc.jsonl')
+  })
+})
+
+describe('mapColdMetadata 标题来源', () => {
+  const context = {
+    messages: [{ role: 'user', content: '内容' }],
+    thinkingLevel: 'medium',
+    model: { provider: 'my-provider', modelId: 'gpt-5.6-luna' },
+  }
+
+  it('直接沿用 SessionInfo 的标题（不做分支名称推导）', () => {
+    const metadata = mapColdMetadata(baseInfo, context, { archived: false })
+    expect(metadata.title).toBe('第一条消息内容')
+  })
+
+  it('SessionInfo.name 为空时不产生空标题（回退消息标题）', () => {
+    const metadata = mapColdMetadata({ ...baseInfo, name: '' }, context, { archived: false })
+    expect(metadata.title).toBe('第一条消息内容')
   })
 })

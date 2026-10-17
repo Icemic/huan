@@ -5,7 +5,6 @@
  * live record 合成。两者共享「标题/就绪度」等推导规则，保证口径一致。
  */
 import type {
-  HarnessAnySessionEntry,
   HarnessContextUsage,
   HarnessRuntimeReadiness,
   HarnessThreadMetadata,
@@ -16,6 +15,53 @@ import { harnessQueueItemId } from '@huan/protocol'
 export function baseName(filePath: string): string {
   const segments = filePath.split(/[\\/]/)
   return segments[segments.length - 1] ?? filePath
+}
+
+/**
+ * 从用户消息中提取纯文本（与 Pi `extractTextContent` 同口径，**不做 trim**）。
+ *
+ * 内容可能是字符串或内容块数组；只取文本块并用空格拼接。
+ * 空内容或无非文本块返回 undefined，交由调用方回退。
+ */
+export function extractMessageText(message: unknown): string | undefined {
+  const content = (message as { content?: unknown }).content
+  if (typeof content === 'string') return content.length > 0 ? content : undefined
+  if (!Array.isArray(content)) return undefined
+  const parts: string[] = []
+  for (const part of content) {
+    if (part === null || typeof part !== 'object') continue
+    const block = part as { type?: string; text?: unknown }
+    if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined
+}
+
+/** Pi 对「无可用文本消息」的占位值（SessionInfo.firstMessage 的兜底）。 */
+export const NO_MESSAGES_PLACEHOLDER = '(no messages)'
+
+/**
+ * 统一标题归一化（热/冷路径共用）。
+ *
+ * 显式会话名（非空）> 首条用户消息文本（截断 60 字符）> 会话文件名。
+ * 为了让两条路径完全同口径，输入统一取自「会话记录」语义：
+ * - `explicitName`：冷路径取自 `SessionInfo.name`（Pi 已按全文件最新值处理，含显式清空），
+ *   热路径取自 `session.sessionName`；
+ * - `firstMessageText`：冷路径取自 `SessionInfo.firstMessage`，热路径从全文件记录推导。
+ */
+export function normalizeTitle(input: {
+  explicitName?: string | undefined
+  firstMessageText?: string | undefined
+  sessionFilePath?: string | undefined
+}): string | undefined {
+  const explicit = input.explicitName?.trim()
+  if (explicit) return explicit
+  const raw = input.firstMessageText
+  // Pi 的占位值不得当作标题（否则纯图片会话会显示 "(no messages)"）。
+  if (raw && raw !== NO_MESSAGES_PLACEHOLDER) {
+    const trimmed = raw.slice(0, 60).trim()
+    if (trimmed) return trimmed
+  }
+  return input.sessionFilePath ? baseName(input.sessionFilePath) : undefined
 }
 
 /** SessionManager 目录条目（结构取自 Pi SessionInfo）。 */
@@ -36,7 +82,11 @@ export function mapSessionInfo(
   info: SessionCatalogInfo,
   opts?: { liveStatus?: HarnessThreadMetadata['status'] },
 ): HarnessThreadMetadata {
-  const title = info.name?.trim() || info.firstMessage.slice(0, 60).trim() || baseName(info.path)
+  const title = normalizeTitle({
+    explicitName: info.name,
+    firstMessageText: info.firstMessage,
+    sessionFilePath: info.path,
+  })
   return {
     id: info.id,
     status: opts?.liveStatus ?? 'idle',
@@ -72,22 +122,14 @@ export function deriveReadiness(input: {
   }
 }
 
-/** 从分支记录取最新会话名（最新的 session_info 记录胜出）。 */
-export function latestSessionName(branch: readonly HarnessAnySessionEntry[]): string | undefined {
-  for (let index = branch.length - 1; index >= 0; index -= 1) {
-    const entry = branch[index]
-    if (entry && entry.type === 'session_info') {
-      const name = (entry as { name?: unknown }).name
-      return typeof name === 'string' ? name : undefined
-    }
-  }
-  return undefined
-}
-
-/** 冷会话的元数据（从会话文件读出）。 */
+/**
+ * 冷会话的元数据（从会话文件读出）。
+ *
+ * 标题直接沿用 `mapSessionInfo`：Pi 的 `SessionInfo.name/firstMessage` 已按
+ * **全文件**最新值处理（含显式清空），再用分支名称推导会造成不同口径。
+ */
 export function mapColdMetadata(
   info: SessionCatalogInfo,
-  branch: readonly HarnessAnySessionEntry[],
   context: {
     messages: readonly unknown[]
     thinkingLevel: string
@@ -95,10 +137,8 @@ export function mapColdMetadata(
   },
   opts: { archived: boolean; contextUsage?: HarnessContextUsage },
 ): HarnessThreadMetadata {
-  const sessionName = latestSessionName(branch)
   return {
     ...mapSessionInfo(info, { liveStatus: 'idle' }),
-    ...(sessionName !== undefined ? { title: sessionName } : {}),
     ...(context.model
       ? {
           config: {

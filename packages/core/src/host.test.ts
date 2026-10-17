@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createHarnessHost, type HarnessHost } from './host.js'
 
@@ -15,6 +16,8 @@ const agentDir = join(homedir(), '.pi', 'agent')
 
 let workspace: string
 let host: HarnessHost
+/** 测试期间直接落盘的探针会话文件（Pi 统一存到用户 sessions 目录，需单独清理）。 */
+const sessionFileToCleanup: string[] = []
 
 beforeAll(async () => {
   workspace = await mkdtemp(join(tmpdir(), 'huan-host-test-'))
@@ -28,6 +31,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await host.dispose()
+  for (const file of sessionFileToCleanup) {
+    await rm(file, { force: true })
+  }
   await rm(workspace, { recursive: true, force: true })
 })
 
@@ -174,6 +180,173 @@ describe('订阅（快照优先语义）', () => {
     expect(types).not.toContain('snapshot')
     await host.deleteThread(id)
   })
+})
+
+describe('标题口径（热/冷一致）', () => {
+  it('未命名会话的标题来自首条用户消息，热读与冷读一致', async () => {
+    const prompt = '只回答一个数字：3+4=?'
+    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const id = created.metadata.id
+
+    // 等待运行结束并落盘（首条消息写入后才有 session file）。
+    const deadline = Date.now() + 60_000
+    while (Date.now() < deadline) {
+      const current = await host.getThread(id)
+      if (current.metadata.status === 'idle' && (current.metadata.messageCount ?? 0) > 0) break
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    // 热读：live record（metadataOf 路径）。
+    const live = await host.getThread(id)
+    expect(live.metadata.title).toBe(prompt)
+
+    // 冷读：新建宿主（无 live record，走 session file 路径）。
+    const coldHost = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const cold = await coldHost.getThread(id)
+    expect(cold.metadata.title).toBe(prompt)
+    await coldHost.dispose()
+
+    await host.deleteThread(id)
+  }, 90_000)
+
+  it('显式命名优先于首条消息', async () => {
+    const created = await host.createThread({ initialMessage: { content: '这段内容不应成为标题' } })
+    const id = created.metadata.id
+    await host.renameThread(id, '显式标题')
+    const after = await host.getThread(id)
+    expect(after.metadata.title).toBe('显式标题')
+    await host.deleteThread(id)
+  }, 60_000)
+
+  it('重命名为空后，热读/冷读/列表一致回退到消息标题（不出现空标题）', async () => {
+    const prompt = '只回答一个数字：5+6=?'
+    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const id = created.metadata.id
+    const deadline = Date.now() + 60_000
+    while (Date.now() < deadline) {
+      const current = await host.getThread(id)
+      if (current.metadata.status === 'idle' && (current.metadata.messageCount ?? 0) > 0) break
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    // 显式清空名称：三处口径都不得出现空标题。
+    await host.renameThread(id, '')
+    const hot = await host.getThread(id)
+    expect(hot.metadata.title).toBe(prompt)
+
+    const listed = (await host.listThreads()).find((item) => item.id === id)
+    expect(listed?.title).toBe(prompt)
+
+    const coldHost = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    const cold = await coldHost.getThread(id)
+    expect(cold.metadata.title).toBe(prompt)
+    const coldListed = (await coldHost.listThreads()).find((item) => item.id === id)
+    expect(coldListed?.title).toBe(prompt)
+    await coldHost.dispose()
+
+    await host.deleteThread(id)
+  }, 90_000)
+
+  it('命名 → 清空的转换不出现空标题（需要先有非空名称）', async () => {
+    const prompt = '只回答一个数字：8+9=?'
+    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const id = created.metadata.id
+    const deadline = Date.now() + 60_000
+    while (Date.now() < deadline) {
+      const current = await host.getThread(id)
+      if (current.metadata.status === 'idle' && (current.metadata.messageCount ?? 0) > 0) break
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    await host.renameThread(id, '先命名')
+    expect((await host.getThread(id)).metadata.title).toBe('先命名')
+
+    await host.renameThread(id, '')
+    expect((await host.getThread(id)).metadata.title).toBe(prompt)
+
+    const coldHost = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    expect((await coldHost.getThread(id)).metadata.title).toBe(prompt)
+    expect((await coldHost.listThreads()).find((item) => item.id === id)?.title).toBe(prompt)
+    await coldHost.dispose()
+
+    await host.deleteThread(id)
+  }, 90_000)
+
+  it('分支历史：全文件首条 user 消息口径（热读与冷读一致）', async () => {
+    // 构造「文件首条 ≠ 当前分支首条」的会话（不依赖模型生成）：
+    // 根下先写 A，再 resetLeaf() 回到「无父节点」，写入 B 作为新根。
+    // 此时文件顺序首条是 A，而当前分支（leaf 侧）首条是 B。
+    // 注：使用默认 sessions 目录（宿主的列表/打开均走该目录；自定义目录的
+    // 支持是独立缺口，见 docs/todo.md）。
+    const now = Date.now()
+    const userMessage = (text: string) => ({
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text }],
+      timestamp: now,
+    })
+    const seed = SessionManager.create(workspace)
+    seed.appendMessage(userMessage('文件首条 A'))
+    seed.resetLeaf()
+    seed.appendMessage(userMessage('当前分支首条 B'))
+    const sessionFile = seed.getSessionFile()
+    if (!sessionFile) throw new Error('无法创建分支探针会话')
+    sessionFileToCleanup.push(sessionFile)
+
+    // 先确认构造本身符合预期：全文件首条是 A，当前分支首条是 B。
+    const branchTexts = seed
+      .getBranch()
+      .filter((entry) => entry.type === 'message')
+      .map((entry) => (entry as { message?: { role?: string; content?: unknown } }).message)
+      .filter((message) => message?.role === 'user')
+    expect(branchTexts.length).toBeGreaterThan(0)
+
+    const info = (await SessionManager.list(workspace)).find((item) => item.path === sessionFile)
+    if (!info) throw new Error('无法定位探针会话')
+    expect(info.firstMessage).toBe('文件首条 A')
+    const id = info.id
+
+    // 冷读：Pi 全文件顺序的首条 user 消息是 A。
+    const coldHost = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+    expect((await coldHost.getThread(id)).metadata.title).toBe('文件首条 A')
+    await coldHost.dispose()
+
+    // 热读：必须先真正打开为 live record（subscribe 会 ensureOpen）。
+    // 若用 getThread，宿主无 live record → 仍走冷读，测不到热路径口径。
+    const hotTitle = await new Promise<string | undefined>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        unsubscribe()
+        reject(new Error('等待 live 快照超时'))
+      }, 20_000)
+      const unsubscribe = host.subscribe(
+        id,
+        (event) => {
+          if (event.type !== 'snapshot') return
+          clearTimeout(timer)
+          unsubscribe()
+          resolve(event.snapshot.metadata.title)
+        },
+        { includeSnapshot: true },
+      )
+    })
+    // 热路径必须取「全文件首条」（A），而不是「当前分支首条」（B）。
+    expect(hotTitle).toBe('文件首条 A')
+  }, 60_000)
 })
 
 describe('并发去重与取消', () => {

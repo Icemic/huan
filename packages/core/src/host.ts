@@ -38,11 +38,12 @@ import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
 import { createHostUiBridge, type HostUiBridge } from './host-ui.js'
 import {
-  baseName,
   deriveReadiness,
+  extractMessageText,
   mapColdMetadata,
   mapQueuedMessages,
   mapSessionInfo,
+  normalizeTitle,
   readinessFromSessionContext,
   type SessionCatalogInfo,
 } from './metadata.js'
@@ -86,6 +87,8 @@ export type HarnessHost = HarnessClient & {
 type ThreadRecord = {
   threadId: string
   session: AgentSession
+  /** 会话记录管理器（标题推导需从完整记录语义读取，而非投影后的消息）。 */
+  sessionManager: SessionManager
   uiBridge: HostUiBridge
   unsubscribe: () => void
   listeners: Set<(event: HarnessClientEvent) => void>
@@ -97,6 +100,8 @@ type ThreadRecord = {
   resourceLoader: ResourceLoader
   /** 在途发送（含预检阶段），取消/删除需使它们全部失效并等待退出。 */
   inFlight: Set<InFlightSend>
+  /** 缓存的首条用户消息文本（仅存找到的值；历史只追加，找到后不变）。 */
+  firstUserMessageText?: string | undefined
 }
 
 type InFlightSend = {
@@ -247,6 +252,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const model = session.model
     const usage = session.getContextUsage()
     const queued = mapQueuedMessages(session.getSteeringMessages(), session.getFollowUpMessages())
+    const title = deriveLiveTitle(record)
     return {
       id: record.threadId,
       status: runStatus(record),
@@ -255,7 +261,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       retryAttempt: session.retryAttempt,
       workspacePath: record.workspacePath,
       messageCount: session.messages.length,
-      ...(session.sessionName ? { title: session.sessionName } : {}),
+      // 标题口径与冷读路径一致：显式会话名 > 首条用户消息（截断）> 会话文件名。
+      // 注意：仅「显式命名」会持久化；未命名会话重启后由冷路径推导同一标题。
+      ...(title ? { title } : {}),
       ...(session.sessionFile ? { sessionFile: session.sessionFile } : {}),
       ...(model
         ? {
@@ -272,6 +280,40 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         : {}),
       ...(queued.length ? { queuedMessages: queued } : {}),
     }
+  }
+
+  /**
+   * 热会话标题：显式会话名 > 首条用户消息（截断 60）> 会话文件名。
+   *
+   * 关键：首条用户消息必须从**会话记录（全文件）**读取，而不是：
+   * - `session.messages`：压缩感知的投影，压缩后原始首条消息会被省略；
+   * - `getBranch()`：仅当前分支，而 Pi 冷目录扫全文件取首条（分支场景会不一致）。
+   * 缓存「首条消息文本」而非最终标题：改名/清空名称不影响它，无需失效。
+   */
+  const deriveLiveTitle = (record: ThreadRecord): string | undefined => {
+    const explicit = record.session.sessionName?.trim()
+    if (explicit) return explicit
+    const firstText = firstUserMessageTextOf(record)
+    return normalizeTitle({
+      firstMessageText: firstText,
+      sessionFilePath: record.session.sessionFile,
+    })
+  }
+
+  /** 从会话记录（全文件顺序）取首条用户消息文本（带缓存；仅缓存找到的值）。 */
+  const firstUserMessageTextOf = (record: ThreadRecord): string | undefined => {
+    if (record.firstUserMessageText !== undefined) return record.firstUserMessageText
+    for (const entry of record.sessionManager.getEntries()) {
+      if (entry.type !== 'message') continue
+      const message = (entry as { message?: { role?: string } }).message
+      if (message?.role !== 'user') continue
+      const text = extractMessageText(message)
+      if (text) {
+        record.firstUserMessageText = text
+        return text
+      }
+    }
+    return undefined
   }
 
   const snapshotOf = (record: ThreadRecord): HarnessThreadSnapshot => {
@@ -389,6 +431,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const record: ThreadRecord = {
       threadId,
       session,
+      sessionManager,
       uiBridge: undefined as unknown as HostUiBridge,
       unsubscribe: () => {},
       listeners: new Set(),
@@ -867,7 +910,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const contextUsage = deriveContextUsage(contextWindow, branch, context.messages)
     const metadata = mapColdMetadata(
       info,
-      branch,
       {
         messages: context.messages,
         thinkingLevel: context.thinkingLevel,
@@ -909,6 +951,3 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     diagnostics: () => [...diagnostics],
   }
 }
-
-/** 冷读分支记录的最小形状（协议镜像）。 */
-export { baseName }
