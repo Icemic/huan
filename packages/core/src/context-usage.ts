@@ -1,20 +1,25 @@
 /**
  * 上下文用量推导（冷读路径）。
  *
- * 冷会话（无 live record）需要不构造 AgentSession 也能报告用量。SDK 未导出
- * 复合函数（getContextUsage 是会话方法），因此这里复用 SDK 导出的估算原语
- * （estimateTokens / calculateContextTokens / getLatestCompactionEntry）重算：
- * 信任最近一条助手 usage（真实 API token 计数），仅估算其后的消息；
- * 压缩边界之后尚无可信 usage 时返回 tokens: null。
+ * 冷会话（无 live record）需要不构造 AgentSession 也能报告用量。SDK 的
+ * `getContextUsage()` 是会话方法，但导出 `buildSessionProjection` 与
+ * `estimateProjectedContextTokens` 的输入（projection + branch）。为确保与热
+ * 路径口径一致，这里**复用 SDK 的 projection**，并按其规则判定压缩后用量是否
+ * 可信：
+ * - 只用「压缩边界之后、且有有效 usage（calculateContextTokens > 0）的助手消息」
+ *   是否存在，决定 tokens 是数值还是 null；
+ * - 估算交给 SDK 的 `estimateTokens` / `calculateContextTokens` 原语按同一序列
+ *   计算（信任最后一条有效助手 usage，估算其后的消息）。
  */
 import {
+  buildSessionProjection,
   calculateContextTokens,
   estimateTokens,
   getLatestCompactionEntry,
 } from '@earendil-works/pi-coding-agent'
 import type { HarnessContextUsage } from '@huan/protocol'
 
-type UsageBearingMessage = {
+type MessageLike = {
   role?: string
   usage?: {
     input: number
@@ -26,25 +31,20 @@ type UsageBearingMessage = {
   stopReason?: string
 }
 
-/** 取助手消息的有效 usage（跳过 aborted/error 轮次）。 */
-function assistantUsage(message: unknown): UsageBearingMessage['usage'] | undefined {
-  const candidate = message as UsageBearingMessage
-  if (
-    candidate.role === 'assistant' &&
-    candidate.usage &&
-    candidate.stopReason !== 'aborted' &&
-    candidate.stopReason !== 'error'
-  ) {
-    return candidate.usage
-  }
-  return undefined
+/** 有效助手 usage：角色为 assistant、有 usage、且非 aborted/error，且 token 数 > 0。 */
+function validAssistantUsage(message: unknown): MessageLike['usage'] | undefined {
+  const candidate = message as MessageLike
+  if (candidate.role !== 'assistant' || !candidate.usage) return undefined
+  if (candidate.stopReason === 'aborted' || candidate.stopReason === 'error') return undefined
+  if (calculateContextTokens(candidate.usage as never) <= 0) return undefined
+  return candidate.usage
 }
 
-/** messages 的 token 估算：信任最后一条助手 usage，估算其后的尾段。 */
+/** messages 的 token 估算：信任最后一条有效助手 usage，估算其后的尾段。 */
 function estimateContextTokens(messages: readonly unknown[]): number {
   let lastUsageIndex = -1
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (assistantUsage(messages[i])) {
+    if (validAssistantUsage(messages[i])) {
       lastUsageIndex = i
       break
     }
@@ -54,43 +54,48 @@ function estimateContextTokens(messages: readonly unknown[]): number {
     for (const message of messages) estimated += estimateTokens(message as never)
     return estimated
   }
-  const usage = assistantUsage(messages[lastUsageIndex])
-  let tokens = calculateContextTokens(usage as never)
+  let tokens = calculateContextTokens(validAssistantUsage(messages[lastUsageIndex]) as never)
   for (let i = lastUsageIndex + 1; i < messages.length; i += 1) {
     tokens += estimateTokens(messages[i] as never)
   }
   return tokens
 }
 
-/** 压缩边界之后没有可信助手 usage 时为 true（用量未知，直到下一次 LLM 响应）。 */
-function compactionInvalidatesUsage(branch: readonly unknown[]): boolean {
-  const latest = getLatestCompactionEntry(branch as never)
-  if (!latest) return false
-  const compactionIndex = branch.lastIndexOf(latest)
-  for (let i = branch.length - 1; i > compactionIndex; i -= 1) {
-    const entry = branch[i] as { type?: string; message?: UsageBearingMessage }
-    if (entry.type !== 'message') continue
-    const message = entry.message
-    if (message?.role !== 'assistant') continue
-    if (message.stopReason === 'aborted' || message.stopReason === 'error') continue
-    const usage = assistantUsage(message)
-    return !usage || calculateContextTokens(usage as never) <= 0
-  }
-  return true
-}
-
 /**
  * 从持久化数据推导用量；contextWindow 不可知（<= 0）时返回 undefined。
+ * 压缩之后若无「带有效 usage 的助手响应」，tokens 为 null（直到下一次 LLM 响应）。
  */
 export function deriveContextUsage(
   contextWindow: number,
   branch: readonly unknown[],
-  messages: readonly unknown[],
+  _messages: readonly unknown[],
 ): HarnessContextUsage | undefined {
   if (contextWindow <= 0) return undefined
-  if (compactionInvalidatesUsage(branch)) {
-    return { tokens: null, contextWindow, percent: null }
+
+  const projection = buildSessionProjection(branch as never)
+  const latestCompaction = getLatestCompactionEntry(branch as never)
+  if (latestCompaction) {
+    // 以 projection 中「含有效助手 usage 的来源记录」为准（与 SDK 热路径同规则）。
+    const projectedAssistants = new Set(
+      projection.entries.flatMap((entry) =>
+        entry.messages.some((message) => validAssistantUsage(message))
+          ? [entry.sourceEntry.id]
+          : [],
+      ),
+    )
+    const compactionIndex = branch.findIndex(
+      (entry) => (entry as { id?: string }).id === latestCompaction.id,
+    )
+    const hasPostCompactionUsage = branch
+      .slice(compactionIndex + 1)
+      .some((entry) => projectedAssistants.has((entry as { id?: string }).id ?? ''))
+    if (!hasPostCompactionUsage) {
+      return { tokens: null, contextWindow, percent: null }
+    }
   }
+
+  // 与热路径一致：估算当前投影的消息序列。
+  const messages = projection.entries.flatMap((entry) => entry.messages)
   const tokens = estimateContextTokens(messages)
   return { tokens, contextWindow, percent: (tokens / contextWindow) * 100 }
 }

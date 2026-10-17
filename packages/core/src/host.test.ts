@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -181,4 +181,69 @@ describe('发送接受语义', () => {
     await host.cancelRun(id)
     await host.deleteThread(id)
   }, 40_000)
+})
+
+describe('预检窗口取消（顾问审查要求：确定性竞态）', () => {
+  it('预检期间取消不会启动模型调用（不产生助手消息）', async () => {
+    // 用工作目录下的临时扩展注入可暂停的 input hook：停住预检，期间取消，再放行。
+    const extensionDir = join(workspace, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    const releaseFile = join(workspace, 'release-hook')
+    const extensionSource = `
+import { writeFileSync } from 'node:fs'
+export default function (pi) {
+  pi.on('input', async (event) => {
+    const release = ${JSON.stringify(releaseFile)}
+    // 挂起直到测试创建放行文件（无超时：测试负责收尾）。
+    while (!(await import('node:fs')).existsSync(release)) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    return undefined
+  })
+}
+`
+    await writeFile(join(extensionDir, 'pause-input.ts'), extensionSource)
+
+    const isolated = await createHarnessHost({
+      workspacePath: workspace,
+      agentDir,
+      refreshCatalogOnStart: false,
+    })
+
+    const created = await isolated.createThread()
+    const id = created.metadata.id
+
+    // 发起发送（会停在 input hook 的预检阶段），随后取消。
+    const sending = isolated.sendMessage(id, { content: 'this must never run' })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await isolated.cancelRun(id)
+    // 放行预检：若取消未兜底，prompt 会继续进入 _runAgentPrompt 并产生助手消息。
+    await writeFile(releaseFile, 'go')
+    await sending
+
+    // 等待充分时间，断言模型未产出内容。
+    // 注：SDK 的取消语义会记录一条 stopReason='aborted' 的占位助手消息（与在跑
+    // 期间点取消的行为一致）；关键区别是「没有模型实际产出的文本」。
+    await new Promise((resolve) => setTimeout(resolve, 3000))
+    const snapshot = await isolated.getThread(id)
+    const assistantMessages = snapshot.messages.filter((message) => message.role === 'assistant')
+
+    const producedText = assistantMessages.flatMap((message) => {
+      const content = (message as { content?: unknown }).content
+      if (!Array.isArray(content)) return []
+      return content.filter(
+        (part): part is { type: string; text: string } =>
+          typeof part === 'object' &&
+          part !== null &&
+          (part as { type?: string }).type === 'text' &&
+          typeof (part as { text?: string }).text === 'string' &&
+          (part as { text: string }).text.length > 0,
+      )
+    })
+    // 无任何模型产出的文本；若取消未生效，模型会正常回答（包含文本）。
+    expect(producedText).toEqual([])
+
+    await isolated.dispose()
+    await rm(join(extensionDir, 'pause-input.ts'), { force: true })
+  }, 60_000)
 })

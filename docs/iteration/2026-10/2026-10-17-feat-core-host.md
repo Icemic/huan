@@ -269,6 +269,27 @@ apps/harness/server（HTTP 路由 + 安全边界）
 - 目录缓存持久化：重启重扫（当前实测耗时可接受）。
 - 用户需重启宿主进程以加载新实现。
 
-### 顾问 review（实施后）
+### 顾问 review（实施后，2026-10-17）
 
-见 `docs/iteration/2026-10/` 对应记录与 `docs/todo.md`；实施后 review 的修复项已逐条落地。
+对实现逐条以源码验证后处理（13 条意见）：
+
+| # | 意见 | 严重度 | 验证 | 处理 |
+| --- | --- | --- | --- | --- |
+| 1 | 预检期间取消失效（`abort()` 仅在 `_isAgentRunActive` 时记录意图） | 阻塞 | **属实，且确定性复现**（新增竞态测试：预检停住→取消→放行，仍产生模型回复） | 已修：`preflightResult` 回调中用 `queueMicrotask` 延后 abort（等 `_runAgentPrompt` 建立 activeRun 后再中止）；竞态测试转为通过 |
+| 2 | 删除未等预检退出（删除后可能仍执行/写入） | 阻塞 | 属实（同源） | 已修：删除前标记全部在途发送失效、`dismissAll` 解除 UI 等待，再 `abort`，最后等待 `inFlight.finished` |
+| 3 | `session_start` 中的阻断式 Host UI 导致打开永久等待 | 阻塞 | 属实（record 未发布、应答无入口） | 已修：Host UI 桥加 `setStartup()`，装配期阻断请求立即以默认值结算并记入诊断；发布后恢复正常模式 |
+| 4 | 删除等待环（工具等 UI，abort 等工具） | 重要 | 属实 | 已修：`cancelRun`/`deleteThreadNow`/`dispose` 均为「先 `dismissAll` 再 `abort`」 |
+| 5 | 并发发送预检阶段都见 idle，第二条不会可靠入队 | 重要 | 属实（`isStreaming` 在预检结束后才为真） | 记录为遗留（需 input 接受阶段的串行化设计，不属本次范围） |
+| 6 | 缺扩展 `session_shutdown` | 重要 | 属实（`dispose()` 不发该事件；`emitSessionShutdownEvent` 未导出，但 `ExtensionRunner` 已导出） | 已修：`emitShutdown()` 用 `resourceLoader.getExtensions()` + `ExtensionRunner` 补发（删除/dispose 路径） |
+| 7 | 目录缓存漏掉刚写入首条消息的新会话 | 重要 | 属实 | 已修：`entry_appended` 且消息数 ≤ 1 时失效目录缓存；`invalidateCatalog` 同时清理 `catalogInfoByThreadId` |
+| 8 | 发送成功后无条件清错，抹掉运行期错误 | 重要 | 属实 | 已修：删除 `.then()` 中的无条件清空（错误由 `agent_end`/`error` 事件与快照 `lastError` 呈现） |
+| 9 | 历史模型回退原因被丢弃 | 重要 | 属实（`modelFallbackMessage` 未读） | 已修：写入 `diagnostics()` |
+| 10 | 冷读用量与 SDK 热路径算法不一致 | 重要 | 属实（SDK 用 projection + 零 usage 判定） | 已修：复用 SDK 的 `buildSessionProjection`，并按「有效 usage（`calculateContextTokens > 0`）」判定压缩后是否 unknown |
+| 11 | `agentDir` 未用于会话存储与扫描 | 重要 | 部分属实（SDK 未导出 `getDefaultSessionDir`，SessionManager 默认用全局 sessions 路径） | **驳回**：本项目 `agentDir` 语义 = Pi 配置目录（凭据/模型/扩展），会话存储统一在全局 sessions；与 CLI 行为一致，文档已明确 |
+| 12 | 刷新超时选项未实现 | 可选 | 属实 | 已修：`withTimeout` 包装启动刷新（默认 15s，0 表示不设超时） |
+| 13 | 冷归档条带缺少 `archived: true` | 可选 | 属实 | 已修 |
+| 14 | JSON-safe 仅为声明（循环引用/BigInt 会让 `JSON.stringify` 抛错） | 可选 | 属实（有条件） | 记录为遗留（需边界策略与异常载荷测试） |
+| 15 | 协议结构等价验证未达设计强度 | 可选 | 属实 | 记录为遗留：编译期断言与真实客户端测试待迭代④（浏览器侧切换时自然覆盖） |
+| 16 | 应用未注册退出时 `dispose()` | 可选 | 属实 | 已修：`server/index.ts` 注册 `SIGINT`/`SIGTERM` 与 `process.on('exit')` 前的优雅关闭 |
+
+顾问确认**无需修改**的项：每会话独立 services + 共享 modelRuntime；新/冷模型语义分离；同 threadId 并发冷打开去重与 generation 清理；普通订阅的快照-实时边界；事件穷尽检查有效性；Host UI 正常结算幂等与 timer/signal 清理；不因「无 LRU」将缓存容量升级为阻塞。

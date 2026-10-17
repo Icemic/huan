@@ -15,6 +15,9 @@ import { unlink } from 'node:fs/promises'
 import {
   type AgentSession,
   createAgentSessionFromServices,
+  ExtensionRunner,
+  ModelRegistry,
+  type ResourceLoader,
   SessionManager,
 } from '@earendil-works/pi-coding-agent'
 import type {
@@ -90,9 +93,40 @@ type ThreadRecord = {
   turnIndex: number
   workspacePath: string
   lastError: string | undefined
+  /** 该会话的资源加载器（用于 dispose 时补发 session_shutdown）。 */
+  resourceLoader: ResourceLoader
+  /** 在途发送（含预检阶段），取消/删除需使它们全部失效并等待退出。 */
+  inFlight: Set<InFlightSend>
+}
+
+type InFlightSend = {
+  /** 已确认被接受（started/queued/handled）。 */
+  accepted: boolean
+  /** 已被取消（取消后不得再启动运行）。 */
+  cancelled: boolean
+  /** 预检完成（无论接受或失败）；用于删除时等待退出。 */
+  finished: Promise<void>
+  /** 标记预检完成（内部使用）。 */
+  markFinished: () => void
 }
 
 type StartingSend = { cancelled: boolean }
+
+/** 给承诺加超时（0 或负数表示不设超时）。 */
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  if (!(timeoutMs > 0)) return promise
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label}超时（${timeoutMs}ms）`)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 export async function createHarnessHost(options: HarnessHostOptions): Promise<HarnessHost> {
   const workspacePath = options.workspacePath
@@ -109,12 +143,19 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (diagnostic.type !== 'info') diagnostics.push(`启动装配：${diagnostic.message}`)
   }
   const startRefresh = options.refreshCatalogOnStart ?? true
+  const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
   if (startRefresh) {
     try {
-      const { errors } = await refreshModelCatalog(modelRuntime, {
-        allowNetwork: true,
-      })
-      diagnostics.push(...errors.map((message) => `模型目录刷新：${message}`))
+      // 联网刷新可能因扩展 provider 的远程拉取而长期挂起；超时后放弃等待
+      // （目录保留缓存内容，服务照常启动）。
+      await withTimeout(
+        refreshModelCatalog(modelRuntime, { allowNetwork: true }),
+        refreshTimeoutMs,
+        '模型目录刷新',
+      ).then(
+        ({ errors }) => diagnostics.push(...errors.map((message) => `模型目录刷新：${message}`)),
+        (error: unknown) => diagnostics.push(`模型目录刷新失败：${String(error)}`),
+      )
     } catch (error) {
       diagnostics.push(`模型目录刷新失败：${String(error)}`)
     }
@@ -178,6 +219,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   const invalidateCatalog = (cwd: string = workspacePath) => {
     catalogCache.delete(cwd)
+    // 同时丢弃冷路径的元数据缓存，避免删除/更名后仍读到旧值。
+    for (const [threadId, info] of catalogInfoByThreadId) {
+      if (info.cwd === cwd || info.cwd === '') catalogInfoByThreadId.delete(threadId)
+    }
   }
 
   const findSessionInfo = async (threadId: string): Promise<SessionCatalogInfo | undefined> => {
@@ -306,12 +351,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
-    const { session } = await createAgentSessionFromServices({
+    const { session, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
       // 新会话用默认模型；冷打开不传，由 SDK 从会话记录恢复。
       ...(opts.isNew && resolvedDefault ? { model: resolvedDefault } : {}),
     })
+    // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
+    if (modelFallbackMessage) {
+      diagnostics.push(`模型回退（${cwd}）：${modelFallbackMessage}`)
+    }
 
     if (openWasCancelled(opts.signal, openedGeneration)) {
       session.dispose()
@@ -329,6 +378,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       turnIndex: -1,
       workspacePath: cwd,
       lastError: undefined,
+      resourceLoader: services.resourceLoader,
+      inFlight: new Set(),
     }
 
     const uiBridge = createHostUiBridge({
@@ -343,8 +394,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       emitResolved: (requestId: string) => {
         emit(record, { type: 'extension_ui_resolved', requestId })
       },
+      onNotify: (message, type) => {
+        // 装配期的自动忽略等提示：记入诊断（无订阅者时也能被应用看到）。
+        if (type !== 'info') diagnostics.push(`Host UI（${cwd}）：${message}`)
+      },
     })
     record.uiBridge = uiBridge
+
+    // 装配期：session_start handler 发起的阻断请求立即结算（record 尚未发布）。
+    uiBridge.setStartup(true)
 
     try {
       await session.bindExtensions({
@@ -384,6 +442,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
     records.set(threadId, record)
     if (session.sessionFile) recordsBySessionFile.set(session.sessionFile, record)
+    // record 已发布：后续阻断请求输送到订阅者。
+    uiBridge.setStartup(false)
     return record
   }
 
@@ -428,8 +488,34 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   }
 
   // ---- 发送 ----
-  const send = async (record: ThreadRecord, input: HarnessSendMessageInput) => {
+  /**
+   * 发送一次 prompt，返回「输入已被接受」的承诺（不等待运行结束）。
+   *
+   * 预检取消兜底：SDK 的 `abort()` 只在 `_isAgentRunActive` 为真时记录中止意图，
+   * 而预检（input hook / 认证检查 / before_agent_start）期间该标志尚未置位，
+   * 因此取消必须由宿主在预检结束后自行拦截——若已取消，则立即 abort，
+   * 阻止 `_runAgentPrompt()` 真正启动模型调用。
+   */
+  const send = async (
+    record: ThreadRecord,
+    input: HarnessSendMessageInput,
+    isCancelled: () => boolean,
+  ): Promise<void> => {
     assertActive()
+
+    let resolveFinished: () => void = () => {}
+    const finished = new Promise<void>((resolve) => {
+      resolveFinished = resolve
+    })
+    const inFlight: InFlightSend = {
+      accepted: false,
+      cancelled: false,
+      finished,
+      markFinished: () => resolveFinished(),
+    }
+    record.inFlight.add(inFlight)
+
+    // 预检承诺：接受（含入队）或被拒绝时结算一次。
     let settlePreflight: (error?: unknown) => void = () => {}
     let preflightSettled = false
     const accepted = new Promise<void>((resolve, reject) => {
@@ -449,22 +535,39 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       .prompt(input.content, {
         ...(input.attachments?.length ? { images: input.attachments } : {}),
         ...(streamingBehavior ? { streamingBehavior } : {}),
-        preflightResult: () => settlePreflight(),
+        preflightResult: () => {
+          inFlight.accepted = true
+          settlePreflight()
+          // 预检期间被取消：必须等 SDK 进入运行态后再 abort。
+          // `_runAgentPrompt()` 在回调返回后才会置 `_isAgentRunActive` 并建立
+          // agent 的 activeRun（abortController），因此这里用微任务延后到下一轮
+          // 事件循环，确保 abort 命中真实的运行（同步调用会被随后的状态重置吞掉）。
+          if (isCancelled() || inFlight.cancelled) {
+            queueMicrotask(() => {
+              void record.session.abort().catch(() => {})
+            })
+          }
+        },
       })
       .then(() => {
         settlePreflight()
-        record.lastError = undefined
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         record.lastError = message
-        if (preflightSettled) emit(record, { type: 'error', error: message })
-        else settlePreflight(error)
+        if (preflightSettled) {
+          emit(record, { type: 'error', error: message })
+        } else {
+          settlePreflight(error)
+        }
+      })
+      .finally(() => {
+        record.inFlight.delete(inFlight)
+        inFlight.markFinished()
       })
 
     try {
       await accepted
-      record.lastError = undefined
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       record.lastError = message
@@ -484,14 +587,20 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (!sessionFile) throw new Error(`Unknown thread: ${threadId}`)
 
     if (record) {
-      // 运行中删除：先中止（等待收尾），再 dispose，最后删除文件。
+      // 1) 使在途发送（含预检）失效，避免删除后仍启动运行。
+      for (const pending of record.inFlight) pending.cancelled = true
+      // 2) 先解除阻断式 UI 等待，否则 abort 可能等一个永不应答的对话（工具在等 UI）。
+      record.uiBridge.dismissAll()
+      // 3) 中止运行并等待收尾（此时工具/UI 已不再阻断）。
       try {
         await record.session.abort()
       } catch {
         // 已空闲或中止失败不阻断删除。
       }
+      // 4) 等待在途发送的预检退出（它们不再启动运行）。
+      await Promise.allSettled([...record.inFlight].map((pending) => pending.finished))
       record.unsubscribe()
-      record.uiBridge.dismissAll()
+      await emitShutdown(record, 'quit')
       record.session.dispose()
       records.delete(threadId)
       recordsBySessionFile.delete(sessionFile)
@@ -504,6 +613,32 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (cwd) invalidateCatalog(cwd)
   }
 
+  /**
+   * 补发 `session_shutdown`。
+   *
+   * SDK 的 `AgentSession.dispose()` 只做 abort 与内部清理，不发 shutdown 事件；
+   * 官方 runtime 在销毁前显式发它（`agent-session-runtime.js`）。扩展若在
+   * `session_start` 建连接/定时器并在 `session_shutdown` 释放，缺这一步会泄漏。
+   */
+  const emitShutdown = async (
+    record: ThreadRecord,
+    reason: 'quit' | 'reload' | 'new' | 'resume' | 'fork',
+  ): Promise<void> => {
+    try {
+      const extensionsResult = record.resourceLoader.getExtensions()
+      const runner = new ExtensionRunner(
+        extensionsResult.extensions,
+        extensionsResult.runtime,
+        record.workspacePath,
+        SessionManager.open(record.session.sessionFile ?? ''),
+        new ModelRegistry(modelRuntime),
+      )
+      await runner.emit({ type: 'session_shutdown', reason })
+    } catch (error) {
+      diagnostics.push(`session_shutdown（${record.workspacePath}）：${String(error)}`)
+    }
+  }
+
   const client: HarnessClient = {
     async listThreads(input) {
       assertActive()
@@ -513,7 +648,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         .map((info) => {
           const live = records.get(info.id)
           if (live) return metadataOf(live)
-          return mapSessionInfo(info, { liveStatus: 'idle' })
+          // 冷条目也要叠加归档标记（过滤与呈现口径一致）。
+          return {
+            ...mapSessionInfo(info, { liveStatus: 'idle' }),
+            ...(archivedSessionFiles.has(info.path) ? { archived: true } : {}),
+          }
         })
     },
 
@@ -524,7 +663,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       const record = await openSession(sessionManager, cwd, { isNew: true })
       invalidateCatalog(cwd)
       if (input?.title) record.session.setSessionName(input.title)
-      if (input?.initialMessage) await send(record, input.initialMessage)
+      if (input?.initialMessage) await send(record, input.initialMessage, () => false)
       return snapshotOf(record)
     },
 
@@ -552,7 +691,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
           emit(record, { type: 'agent_end', cancelledBeforeStart: true })
           return
         }
-        await send(record, input)
+        // 取消判断合并两个来源：冷打开窗口的 token 与 record 上的在途取消标记。
+        await send(record, input, () => token.cancelled)
       } finally {
         tokens.delete(token)
         if (tokens.size === 0) startingSends.delete(threadId)
@@ -562,7 +702,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     async cancelRun(threadId) {
       const tokens = startingSends.get(threadId)
       if (tokens) for (const token of tokens) token.cancelled = true
-      await records.get(threadId)?.session.abort()
+      const record = records.get(threadId)
+      if (!record) return
+      // 同时标记在途发送（含预检），使它们在预检结束后不再启动运行；
+      // 并解除阻断式 UI 等待（否则运行可能在等一个永不应答的对话）。
+      for (const pending of record.inFlight) pending.cancelled = true
+      record.uiBridge.dismissAll()
+      await record.session.abort()
     },
 
     async clearQueue(threadId) {
@@ -712,8 +858,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       for (const pending of pendingOpens.values()) pending.controller.abort()
       pendingOpens.clear()
       for (const record of [...records.values()]) {
-        record.unsubscribe()
+        // 使在途发送失效，并解除阻断式 UI 等待（避免 abort 等不到对话）。
+        for (const pending of record.inFlight) pending.cancelled = true
         record.uiBridge.dismissAll()
+        try {
+          await record.session.abort()
+        } catch {
+          // 单个会话中止失败不阻断其余清理。
+        }
+        record.unsubscribe()
+        await emitShutdown(record, 'quit')
         record.session.dispose()
       }
       records.clear()

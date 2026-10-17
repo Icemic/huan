@@ -43,6 +43,15 @@ export type HostUiBridge = {
     dismissed?: boolean
   }) => boolean
   dismissAll: () => void
+  /**
+   * 装配期策略开关。
+   *
+   * openSession 在 `bindExtensions()` 期间会等待 `session_start` 扩展 handler；
+   * 若扩展在其中发起阻断式 UI 请求，而此时 record 尚未发布（无订阅者、应答接口
+   * 也找不到桥），就会永久挂起。因此装配期（startup=true）阻断请求立即以默认值
+   * 结算，record 发布后切回正常模式。
+   */
+  setStartup: (startup: boolean) => void
 }
 
 type PendingEntry = {
@@ -60,18 +69,24 @@ const valueOrUndefined = (response: { value?: string }): string | undefined => r
 
 export function createHostUiBridge(deps: HostUiBridgeDeps): HostUiBridge {
   const pendingById = new Map<string, PendingEntry>()
+  let startup = true
 
   /**
    * 注册一个阻断式请求并返回承诺（应答/中止/超时/取消时结算）。
-   * dismissValue 为中止或超时时的兜底返回值。
+   * dismissValue 为中止或超时时的兜底返回值；装配期直接以该值结算。
    */
   const ask = <T>(
     request: HarnessHostUiRequest,
     toNative: (response: { confirmed?: boolean; value?: string }) => T,
     dismissValue: T,
     opts?: { signal?: AbortSignal; timeout?: number },
-  ): Promise<T> =>
-    new Promise<T>((resolvePromise) => {
+  ): Promise<T> => {
+    // 装配期不阻断：直接以默认值结算并记录（避免 openSession 永久挂起）。
+    if (startup) {
+      deps.onNotify?.(`装配期 UI 请求（${request.kind}）已自动忽略：${request.title}`, 'warning')
+      return Promise.resolve(dismissValue)
+    }
+    return new Promise<T>((resolvePromise) => {
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -107,6 +122,7 @@ export function createHostUiBridge(deps: HostUiBridgeDeps): HostUiBridge {
       }
       deps.emitRequest(request)
     })
+  }
 
   /** 关联字段：toolCallId / timeoutMs 缺席时不写入，保持载荷干净。 */
   const correlation = (opts?: { timeout?: number }) => {
@@ -200,6 +216,9 @@ export function createHostUiBridge(deps: HostUiBridgeDeps): HostUiBridge {
     },
     dismissAll: () => {
       for (const entry of [...pendingById.values()]) entry.dismiss()
+    },
+    setStartup: (value: boolean) => {
+      startup = value
     },
   }
 }
