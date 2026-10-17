@@ -4,7 +4,7 @@ import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
 import { loadConfig } from './config.js'
 import { resolveDefaultModel } from './model-resolution.js'
-import { createSecurityMiddleware } from './security.js'
+import { createHostGuard, createSecurityMiddleware } from './security.js'
 
 const config = loadConfig()
 const defaultModel = await resolveDefaultModel(config)
@@ -21,8 +21,10 @@ const piClient = createPiNodeClient({
 
 const app = new Hono()
 
-// 统一鉴权与来源校验（健康检查除外，便于探活）。
-app.get('/api/pi/health', (c) => c.json({ ok: true, workspacePath: config.workspacePath }))
+// 健康检查（不需要凭证，便于探活；不携带工作目录等敏感信息）。
+// Host 校验先于健康检查注册，防 DNS rebinding 覆盖全部端点；Origin/token 校验在其后。
+app.use('/api/pi/*', createHostGuard(config))
+app.get('/api/pi/health', (c) => c.json({ ok: true }))
 app.use('/api/pi/*', createSecurityMiddleware(config))
 
 app.get('/api/pi/threads', async (c) => {
@@ -100,27 +102,45 @@ app.post('/api/pi/threads/:id/host-ui', async (c) => {
 })
 
 // SSE 事件流：快照优先（?snapshot=false 跳过）；断开只退订，不中止运行。
+// 慢客户端（待写事件超过上限）会被断开，由客户端重连走快照恢复，避免无界积压。
 app.get('/api/pi/threads/:id/events', async (c) => {
   const threadId = c.req.param('id')
   const includeSnapshot = c.req.query('snapshot') !== 'false'
+  const MAX_INFLIGHT_WRITES = 500
 
   return streamSSE(c, async (stream) => {
     let unsubscribe: (() => void) | undefined
-    let closed = false
+    let settled = false
+    let inflight = 0
 
     await new Promise<void>((resolve) => {
-      stream.onAbort(() => {
+      const cleanup = () => {
+        if (settled) return
+        settled = true
         unsubscribe?.()
-        closed = true
         resolve()
-      })
+      }
+
+      stream.onAbort(cleanup)
+
       unsubscribe = piClient.subscribe(
         threadId,
         (event) => {
-          if (closed) return
-          void stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {
-            // 客户端已断开，忽略写入失败。
-          })
+          if (settled) return
+          if (inflight >= MAX_INFLIGHT_WRITES) {
+            void stream.close().catch(() => {})
+            cleanup()
+            return
+          }
+          inflight++
+          void stream
+            .writeSSE({ data: JSON.stringify(event) })
+            .catch(() => {
+              // 写入失败（客户端已断开）由 onAbort 兜底清理。
+            })
+            .finally(() => {
+              inflight--
+            })
         },
         { includeSnapshot },
       )

@@ -197,3 +197,26 @@ GET    /api/pi/threads/:id/events      → SSE of PiClientEvent
 
 - 模型选择器恢复真实目录（待 supervisor 缺口修复）。
 - Steer（运行中立即转向）的 UI 手测未覆盖瞬时状态，如需专项验证可在后续迭代补充。
+
+### 顾问 review 修复（2026-10-17）
+
+对迭代②做了一次顾问 code review，逐条甄别后用实测裁决（而非照单全收）。**已修复并验证**：
+
+| 问题 | 修复 | 验证 |
+| --- | --- | --- |
+| Host 校验缺失（DNS rebinding） | `security.ts` 拆出 `createHostGuard`，在健康检查**之前**注册，覆盖全部端点 | 伪造 `Host` 请求 health/threads 均 403；正常请求 200 |
+| SSE 无背压 | `index.ts` 加 inflight 上限（500 条），超限断开连接，由客户端重连走快照恢复 | 代码审查（并发极限场景未构造） |
+| 端口未校验 | `config.ts` 新增 `parsePort`，非法值带变量名报错 | 非法值启动即报错 |
+| 健康检查泄露工作目录 | 改为仅返回 `{ ok: true }` | 响应体确认 |
+| token 未接线前端 | Vite `define` 注入 `HUAN_TOKEN` → `createPiHttpClient({ headers })`，HTTP 与 SSE 均携带 | 三态：无 token 401 / 错误 401 / 正确 200 |
+| 模型解析错误不分态 | `model-resolution.ts` 区分「未配置（undefined，不阻断启动）」与「已配置但找不到（抛错并报告归档目录刷新错误）」 | 代码审查 + 探针实测 |
+| 注释与文档不准确 | 修正「SDK 不加载扩展」的错误表述（实测：SDK 会加载扩展但**不消费** provider 注册），同步 dev-guide §7.2 | 探针实测（`extensions.length=1`、`pendingProviderRegistrations=0`、会话模型 `unknown/unknown`） |
+
+**经实测驳回/降级**：
+
+- 「直接不传 model 让 SDK 自行恢复」的建议不可行：会话内部运行时看不到扩展 provider，会报 "No models available"。已改为打探针确认可行路径（见下方缺口 3）。
+- vendor 补丁式修法不采纳（与迭代②既定「应用层优先」原则冲突）。
+
+**新增缺口记录**（本轮只记录，公共层固化阶段修复）：
+
+3. **历史会话模型被覆盖**（顾问标为阻塞级，实测确认属实）：supervisor 的 `openSession` 对新建与冷打开统一传 `this.model`；SDK 仅在未传 model 时才恢复会话模型（`sdk.js:93`）。实测：历史会话记录 `my-provider/gpt-5.6-luna`，冷打开后实际运行 `my-provider/deepseek-v4.1-flash`。已验证的可行修法（探针 4 项全通过）：扩展 provider 声明进 `~/.pi/agent/models.json` + 宿主不向 supervisor 传 model（新会话走 settings 默认、历史会话走会话记录恢复）。归入 supervisor 缺口一并处理，详见 `docs/todo.md`。

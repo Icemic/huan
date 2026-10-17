@@ -9,6 +9,10 @@ import { defineConfig } from 'vite'
 // Vite 8 使用 rolldown 与 oxc，Lingui 宏经 @rolldown/plugin-babel 的 preset 接入。
 export default defineConfig({
   plugins: [react(), tailwindcss(), lingui(), babel({ presets: [linguiTransformerBabelPreset()] })],
+  // 访问凭证：宿主与前端读取同一环境变量；留空表示宿主不校验。
+  define: {
+    __HUAN_TOKEN__: JSON.stringify(process.env.HUAN_TOKEN ?? ''),
+  },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),

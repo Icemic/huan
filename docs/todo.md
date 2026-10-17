@@ -81,5 +81,7 @@
 | CI 建立（frozen-lockfile 安装 + check + test + build） | 闭环跑通后按需（顾问 review 延后项） |
 | 宿主访问凭证完整设计 | 迭代②（§3.5 已有基础方案） |
 | `@huan/react` peerDependencies 声明 | 首次实现组件时 |
-| **react-pi supervisor 缺口**：不加载用户扩展，`getAvailableModels` 与 `setModel` 拿不到扩展注册的 provider（如 my-provider）。当前对策：模型选择器用本地 mock（`pi-model-selector.tsx`）。正确修法：supervisor 的 `getModelRuntime()` 接入扩展加载（stage 2 自研宿主的既定职责）。处理时机：公共层固化阶段 | |
+| **react-pi supervisor 缺口（模型目录）**：supervisor 的独立 ModelRuntime 不加载用户扩展，`getAvailableModels` 与 `setModel` 拿不到扩展注册的 provider（如 my-provider）。当前对策：模型选择器用本地 mock（`pi-model-selector.tsx`）。正确修法：supervisor 的 `getModelRuntime()` 接入扩展加载（stage 2 自研宿主的既定职责）。处理时机：公共层固化阶段 | |
+| **react-pi supervisor 缺口（历史会话模型覆盖）**：supervisor 的 `openSession` 对「新建」与「冷打开」统一传 `this.model`（宿主传入的默认模型），而 SDK 仅在未传 model 时才从会话记录恢复（`sdk.js:93`）。实测：历史会话记录 `my-provider/gpt-5.6-luna`，冷打开后被强制成默认模型 `my-provider/deepseek-v4.1-flash`。且不能简单去掉 model：会话内部运行时同样看不到扩展 provider，会报 "No models available"。已验证的可行路径：① 扩展 provider 同时声明进 `~/.pi/agent/models.json`（官方自定义 provider 配置格式，所有运行时可见）；② 宿主不向 supervisor 传 model，新建会话走 settings 默认、历史会话走会话记录恢复（探针实测两者均正确）。同样留待公共层固化阶段（自研宿主时一并处理） | |
+| SDK 装配 API `createAgentSessionServices` / `createAgentSessionFromServices`：官方在会话外完成「加载扩展 → 注册 provider/虚拟模型 → refresh 目录」的装配入口（已导出）。当前宿主为手工复现（缺虚拟模型注册），后续自研宿主时改用官方入口简化 | 公共层固化阶段 |
 | Zustand 窗口本地状态：当前无自主状态需要管理（会话选择/草稿均由 react-pi 内部管理）；出现窗口级状态需求（如布局偏好、多窗口差异化视图）时引入 | |

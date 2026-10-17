@@ -106,18 +106,20 @@ pnpm dev          # → http://localhost:8799/
 | --- | --- | --- |
 | `HUAN_PORT` | 8788 | 宿主端口 |
 | `HUAN_WORKSPACE` | `tmp/agent-workspace`（仓库内） | Agent 工作目录 |
+| `HUAN_ALLOWED_HOSTS` | `localhost:8799,127.0.0.1:8799,localhost:<HUAN_PORT>,127.0.0.1:<HUAN_PORT>`（随端口生成） | 允许的 Host（防 DNS rebinding；含直连与经 Vite 代理两种形态） |
 | `HUAN_ALLOWED_ORIGINS` | `http://localhost:8799,http://127.0.0.1:8799` | 允许的来源 |
-| `HUAN_TOKEN` | 空（不校验） | 访问凭证（开发期留空） |
+| `HUAN_TOKEN` | 空（不校验） | 访问凭证（开发期留空）。非空时前端经 Vite `define` 注入同名值并自动带 `x-huan-token` 头；需宿主与前端用同一值启动 |
 | `PI_PROVIDER` / `PI_MODEL_ID` | 无 | 覆盖默认模型；缺省时读取 Pi settings.json |
 | `PI_CODING_AGENT_DIR` | Pi 默认（`~/.pi/agent`） | Pi 配置目录 |
 
-宿主的默认模型解析链路（`server/model-resolution.ts`）：加载用户扩展 → 提取扩展注册的 provider（如自定义 provider）→ 注册进 ModelRuntime → `refresh()` → 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`。**这是必须的**：Pi SDK 不会自动加载扩展，也不读取 settings.json 的默认模型。
+宿主的默认模型解析链路（`server/model-resolution.ts`）：**加载用户扩展 → 提取扩展注册的 provider（原生 provider 与配置 provider）→ 注册进 ModelRuntime → `refresh()` → 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`**。链路分两态：未配置默认模型时返回 `undefined`（不阻断启动）；已配置但解析不到则抛错（早失败，避免「静默无模型」）。这是必须的：**SDK 的 `createAgentSession` 不消费扩展的 provider 注册**（实测会话内运行时解析不到扩展 provider，报 "No models available"；SDK 另提供 `createAgentSessionServices` 官方装配 API，当前未采用，若采用可省去手工复现）。
 
 ### 7.3 认证与模型
 
 - 已通过 `pi /login` 完成认证的机器无需额外配置。
 - 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主中自动可用。
 - 浏览器端的模型选择器目前使用本地 mock（见 `pi-model-selector.tsx` 注释）；原因：react-pi supervisor 的内部 ModelRuntime 未加载扩展，`getAvailableModels` / `setModel` 拿不到自定义 provider，详见 `docs/todo.md` 的 supervisor 缺口条目。
+- **历史会话的模型恢复存在缺口**（react-pi 上游，待公共层固化阶段修复）：冷打开历史会话时，supervisor 会把宿主默认模型强加到该会话上，覆盖会话自身记录的模型。实测复现与可行修法见 `docs/todo.md` 的「supervisor 缺口（历史会话模型覆盖）」条目。当前影响：跨会话恢复后实际使用的模型可能与记录不一致（相同 provider 下功能可用，但可能非用户预期）。
 
 ### 7.4 验证 Host UI 的方法（可复用）
 
