@@ -1,9 +1,9 @@
 import { serve } from '@hono/node-server'
 import { createHarnessHost } from '@huan/core'
 import { Hono } from 'hono'
-import { streamSSE } from 'hono/streaming'
 import { loadConfig } from './config.js'
 import { createHostGuard, createSecurityMiddleware } from './security.js'
+import { createEventsRoute } from './sse.js'
 
 const config = loadConfig()
 const host = await createHarnessHost({
@@ -99,51 +99,7 @@ app.post('/api/pi/threads/:id/host-ui', async (c) => {
 })
 
 // SSE 事件流：快照优先（?snapshot=false 跳过）；断开只退订，不中止运行。
-// 慢客户端（待写事件超过上限）会被断开，由客户端重连走快照恢复，避免无界积压。
-app.get('/api/pi/threads/:id/events', async (c) => {
-  const threadId = c.req.param('id')
-  const includeSnapshot = c.req.query('snapshot') !== 'false'
-  const MAX_INFLIGHT_WRITES = 500
-
-  return streamSSE(c, async (stream) => {
-    let unsubscribe: (() => void) | undefined
-    let settled = false
-    let inflight = 0
-
-    await new Promise<void>((resolve) => {
-      const cleanup = () => {
-        if (settled) return
-        settled = true
-        unsubscribe?.()
-        resolve()
-      }
-
-      stream.onAbort(cleanup)
-
-      unsubscribe = piClient.subscribe(
-        threadId,
-        (event) => {
-          if (settled) return
-          if (inflight >= MAX_INFLIGHT_WRITES) {
-            void stream.close().catch(() => {})
-            cleanup()
-            return
-          }
-          inflight++
-          void stream
-            .writeSSE({ data: JSON.stringify(event) })
-            .catch(() => {
-              // 写入失败（客户端已断开）由 onAbort 兜底清理。
-            })
-            .finally(() => {
-              inflight--
-            })
-        },
-        { includeSnapshot },
-      )
-    })
-  })
-})
+app.get('/api/pi/threads/:id/events', createEventsRoute(piClient))
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: '127.0.0.1' }, (info) => {
   console.log(`[huan] 宿主已启动：http://127.0.0.1:${info.port}`)
