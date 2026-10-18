@@ -37,7 +37,7 @@ huan/
 ├── packages/
 │   ├── protocol/   # @huan/protocol：纯 TS 类型与 schema，无运行时依赖
 │   ├── core/       # @huan/core：Pi SDK 集成与运行时（Node）
-│   ├── react/      # @huan/react：assistant-ui 适配与通用 UI
+│   ├── react/      # @huan/react：浏览器侧运行时（reducer/Controller/hook）+ assistant-ui 适配
 │   └── history/    # @huan/history：Checkpoint/ChangeSet 契约
 ├── apps/
 │   └── harness/    # 通用 Harness 应用（Vite + React 19）
@@ -133,5 +133,5 @@ pnpm dev          # → http://localhost:8799/
 
 ### 7.5 已知行为（非 bug）
 
-- 空闲会话的实时订阅由应用层 `PiLiveSubscription` 组件维持（react-pi 默认只在运行中连接）；组件在 `src/components/pi-live-subscription.tsx`，依赖运行时内部对象中的 `controller`（未在公共类型声明，已用类型断言标注）。
-- 队列（steer / follow-up）只做展示，不提供逐项操作（react-pi 无逐项 API，只支持整体清空）。
+- 空闲会话的实时订阅由应用层 `PiLiveSubscription` 组件维持（运行时默认只在运行中自动连接）；组件在 `src/components/pi-live-subscription.tsx`，调用 `@huan/react` 的 `useHarnessExtras().connect()`（M2 起为公共类型声明的能力）。
+- 队列（steer / follow-up）只做展示，不提供逐项操作（Pi 无逐项 API，只支持整体清空）。

@@ -1,4 +1,5 @@
-import { type PiThinkingLevel, usePiRuntimeExtras, usePiSession } from '@assistant-ui/react-pi'
+import type { HarnessThinkingLevel } from '@huan/protocol'
+import { useHarnessExtras, useHarnessSession } from '@huan/react'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import {
   type ModelOption,
@@ -7,7 +8,7 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/assistant-ui/elements/model-selector.aui'
-import { piHttpClient } from './pi-http-client'
+import { harnessHttpClient } from './pi-http-client'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
 
 type CatalogModel = {
@@ -18,8 +19,8 @@ type CatalogModel = {
 }
 
 /**
- * react-pi 在空白会话（尚未创建后端会话）时的占位 threadId。
- * 来源：`EMPTY_THREAD_STATE = createPiThreadState("__pending__")`。
+ * 运行时在空白会话（尚未创建后端会话）时的占位 threadId。
+ * 来源：`EMPTY_THREAD_STATE = createHarnessThreadState("__pending__")`。
  */
 const PENDING_THREAD_ID = '__pending__'
 
@@ -46,13 +47,13 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
  * 当前值来自当前会话 metadata.config；切换经 extras.setModel / setThinkingLevel。
  *
  * 新会话（空白页，threadId 为占位值）的特殊处理：
- * react-pi 此时使用 NOOP controller，`setModel` 是空操作（会被静默丢弃）。
+ * 运行时此时使用 NOOP controller，`setModel` 是空操作（会被静默丢弃）。
  * 因此把选择写入草稿 store，由包装客户端在创建请求中携带（见 pi-http-client.ts），
  * 保证首条消息就使用选定模型。
  */
 export function PiModelSelector() {
-  const session = usePiSession()
-  const extras = usePiRuntimeExtras()
+  const session = useHarnessSession()
+  const extras = useHarnessExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
 
   // 草稿（模块级 store，同步可读）；订阅以便展示即时反馈。
@@ -60,7 +61,7 @@ export function PiModelSelector() {
 
   useEffect(() => {
     let active = true
-    piHttpClient
+    harnessHttpClient
       .getAvailableModels()
       .then((infos) => {
         if (active) setModels(toModelOptions(infos as readonly CatalogModel[]))
@@ -117,10 +118,10 @@ export function PiModelSelector() {
       onEffortChange={(level) => {
         if (isPendingThread) {
           // 新会话：Thinking 级别一并写入草稿（随创建请求应用）。
-          if (draft) setDraftModel({ ...draft, thinkingLevel: level as PiThinkingLevel })
+          if (draft) setDraftModel({ ...draft, thinkingLevel: level as HarnessThinkingLevel })
           return
         }
-        void extras.setThinkingLevel(level as PiThinkingLevel)
+        void extras.setThinkingLevel(level as HarnessThinkingLevel)
       }}
     >
       <ModelSelectorTrigger>

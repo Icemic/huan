@@ -1,4 +1,4 @@
-import { usePiThreadState } from '@assistant-ui/react-pi'
+import { useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
@@ -8,7 +8,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 
 /** 就绪度横幅：模型/凭据不可用时给出提示。 */
 function ReadinessBanner() {
-  const readiness = usePiThreadState((state) => state.readiness)
+  const readiness = useHarnessThreadState((state) => state.readiness)
   if (!readiness || readiness.state === 'ready') return null
   return (
     <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive">

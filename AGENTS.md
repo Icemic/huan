@@ -10,10 +10,10 @@
 - **公共包**（命名空间 `@huan/*`）：
   - `packages/protocol` — 纯 TS 类型与 schema，无运行时依赖；
   - `packages/core` — Pi SDK 集成与运行时（Node）；
-  - `packages/react` — assistant-ui 适配与通用会话 UI；
+  - `packages/react` — 浏览器侧运行时（reducer/投影/Controller/hook）与 assistant-ui 适配；
   - `packages/history` — Checkpoint/ChangeSet 契约。
 - **应用**：`apps/harness` — 通用 Harness 应用（Vite + React 19 + Tailwind v4 + Lingui + Zustand）。
-- **Agent 核心**：Pi Coding Agent SDK；聊天 UI 基座 assistant-ui（含 react-pi 适配）。
+- **Agent 核心**：Pi Coding Agent SDK；聊天 UI 基座 assistant-ui（运行时已自研，不再依赖 react-pi）。
 - **依赖方向**（强制）：`apps/*` → `@huan/core|react|history` → `@huan/protocol`；`core`/`protocol` 不依赖 React，`react` 不依赖 Node。
 - **开发期约定**：包 `exports` 直指 `src/index.ts`（源码直引、零构建，详见 dev-guide §4.1）。
 - **依赖卫生**：`pnpm-workspace.yaml` 的 `minimumReleaseAge: 4320`（3 天）为硬约束，装包遇到拦截时显式降级而非绕过。

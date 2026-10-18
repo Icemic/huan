@@ -1,20 +1,20 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  createPiThreadState,
-  type PiThreadState,
-  reducePiThreadState,
-} from '@assistant-ui/react-pi'
 import { createHarnessHost, mapSessionEvent } from '@huan/core'
 import type { HarnessAnyClientEvent, HarnessClientEventBody } from '@huan/protocol'
+import {
+  createHarnessThreadState,
+  type HarnessThreadState,
+  reduceHarnessThreadState,
+} from '@huan/react'
 import { describe, expect, it } from 'vitest'
 
 /**
  * 事件回放验证（迭代③设计 §4-8 的第三层，接在「穷尽 + fixture」之后）。
  *
  * 目标：映射结果经 **JSON 往返**（模拟 SSE 传输）后送入**真实消费方 reducer**
- * （react-pi 的 `reducePiThreadState`，apps/harness 当前实际使用的实现），
+ * （自研的 `reduceHarnessThreadState`，apps/harness 当前实际使用的实现），
  * 断言最终状态与权威口径一致（消息、队列、运行状态、错误）。
  *
  * 与 fixture 层的分工：
@@ -26,9 +26,9 @@ import { describe, expect, it } from 'vitest'
  * - **宿主直发**：宿主自行 emit 的事件/状态（快照、error、Host UI、取消标记），
  *   不经映射层（直接构造，与宿主 `emit()` 的形状一致）。
  *
- * 为什么用 react-pi 的 reducer：它当前是 apps/harness 的真实消费路径
- * （`PiRuntimeProvider` → `usePiRuntime`）；迭代④自研 Controller 落地后，
- * 只需替换本文件的 reducer 导入即可复用全部 fixture。
+ * 为什么用自研 reducer：它当前是 apps/harness 的真实消费路径
+ * （`PiRuntimeProvider` → `useHarnessRuntime`）；本文件因此同时覆盖了
+ * 协议 → 传输 → 消费方的完整链路。
  *
  * 注：reducer 依赖事件信封（`threadId` + `seq`）做去重与排序，因此下面统一用
  * `envelope()` 补齐；`seq <= lastSeq` 的事件会被丢弃（这是刻意的幂等设计）。
@@ -44,14 +44,14 @@ function envelope(body: HarnessClientEventBody, seq: number): HarnessAnyClientEv
  * 把事件序列经 JSON 往返（模拟真实传输）后送入 reducer。
  *
  * 类型桥接：协议侧允许「未知事件兜底」（`HarnessAnyClientEvent` 的开放变体），
- * 而 reducer 的入参是窄联合（`PiClientEvent`）。reducer 的 default 分支会对
+ * 而 reducer 的入参是窄联合（`HarnessClientEvent`）。reducer 的 default 分支会对
  * 未知类型只记 seq 并忽略——这正是两侧约定的前向兼容行为，因此此处断言安全。
  */
-function replay(events: readonly HarnessAnyClientEvent[]): PiThreadState {
+function replay(events: readonly HarnessAnyClientEvent[]): HarnessThreadState {
   const transported = JSON.parse(JSON.stringify(events)) as HarnessAnyClientEvent[]
-  let state = createPiThreadState(THREAD_ID)
+  let state = createHarnessThreadState(THREAD_ID)
   for (const event of transported) {
-    state = reducePiThreadState(state, event as Parameters<typeof reducePiThreadState>[1])
+    state = reduceHarnessThreadState(state, event as Parameters<typeof reduceHarnessThreadState>[1])
   }
   return state
 }

@@ -17,7 +17,7 @@
 | 构建 | Vite（应用，rolldown 内核）；tsc --noEmit（类型检查） | 开发服务器与生产构建；包零构建直引源码（见 §2 与 dev-guide §4.1） |
 | 样式 | Tailwind CSS v4 | Utility-first |
 | 基础组件 | shadcn 模式：组件源码拷入项目 | 对话框、按钮、菜单、树等；无头逻辑用 Base UI（默认）或 Radix |
-| 聊天 UI | `@assistant-ui/react` + `@assistant-ui/react-pi` | 逻辑层直接依赖；主题组件经 CLI 拷入 |
+| 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 逻辑层直接依赖；浏览器侧运行时由 `@huan/react` 自研（M2，2026-10-18） |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
 | 代码查看/Diff | Monaco Editor（`monaco-editor`） | 查看 + diff editor（D-21） |
 | 状态管理 | Zustand | 单一 store + selector 订阅；React 外可读写（D-24） |
@@ -43,7 +43,7 @@ huan/
   packages/
     protocol/               # @huan/protocol：纯 TS 类型 + schema，无运行时依赖
     core/                   # @huan/core：Pi SDK 集成、运行时生命周期、命令接口（Node）
-    react/                  # @huan/react：assistant-ui 适配、通用会话 UI、Tool UI registry
+    react/                  # @huan/react：浏览器侧运行时（reducer/投影/Controller/hook）+ assistant-ui 适配
     history/                # @huan/history：Checkpoint/ChangeSet 契约与关联元数据
   apps/
     harness/                # 通用 Harness 应用（首期：Web UI + Node 宿主）
@@ -81,19 +81,23 @@ apps/harness
 - 运行结束以 `agent_settled`（Pi 不会再自动继续）为准，不以最后一个 token 或 socket 关闭为准。
 - Prompt 在流式中必须明确 steer 或 followUp（Pi 语义）；输入队列镜像 Pi 的服务端队列，支持整体清空。
 
-### 3.3 react-pi 采用分步（D-14）
+### 3.3 react-pi 采用分步（D-14）——已落地
 
-**长期边界**（不随计划变化）：公共层最终以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
+**长期边界**（不随计划变化）：公共层以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
 
-**当前状态**：Node 侧已自研（`@huan/core`）；浏览器侧仍消费 `react-pi`（`usePiRuntime`），迁移计划见 `docs/roadmap.md` §2（M2 公共层固化）。
+**当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。
 
-react-pi 已知缺口（调研核对）：无 fork/树导航、队列不可逐条编辑、附件仅图片、不暴露 skills/extensions、恢复仅快照无重放、Node supervisor 目录状态不跨重启持久化。缺口由公共 Controller 或应用功能补齐。
+**移植来源与许可**：`@huan/react` 的运行时实现移植自 `@assistant-ui/react-pi@0.0.29`（MIT）。相对上游的语义改动与第三方许可声明见 `packages/react/THIRD-PARTY-NOTICES.md` 与迭代文档 `2026-10-18-feat-react-controller.md` §5.1。
+
+**内部子路径依赖已切断**：此前 react-pi 经 `@assistant-ui/core/internal` 等子路径引用上游内部工具（实证脆弱：`RunLeases` 在 core@0.3.21 中不存在，0.3.27 才加入）。`@huan/react` 以 `src/vendor/` 下的本地副本替代（11 个工具）。
+
+react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐）：无 fork/树导航、队列不可逐条编辑、附件仅图片、不暴露 skills/extensions、恢复仅快照无重放。
 
 ---
 
 ## 4. 协议与传输（@huan/protocol）
 
-- Node 宿主与 UI 之间的契约以 react-pi 的 `PiClient` 形态为参照（RPC-isomorphic、JSON-safe），**不重新发明**已存在的稳定类型。
+- Node 宿主与 UI 之间的契约以 Pi 的 `PiClient` 形态为参照（RPC-isomorphic、JSON-safe），**不重新发明**已存在的稳定类型。该契约已落在 `@huan/protocol` 的 `HarnessClient`。
 - 约定：
   - 命令（request/response）带 `requestId`；长操作用事件汇报状态。
   - 事件带 `sessionId`、必要时 `runId` / `toolCallId` 与单调序号。
@@ -113,7 +117,7 @@ react-pi 已知缺口（调研核对）：无 fork/树导航、队列不可逐�
 
 实现时必须处理的三个点：
 
-1. **空闲会话的跨窗实时**：react-pi 已知限制——会话为空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力应纳入公共 Controller（见 `roadmap.md` §2.3）。
+1. **空闲会话的跨窗实时**：会话空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力已在 M2 纳入公共 Controller（`useHarnessExtras().connect()`，见 `roadmap.md` §2.3）。
 2. **Host UI 并发响应**：两个窗口可能同时响应同一请求，按「先响应生效、重复响应幂等忽略」处理；验证 bridge 对重复 resolve 的实际行为。
 3. **窗口本地状态不共享**：各窗口的选中会话、输入草稿、滚动位置等属于本地 UI 状态，默认不跨窗同步；仅经 Pi/宿主的状态（消息、运行状态、Host UI 请求、模型配置）全局一致。
 
@@ -165,7 +169,7 @@ apps/harness（页面装配、布局、主题）
   ├── features：会话列表、代码工作区、审查视图、设置
   ├── components/assistant-ui：assistant-ui 主题组件（CLI 拷入后自行维护）
   ├── components/ui：shadcn 模式基础组件（拷入）
-  └── @huan/react：Thread/Composer 通用组件、Tool Renderer Registry、Host UI 渲染扩展点
+  └── @huan/react：浏览器侧运行时（reducer/投影/Controller/hook）+ Thread/Composer 通用组件、Tool Renderer Registry、Host UI 渲染扩展点
 ```
 
 - Tool Renderer Registry：按 `toolName` 或 `rendererId + schemaVersion` 匹配；未命中回退通用卡片（JSON/文本可读）。
@@ -217,7 +221,7 @@ apps/harness（页面装配、布局、主题）
 | 延迟动作缓冲机制（当前为 `_deferredSettledActions` 私有字段）是否仍存在且语义一致 | 取消/退休时的延迟运行拦截（字段缺失时静默降级，但语义变化需重新设计） | 「shutdown handler 提交的延迟运行不得逃逸」、「SDK 已取走的延迟批次」用例 |
 | 消息对象是否仍可能被原地改写（当前为 `_replaceMessageInPlace`） | 快照隔离（`isolateMessages` 的浅复制依据） | 「快照与后续 SDK 改写隔离」用例 |
 | 事件联合是否有新增/变更字段 | 映射层穷尽性（编译期 never 兜底会报错）与回放 fixture | `pnpm typecheck` + `apps/harness/src/event-replay.test.ts` |
-| react-pi 的 reducer 行为 | 消费方状态还原（M2 后改为自研 reducer） | 回放测试全部通过 |
+| react-pi 的 reducer 行为（M2 后为 `@huan/react` 的 reducer） | 消费方状态还原 | 回放测试全部通过 |
 
 **原则**：以契约（截止到行为）为准，不以实现细节（字段名）为准；升级后若有契约变化，先评估影响面再决定适配方案，不直接改断言迁就实现。
 

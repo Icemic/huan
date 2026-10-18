@@ -11,9 +11,9 @@
 
 ### 1.1 里程碑位置
 
-- **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）
+- **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
 - **进行中**：无
-- **下一步**：M2 公共层固化（`@huan/react` 自研 Controller）——详见 `roadmap.md` §2
+- **下一步**：M3 Checkpoint 与变更审查——详见 `roadmap.md` §2
 
 ### 1.2 环境与运行
 
@@ -26,13 +26,27 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check && pnpm test`（当前 88 项测试全绿）。详细信息见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check && pnpm test`（当前 416 项测试全绿）。详细信息见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### 迭代④ M2 公共层固化（✅ 2026-10-18，`feat`）
+
+文档：`docs/iteration/2026-10/2026-10-18-feat-react-controller.md`
+
+- **`@huan/react` 成熟为公共包**：reducer、消息投影、Host UI 辅助、自研 Controller、公共 hook、HTTP/SSE 客户端、载荷校验；`vendor/` 层本地化全部 11 个上游 internal 工具
+- **apps/harness 切换完成**：6 个文件改用 `@huan/react`，`@assistant-ui/react-pi` 依赖已完全移除（0.0.29）
+- **移植策略**：发现 react-pi 的 npm 包同时发布原始 TS 源码与完整测试（`files: ["dist","src","README.md"]`），因此采用「复制源码 + 测试，改类型命名空间」而非参照编译产物重写
+- **测试覆盖**：上游可移植用例 259 项中覆盖 243 项（94%）——`ThreadController` 75+2、`messageProjection` 34+2、`eventSource` 33+5、`threadState` 23+1、`hostUi` 22、`useHarnessRuntime` 系列 21、`httpClient` 33+6、`disposeControllers` 1；新增 vendor 单测 34 项
+- **SSE 链路端到端验证**（roadmap §2.2 退出标准）：`apps/harness/server/sse-link.test.ts` 5 项，覆盖快照优先、live-only 断流恢复、序号重置、同批快照与增量、畸形事件断流恢复；为此把 SSE 路由抽为 `server/sse.ts`
+- **回放测试切换到自研 reducer**：23 项 fixture 全复用
+- **相对上游的语义改动**（顾问已审查）：`subscribe` 改为单订阅（不做 `sharedStreamCache`，顾问确认不会丢必要事件）；删除 Assistant Cloud 分支；`connect()` 提升为 extras 正式能力（替代应用侧类型断言 hack）
+- **第三方许可**：新增 `packages/react/THIRD-PARTY-NOTICES.md`（react-pi / core / store 三方的版权声明与 MIT 全文）
+- 全量 `pnpm check` 全绿（87 文件 lint、6 包类型、416 项测试）
 
 ### 事件回放验证（✅ 2026-10-18，`test`）
 
@@ -102,6 +116,8 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | 会话分支 / 树导航不可用 | Pi 侧数据完整保留，UI 未做（D-15） |
 | 无 Checkpoint / 回滚 | 属 M3 |
 | 会话列表无搜索 | 按需添加 |
+| 已加载会话重新连接不补离线历史 | `connect()` 在 `loadState === 'loaded'` 时用 `snapshot=false`；连接关闭（30 秒宽限）后重连不会补齐离线期间的变化。上游同源行为，详见 `roadmap.md` §5.1 |
+| 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
 
 ---
 
