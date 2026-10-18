@@ -1,108 +1,112 @@
-# 待办
+# 待办与迭代历史
 
 **最后更新**：2026-10-18
-**说明**：当前迭代待办 + 后续里程碑概览。迭代文档见 `docs/iteration/2026-10/`。
+**状态**：迭代**历史**记录 + **当下**环境/状态快照。
+
+**计划请看 `docs/roadmap.md`**（唯一开发计划权威来源）。本文件只回答两个问题：「已经做过什么」与「现在处于什么状态」。
 
 ---
 
-## 当前迭代
+## 1. 当前状态
 
-### 迭代③ 公共层宿主自研（✅ 已完成 2026-10-17）
+### 1.1 里程碑位置
 
-文档：`docs/iteration/2026-10/2026-10-17-feat-core-host.md`
+- **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）
+- **进行中**：无
+- **下一步**：M2 公共层固化（`@huan/react` 自研 Controller）——详见 `roadmap.md` §2
 
-- [x] `@huan/protocol`：协议类型定义 + 版本策略
-- [x] `@huan/core`：`createHarnessHost` 宿主（会话生命周期、事件映射、Host UI 桥）
-- [x] 装配层：共享 modelRuntime + 按 cwd 每会话独立装配 + 诊断呈现
-- [x] 修复：历史会话模型恢复（新/冷语义分离）
-- [x] 修复：模型目录可见（`getAvailableModels`/`setModel` 真实目录）
-- [x] `server/` 迁移（删除 model-resolution）+ 前端模型选择器去 mock
-- [x] 测试：映射穷尽+fixture 单测；集成测试（并发订阅/删除幂等/接受语义）
-- [x] 端到端验证（API 级）+ 文档
-- [x] 竞态测试：预检窗口取消、装配期 dispose、A/B 扩展隔离（含取消语义修复，见「取消语义收敛」迭代）
-- [x] 事件回放验证（映射→JSON 往返→真实 reducer，见「事件回放验证」迭代）
+### 1.2 环境与运行
 
-### 事件回放验证（✅ 已完成 2026-10-18）
+环境的**唯一权威说明**在 `docs/dev-guide.md`（环境要求、常用命令、启动方式、宿主配置、已知陷阱）。
+
+快速启动（两个终端）：
+
+```bash
+pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运行于此）
+pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
+```
+
+验证命令：`pnpm check && pnpm test`（当前 88 项测试全绿）。详细信息见 `dev-guide.md` §2 与 §7。
+
+---
+
+## 2. 迭代历史
+
+按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### 事件回放验证（✅ 2026-10-18，`test`）
 
 文档：`docs/iteration/2026-10/2026-10-18-test-event-replay.md`
 
-- [x] 回放链路：映射层输出 + 宿主直发事件 → JSON 往返 → 真实消费方 reducer（react-pi）
-- [x] fixture 层（22 项）：运行生命周期、流式内容、工具执行、队列、压缩/重试、Host UI、seq 水位线、前向兼容
-- [x] 集成层（1 项）：真实宿主事件流与权威快照对齐（含超时失败条件）
-- [x] 修复：快照隔离（数组 + 消息对象；SDK 会原地改写消息对象）
-- [x] 变异验证：willRetry 丢失 / 重命名清空语义 / 快照活引用 / 消息对象未复制（均被捕获）
+- 回放链路：映射层输出 + 宿主直发事件 → JSON 往返 → 真实消费方 reducer
+- fixture 层 22 项 + 集成层 1 项（真实宿主事件流与权威快照对齐）
+- **修复**：快照隔离（`snapshotOf` 曾引用 SDK 活跃数组；且 SDK 会 `_replaceMessageInPlace` 原地改写消息对象）
+- 变异验证 4 项全部被捕获
 
-### 取消语义收敛与竞态测试（✅ 已完成 2026-10-17）
+### 取消语义收敛与竞态测试（✅ 2026-10-17，`bugfix`）
 
 文档：`docs/iteration/2026-10/2026-10-17-bugfix-cancel-semantics.md`
 
-- [x] 取消语义修复：`agent_settled.aborted` 为权威判据，取消不再误报为失败
-- [x] 预检取消兜底：准入闸门（串行化预检段）+ `agent_start` 中止 + 输入守卫扩展（ALS 归属）
-- [x] 收尾排空：`dispose`/`delete` 等待在途发送退出（5s 上限）+ `retired` 提交点拒收
-- [x] 延迟动作拦截：成员数组清空 + 收尾二次清空 + agent 级兜底订阅（覆盖 SDK `splice` 局部批次）
-- [x] 测试：64 项全绿，含 9 条竞态用例（8 条经变异验证有效）
-- [ ] 遗留：扩展显式 `steer` 路径的排队用例
+- **修复真实缺陷**：用户取消后会话被误标为 `failed` 并广播 error 事件
+- 取消口径：`agent_settled.aborted` 为权威判据；失败结算移至 `agent_settled`
+- 预检取消兜底三层：准入闸门 + 输入守卫扩展（ALS 归属）+ `agent_start` 中止
+- 退休收尾：排空在途发送（5s 上限）；延迟动作三层拦截（含 agent 级兜底订阅）
+- 9 条竞态用例（8 条经变异验证）
 
-### 迭代② 最小闭环应用（✅ 已完成 2026-10-16）
+### 宿主标题口径统一（✅ 2026-10-17，`fix`）
+
+提交 `4060a67`：live 路径读**全文件**首条 user 消息，与冷读口径一致（此前用 `getBranch()`，分支场景下与冷读不一致）。
+
+### 迭代③ 公共层宿主自研（✅ 2026-10-17，`feat`）
+
+文档：`docs/iteration/2026-10/2026-10-17-feat-core-host.md`
+
+- `@huan/protocol`：协议类型定义 + 版本策略
+- `@huan/core`：`createHarnessHost` 宿主（会话生命周期、事件映射、Host UI 桥、模型目录）
+- 装配层：共享 modelRuntime + 按 cwd 每会话独立装配 + 诊断呈现
+- **修复两个 supervisor 缺口**：历史会话模型恢复（新/冷语义分离）、模型目录可见（`getAvailableModels`/`setModel` 走真实目录）
+- `server/` 迁移（删除 model-resolution）+ 前端模型选择器去 mock
+- 端到端验证（API 级）+ 文档
+
+### 迭代② 最小闭环应用（✅ 2026-10-16，`feat`）
 
 文档：`docs/iteration/2026-10/2026-10-15-feat-minimal-loop.md`
 
-- [x] Node 宿主服务（Hono + createPiNodeClient + 官方路由契约 + loopback/Origin/token 安全边界）
-- [x] 默认模型解析（加载用户扩展提取 provider 注册 + 默认模型，自定义 provider 可用）
-- [x] SSE 端点与流式验证（经 Vite 代理逐字输出）
-- [x] 前端接入：usePiRuntime + assistant-ui Thread 主题（含会话列表、Reasoning 折叠）
-- [x] 模型与 Thinking 切换（选择器 UI 已接；目录当前为本地 mock，待 supervisor 装配修复）
-- [x] Host UI：工具卡片审批控件完整闭环（select 验证通过）
-- [x] 中断、Steer / Follow-up、队列展示
-- [x] 多窗口实时同步（应用层 PiLiveSubscription）
-- [x] 断线恢复（快照完整恢复）
-- [x] Lingui 文案接入（应用文案）
-- [x] `server/` tsconfig 与 typecheck 接入
-- [x] Zustand——评估后未实施（无真实需求，推迟至出现窗口级自主状态时）
+- Node 宿主服务（Hono + 官方路由契约 + loopback/Origin/token 安全边界）
+- 默认模型解析（加载用户扩展提取 provider 注册，自定义 provider 可用）
+- SSE 端点与流式验证（经 Vite 代理逐字输出）
+- 前端接入：usePiRuntime + assistant-ui Thread 主题（会话列表、Reasoning 折叠）
+- 模型与 Thinking 切换、Host UI 审批闭环、中断 / Steer / Follow-up / 队列展示
+- 多窗口实时同步（应用层 `PiLiveSubscription`）、断线恢复
+- Lingui 文案接入、`server/` tsconfig 与 typecheck 接入
+
+### 迭代① monorepo 骨架（✅ 2026-10-15，`feat`）
+
+文档：`docs/iteration/2026-10/2026-10-15-feat-monorepo-skeleton.md`
+
+- pnpm workspace、包边界（protocol / core / react / history）、应用脚手架
+- 文档体系、构建 / 测试 / lint 工具链
 
 ---
 
-## 后续里程碑概览
+## 3. 当下已知限制
 
-### M2 Checkpoint 与变更审查（下一里程碑，D-18 优先）
+当前实现中**用户可感知**的限制（技术债与长期计划见 `roadmap.md` §6）：
 
-- [ ] 内容寻址快照后端设计：存储布局、忽略策略、大文件阈值、重命名识别
-- [ ] 快照触发：run / 工具调用边界
-- [ ] ChangeSet 与 manifest diff
-- [ ] Monaco Diff 审查视图（文件级接受/撤销）
-- [ ] 选择性恢复 + 外部改动冲突检测
-- [ ] Provider 契约落地（`@huan/history`）
-
-### M3 日用强化
-
-- [ ] Pi 配置/扩展生态兼容（对照 CLI 加载行为）
-- [ ] 文件树与代码浏览（Monaco 查看）
-- [ ] 常用交互打磨（按真实使用痛点）
-
-### M4 末语工坊接入
-
-- [ ] 设计启动（M4 开始前细化边界，D-17）
-- [ ] Editor Bridge、编辑器上下文工具、专用 Tool UI、事务撤销适配
-
----
-
-## 待细化事项
-
-| 事项 | 计划处理时机 |
+| 限制 | 说明 |
 | --- | --- |
-| 快照存储位置与忽略策略细节 | M2 设计时 |
-| 会话分支 / 树导航 UI | 公共层固化阶段（D-15） |
-| 桌面宿主评估（Electron / Tauri / 其他） | 闭环验收后（D-12） |
-| OS 级沙箱升级（编辑器 Agent） | 面向不可信项目或第三方分发时（D-20） |
-| 附件能力（目前仅图片 passthrough） | 按需求评估 |
-| skills / extensions 在 UI 中的呈现 | 按需求评估 |
-| CI 建立（frozen-lockfile 安装 + check + test + build） | 闭环跑通后按需（顾问 review 延后项） |
-| 宿主访问凭证完整设计 | 迭代②（§3.5 已有基础方案） |
-| `@huan/react` peerDependencies 声明 | 首次实现组件时 |
-| **react-pi supervisor 缺口（历史会话模型覆盖）**：✅ 已由迭代③自研宿主修复（新/冷语义分离，实测验证） | — |
-| **react-pi supervisor 缺口（模型目录）**：✅ 已由迭代③自研宿主修复（官方装配 + 共享 modelRuntime，实测 11 个模型可见） | — |
-| **宿主竞态测试遗留**：✅ 已由「取消语义收敛」迭代完成（预检取消、装配期 dispose、A/B 隔离、入队泄漏、settled 唤醒；变异验证） | — |
-| **事件回放验证**：✅ 已由「事件回放验证」迭代完成（映射→JSON 往返→真实 reducer，22 项 fixture + 1 项集成） | — |
-| **`agentDir` 未用于会话存储**：宿主的 `agentDir` 目前只影响凭据/模型/扩展，`SessionManager.create/list` 仍用全局 sessions 目录（`getDefaultAgentDir()` 推导）。若要求“自定义 Pi 配置目录”完整隔离，需按 `agentDir` 显式传 sessionDir（SDK 未导出 `getDefaultSessionDir`，需自算路径）；否则在文档中明确 `agentDir` 不含 sessions | 下一迭代或按需 |
-| 迭代④：`@huan/react` 边界（公共 hook + 自研 Controller）+ 前端换用 @huan/protocol 类型 | 下一迭代 |
-| Zustand 窗口本地状态：当前无自主状态需要管理（会话选择/草稿均由 react-pi 内部管理）；出现窗口级状态需求（如布局偏好、多窗口差异化视图）时引入 | |
+| `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false） |
+| 归档状态不跨重启 | 内存态标记，重启丢失 |
+| 附件仅图片 | 无其他文件类型支持 |
+| skills / extensions 不暴露 UI | SDK 层已支持加载，界面不呈现 |
+| 会话分支 / 树导航不可用 | Pi 侧数据完整保留，UI 未做（D-15） |
+| 无 Checkpoint / 回滚 | 属 M3 |
+| 会话列表无搜索 | 按需添加 |
+
+---
+
+## 4. 图例
+
+- 迭代文档命名：`docs/iteration/<YYYY-MM>/<YYYY-MM-DD>-<category>-<name>.md`
+- 分类：`feat` / `perf` / `bugfix` / `refactor` / `test`（定义见 `AGENTS.md`）
+- ✅ = 已完成（代码 + 自动化检查 + 文档齐备）；桌面手工检查与发布验证不阻塞迭代完成
