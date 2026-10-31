@@ -12,6 +12,9 @@
  * 单独的事件源类。React store 订阅保持在本地；Controller 只在显式 `connect()`
  * 或需要实时运行的操作时打开事件流。`load()` 是冷读路径，由 `getThread` 播种。
  *
+ * 每次新建传输订阅（显式 connect、发送触发订阅、dispose 后重连）都要求首帧快照：
+ * 断开期间可能错过增量事件，靠 `loadState` 判断会漏掉重连时的历史补齐。
+ *
  * 浏览器安全，不导入任何 Pi SDK 包。
  */
 
@@ -339,6 +342,12 @@ const optimisticUserMessageFromInput = (input: HarnessSendMessageInput): Harness
   timestamp: Date.now(),
 })
 
+const countQueuedContents = (contents: readonly string[]) => {
+  const counts = new Map<string, number>()
+  for (const content of contents) counts.set(content, (counts.get(content) ?? 0) + 1)
+  return counts
+}
+
 /** 仅基于文本的 reconcile key：回显的 transcript message 可能带有额外字段
  *（例如增强后的图片内容），因此结构相等判断过于严格；稳定部分是 prompt 文本。 */
 const userContentKey = (message: HarnessAgentMessage): string | null => {
@@ -374,6 +383,9 @@ type PendingSend = {
   controller: AbortController
   accepted: boolean
   queueEntry?: PendingQueueEntry
+  /** 条目仍由本地乐观队列拥有时，指向当前队列对象；权威更新、提升、取消或
+   * 清空后永久解除拥有权。HTTP 是否返回不能判断服务端是否已经消费了条目。 */
+  queueMirror?: HarnessThreadState['queue']
 }
 
 const markStateRunning = (state: HarnessThreadState): HarnessThreadState => {
@@ -464,9 +476,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
 
   public connect() {
     this.connectionRetainers += 1
-    this.ensureEventSubscription({
-      includeSnapshot: this.state.loadState !== 'loaded',
-    })
+    this.ensureEventSubscription()
     return () => {
       this.connectionRetainers = Math.max(0, this.connectionRetainers - 1)
       this.maybeDisconnectFromEvents()
@@ -507,7 +517,9 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     this.disconnectFromEvents()
   }
 
-  private ensureEventSubscription(options?: { includeSnapshot?: boolean }) {
+  /** 新建订阅的唯一入口。已有订阅直接复用（重复 connect 不重建连接）；新建时
+   * 一律请求首帧快照，不按 `loadState` 决定——断开期间的新事件只能靠快照补齐。 */
+  private ensureEventSubscription() {
     this.clearDisconnectTimer()
     if (this.unsubscribeFromEvents) return
     const generation = ++this.eventSubscriptionGeneration
@@ -521,7 +533,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
         }
         this.dispatch(event)
       },
-      options,
+      { includeSnapshot: true },
     )
   }
 
@@ -673,9 +685,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     isQueuedSend: boolean,
     behavior: 'followUp' | 'steer' | undefined,
   ) {
-    this.ensureEventSubscription({
-      includeSnapshot: this.state.loadState !== 'loaded',
-    })
+    this.ensureEventSubscription()
 
     if (isQueuedSend) {
       return this.sendQueued(message, optimisticInput.content, behavior ?? 'followUp')
@@ -708,6 +718,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
       [mode]: [...this.state.queue[mode], content],
     }
     const pending = this.registerPendingSend({ mode, content })
+    pending.queueMirror = optimisticQueue
     this.setState({ ...this.state, queue: optimisticQueue })
 
     try {
@@ -715,8 +726,11 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
         onRunStateResolved: (runIsActive) => {
           if (runIsActive) return
 
+          const ownsEntry = pending.queueMirror === this.state.queue
+          pending.queueEntry = undefined
+          pending.queueMirror = undefined
           const entries = this.state.queue[mode]
-          const index = entries.lastIndexOf(content)
+          const index = ownsEntry ? entries.lastIndexOf(content) : -1
           if (index !== -1) {
             this.setState({
               ...this.state,
@@ -741,13 +755,10 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
 
       if (error === sendQueueClearedError) return
 
-      // 仅当乐观镜像仍与我们写入的内容完全一致时才回滚。此后任何 queue 写入——例如
-      // `queue_update`、（重新）连接或 refresh 时收到的快照、清空操作或并行发送——都会
-      // 替换 queue 对象，此时该条目已无法再通过内容确认属于我们：按 `lastIndexOf` 删除
-      // 可能误删仍然存在的相同消息。之后的 `queue_update` 会自动修复过期条目。
-      const reconciled = this.state.queue !== optimisticQueue
+      // 只删除仍归本地拥有的乐观条目。权威更新可能包含其他窗口发出的同名文本，
+      // 一旦服务端接管，就不能再按文本删除；本地队列变更则会转交其余条目的拥有权。
       const entries = this.state.queue[mode]
-      const index = reconciled ? -1 : entries.lastIndexOf(content)
+      const index = pending.queueMirror === this.state.queue ? entries.lastIndexOf(content) : -1
       this.setState({
         ...this.state,
         ...(!isSendInterruption(error) ? { lastError: errorText(error) } : undefined),
@@ -858,8 +869,8 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
 
   private abortPendingSendsBeforeDispatch() {
     for (const pending of this.pendingSends) {
-      if (pending.accepted) continue
-      pending.controller.abort(sendCancelledError)
+      if (pending.accepted) pending.queueMirror = undefined
+      else pending.controller.abort(sendCancelledError)
     }
   }
 
@@ -869,6 +880,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
       followUp: [],
     }
     for (const pending of this.pendingSends) {
+      pending.queueMirror = undefined
       if (pending.accepted || !pending.queueEntry) continue
       cleared[pending.queueEntry.mode].push(pending.queueEntry.content)
       pending.controller.abort(sendQueueClearedError)
@@ -878,8 +890,8 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
 
   private abortPendingSends() {
     for (const pending of this.pendingSends) {
-      if (pending.accepted) continue
-      pending.controller.abort(sendAbandonedError)
+      if (pending.accepted) pending.queueMirror = undefined
+      else pending.controller.abort(sendAbandonedError)
     }
   }
 
@@ -970,7 +982,15 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
   }
 
   private dispatch(event: HarnessClientEvent) {
-    const next = reduceHarnessThreadState(this.state, event)
+    const reduced = reduceHarnessThreadState(this.state, event)
+    // 只有已接受的权威更新才解除本地拥有权；迟到事件不得改变在途条目的状态。
+    if (reduced !== this.state && event.type === 'queue_update') {
+      for (const pending of this.pendingSends) pending.queueMirror = undefined
+    }
+    const next =
+      reduced !== this.state && event.type === 'snapshot'
+        ? this.restorePendingQueueEntries(reduced)
+        : reduced
     const changed = next !== this.state
     if (changed) {
       if (this.state.runStatus !== 'running' && next.runStatus === 'running') {
@@ -1007,8 +1027,54 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     if (needsSnapshotRefresh) this.refreshInBackground()
   }
 
+  /** 快照是权威状态，但不包含仍在飞行中、尚未到达 Pi 的排队消息。新订阅、重连或
+   * 迟到的 HTTP load 都可能投递这种快照，因此把仍在发送中的乐观条目重新挂回快照
+   * 队列，避免撤销用户刚输入的内容；快照已含相同文本时按数量认领，不重复添加。 */
+  private restorePendingQueueEntries(state: HarnessThreadState): HarnessThreadState {
+    const pending: Array<{ send: PendingSend; entry: PendingQueueEntry }> = []
+    for (const send of this.pendingSends) {
+      if (send.queueEntry && send.queueMirror && !send.controller.signal.aborted) {
+        pending.push({ send, entry: send.queueEntry })
+      }
+    }
+    if (pending.length === 0) return state
+
+    const unclaimed = {
+      steering: countQueuedContents(state.queue.steering),
+      followUp: countQueuedContents(state.queue.followUp),
+    }
+    const restored: Array<{ send: PendingSend; entry: PendingQueueEntry }> = []
+    for (const item of pending) {
+      const counts = unclaimed[item.entry.mode]
+      const available = counts.get(item.entry.content) ?? 0
+      if (available > 0 && item.send.accepted) {
+        // 服务端已排队：永久解除本地拥有权，后续快照为空时也不能复活它。
+        counts.set(item.entry.content, available - 1)
+        item.send.queueMirror = undefined
+        continue
+      }
+      restored.push(item)
+    }
+    if (restored.length === 0) return state
+
+    const queue = {
+      steering: [...state.queue.steering],
+      followUp: [...state.queue.followUp],
+    }
+    for (const item of restored) queue[item.entry.mode].push(item.entry.content)
+    for (const item of restored) item.send.queueMirror = queue
+    return { ...state, queue }
+  }
+
   private setState(next: HarnessThreadState) {
     if (next === this.state) return
+    // 本地新增、提升和失败回滚都不应让其他乐观条目失去拥有权。
+    // 权威更新走 dispatch，拥有权在接管时单独解除，不经过此处转交。
+    if (next.queue !== this.state.queue) {
+      for (const pending of this.pendingSends) {
+        if (pending.queueMirror === this.state.queue) pending.queueMirror = next.queue
+      }
+    }
     if (this.state.runStatus !== 'running' && next.runStatus === 'running') {
       this.runLeases.begin()
     }

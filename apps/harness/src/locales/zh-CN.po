@@ -10,3 +10,107 @@ msgstr ""
 #: src/app.tsx:16
 msgid "Pi 运行时没有可用模型。"
 msgstr "Pi 运行时没有可用模型。"
+
+#: src/components/pi-host-status.tsx:150
+msgid "Provider 来源"
+msgstr "Provider 来源"
+
+#: src/components/pi-host-status.tsx:128
+msgid "会话目录"
+msgstr "会话目录"
+
+#: src/components/pi-host-status.tsx:173
+msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
+msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
+
+#: src/components/pi-host-status.tsx:144
+msgid "启动默认模型"
+msgstr "启动默认模型"
+
+#: src/components/pi-host-status.tsx:103
+msgid "启动默认模型未配置或不可用。可在此选择模型开始新会话，已有历史仍可查看。"
+msgstr "启动默认模型未配置或不可用。可在此选择模型开始新会话，已有历史仍可查看。"
+
+#: src/components/pi-host-status.tsx:99
+msgid "启动默认模型缺少凭据。可在此选择已配置的模型；认证配置修改后需重启宿主。"
+msgstr "启动默认模型缺少凭据。可在此选择已配置的模型；认证配置修改后需重启宿主。"
+
+#: src/components/pi-host-status.tsx:189
+msgid "复制失败，请手工选择信息复制。"
+msgstr "复制失败，请手工选择信息复制。"
+
+#: src/components/pi-host-status.tsx:182
+msgid "复制诊断摘要"
+msgstr "复制诊断摘要"
+
+#: src/components/pi-host-status.tsx:134
+msgid "存储方式"
+msgstr "存储方式"
+
+#: src/components/pi-host-status.tsx:114
+msgid "宿主信息与诊断"
+msgstr "宿主信息与诊断"
+
+#: src/components/pi-host-status.tsx:118
+msgid "工作目录"
+msgstr "工作目录"
+
+#: src/components/pi-host-status.tsx:187
+msgid "已复制"
+msgstr "已复制"
+
+#: src/components/pi-host-status.tsx:159
+msgid "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
+msgstr "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
+
+#: src/components/pi-host-status.tsx:138
+msgid "按工作目录分组"
+msgstr "按工作目录分组"
+
+#: src/components/pi-host-status.tsx:84
+msgid "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
+msgstr "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
+
+#: src/components/pi-host-status.tsx:140
+msgid "显式共享的平铺目录"
+msgstr "显式共享的平铺目录"
+
+#: src/components/pi-host-status.tsx:12
+msgid "显式参数"
+msgstr "显式参数"
+
+#: src/components/pi-host-status.tsx:154
+msgid "模型来源"
+msgstr "模型来源"
+
+#: src/components/pi-host-status.tsx:171
+msgid "模型目录刷新失败，当前目录可能来自缓存。"
+msgstr "模型目录刷新失败，当前目录可能来自缓存。"
+
+#: src/components/pi-host-status.tsx:92
+msgid "正在查询宿主配置…"
+msgstr "正在查询宿主配置…"
+
+#: src/components/pi-host-status.tsx:14
+msgid "环境变量"
+msgstr "环境变量"
+
+#: src/components/pi-host-status.tsx:122
+msgid "用户空间"
+msgstr "用户空间"
+
+#: src/components/pi-host-status.tsx:169
+msgid "资源装配存在警告，详细原因请查看宿主终端。"
+msgstr "资源装配存在警告，详细原因请查看宿主终端。"
+
+#: src/components/pi-host-status.tsx:16
+msgid "配置文件"
+msgstr "配置文件"
+
+#: src/components/pi-host-status.tsx:66
+msgid "重新查询"
+msgstr "重新查询"
+
+#: src/components/pi-host-status.tsx:18
+msgid "默认规则"
+msgstr "默认规则"

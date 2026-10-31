@@ -2,7 +2,7 @@ import { serve } from '@hono/node-server'
 import { createHarnessHost } from '@huan/core'
 import { Hono } from 'hono'
 import { loadConfig } from './config.js'
-import { createHostGuard, createSecurityMiddleware } from './security.js'
+import { registerHostRoutes } from './host-routes.js'
 import { createEventsRoute } from './sse.js'
 
 const config = loadConfig()
@@ -18,11 +18,7 @@ const piClient = host
 
 const app = new Hono()
 
-// 健康检查（不需要凭证，便于探活；不携带工作目录等敏感信息）。
-// Host 校验先于健康检查注册，防 DNS rebinding 覆盖全部端点；Origin/token 校验在其后。
-app.use('/api/pi/*', createHostGuard(config))
-app.get('/api/pi/health', (c) => c.json({ ok: true }))
-app.use('/api/pi/*', createSecurityMiddleware(config))
+registerHostRoutes(app, piClient, config)
 
 app.get('/api/pi/threads', async (c) => {
   const workspacePath = c.req.query('workspacePath') ?? undefined

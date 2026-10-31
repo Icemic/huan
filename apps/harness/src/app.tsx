@@ -2,6 +2,7 @@ import { useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
 import { ThreadList } from '@/components/assistant-ui/elements/thread-list.aui'
+import { PiHostStatus } from '@/components/pi-host-status'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -27,6 +28,7 @@ export function App() {
           <header className="flex items-center gap-3 border-b px-4 py-2">
             <span className="font-semibold">幻</span>
           </header>
+          <PiHostStatus />
           <ReadinessBanner />
           <div className="flex min-h-0 flex-grow">
             <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-r">

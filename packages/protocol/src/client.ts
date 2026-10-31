@@ -9,6 +9,7 @@
  *   并覆盖 prompt 预检窗口（预检期取消不会发出模型请求）；
  *   取消不算失败（不置 lastError、不广播 error 事件）。
  */
+import type { HarnessHostInfo } from './host.js'
 import type {
   HarnessClientEvent,
   HarnessCreateThreadInput,
@@ -22,6 +23,7 @@ import type {
 
 /** 宿主客户端（RPC 形态，JSON-safe）。 */
 export interface HarnessClient {
+  getHostInfo(): Promise<HarnessHostInfo>
   listThreads(input?: {
     workspacePath?: string
     includeArchived?: boolean

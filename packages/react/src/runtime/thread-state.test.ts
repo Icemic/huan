@@ -104,6 +104,51 @@ describe('threadState（线程状态 reducer）', () => {
     ])
   })
 
+  it('运行中快照后直接收到完成消息时仍保留助手回复', () => {
+    const previous = assistant([{ type: 'text', text: 'previous' }])
+    const final = assistant([{ type: 'text', text: 'done' }], { timestamp: 2 })
+    const s = apply(
+      createHarnessThreadState('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: { id: 't1', status: 'running' },
+          messages: [user('hello'), previous],
+        },
+      }),
+      ev({ type: 'message_end', message: final }),
+    )
+    expect(s.messages).toEqual([user('hello'), previous, final])
+    expect(s.streamingMessageIndex).toBeUndefined()
+  })
+
+  it('快照已含完成回复时，后续完成事件不会重复追加', () => {
+    const final = assistant([{ type: 'text', text: 'done' }])
+    const s = apply(
+      createHarnessThreadState('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: { id: 't1', status: 'running' },
+          messages: [user('hello'), final],
+        },
+      }),
+      ev({ type: 'message_end', message: final }),
+    )
+    expect(s.messages).toEqual([user('hello'), final])
+  })
+
+  it('非助手完成事件不替换仍在流式中的助手消息', () => {
+    const partial = assistant([{ type: 'text', text: 'partial' }])
+    const s = apply(
+      createHarnessThreadState('t1'),
+      ev({ type: 'message_start', message: partial }),
+      ev({ type: 'message_end', message: user('other') }),
+    )
+    expect(s.messages).toEqual([partial])
+    expect(s.streamingMessageIndex).toBe(0)
+  })
+
   it('追加非助手消息且不占用流式指针', () => {
     const s = apply(
       createHarnessThreadState('t1'),

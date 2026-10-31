@@ -15,7 +15,7 @@
   "dependencies": {
     "@assistant-ui/react": "^0.15.28",
     "@assistant-ui/react-markdown": "^0.14.22",
-    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@hono/node-server": "^2.1.4",
     "@huan/core": "workspace:*",
     "@huan/protocol": "workspace:*",

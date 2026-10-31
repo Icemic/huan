@@ -31,7 +31,10 @@ export {
 export {
   createHostServices,
   createSharedModelRuntime,
+  type HarnessResourceLoaderOptions,
   listModelCatalog,
   refreshModelCatalog,
   resolveDefaultModel,
 } from './model-catalog.js'
+
+// 测试辅助经子路径 `@huan/core/testing` 显式导入；生产入口不导出测试实现。

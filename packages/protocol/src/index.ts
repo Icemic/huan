@@ -18,11 +18,12 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 1 as const
+export const HARNESS_PROTOCOL_VERSION = 2 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
 export type { HarnessClient } from './client.js'
+export type { HarnessConfigSource, HarnessHostInfo } from './host.js'
 export type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,

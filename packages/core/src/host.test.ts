@@ -1,24 +1,40 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createHarnessHost, type HarnessHost } from './host.js'
+import {
+  createIsolatedPiEnv,
+  type IsolatedPiEnv,
+  installTestFetch,
+  TEST_API_KEY,
+  TEST_BASE_URL,
+  TEST_MODEL_A,
+  TEST_MODEL_B,
+  TEST_PROVIDER,
+  TEST_RESOURCE_ISOLATION,
+  TEST_UNAUTH_MODEL,
+  TEST_UNAUTH_PROVIDER,
+  type TestFetchStub,
+} from './test-support.js'
 
 /**
- * 宿主集成测试：用真实 Pi SDK 但隔离在临时目录，覆盖迭代③设计 §4 的
- * 核心行为（发送接受语义、并发去重、冷打开、删除、模型目录可见性）。
+ * 宿主集成测试：真实 Pi SDK + 隔离的临时用户空间 + 合成 provider。
  *
- * 需要用户 Pi 环境（~/.pi/agent 的 auth.json 与扩展）；在无该环境的机器上
- * 这些用例会因模型目录为空而失败，属预期（本仓库为个人项目，开发机即环境）。
+ * 隔离口径（迭代设计 §4.1）：不读写个人 `~/.pi/agent`；不继承 `PI_*` 环境；
+ * fetch 只应答合成 provider 端点（确定性 SSE），其它请求一律失败并计数。
  */
-const agentDir = join(homedir(), '.pi', 'agent')
+const TESTED_ENV_KEYS = [
+  'PI_PROVIDER',
+  'PI_MODEL_ID',
+  'PI_CODING_AGENT_DIR',
+  'PI_CODING_AGENT_SESSION_DIR',
+] as const
 
+let env: IsolatedPiEnv
 let workspace: string
 let host: HarnessHost
-/** 测试期间直接落盘的探针会话文件（Pi 统一存到用户 sessions 目录，需单独清理）。 */
-const sessionFileToCleanup: string[] = []
 
 /** 等待文件出现（确定性握手：避免用固定睡眠猜执行阶段）。 */
 async function waitForFile(filePath: string, timeoutMs: number): Promise<void> {
@@ -34,31 +50,174 @@ async function waitForFile(filePath: string, timeoutMs: number): Promise<void> {
   throw new Error(`等待文件超时：${filePath}`)
 }
 
-beforeAll(async () => {
-  workspace = await mkdtemp(join(tmpdir(), 'huan-host-test-'))
-  host = await createHarnessHost({
-    workspacePath: workspace,
-    agentDir,
-    // 测试不联网刷新目录（依赖缓存与扩展注册），避免拖慢用例。
+/** 用隔离用户空间创建宿主（测试默认值集中在此，避免漏加隔离项）。 */
+function createTestHost(
+  overrides: Partial<Parameters<typeof createHarnessHost>[0]> = {},
+  targetEnv: IsolatedPiEnv = env,
+): Promise<HarnessHost> {
+  return createHarnessHost({
+    workspacePath: targetEnv.workspace,
+    agentDir: targetEnv.agentDir,
+    // 测试不联网刷新目录（依赖合成 provider 与缓存），避免拖慢用例。
     refreshCatalogOnStart: false,
+    resourceLoaderOptions: TEST_RESOURCE_ISOLATION,
+    ...overrides,
   })
+}
+
+/**
+ * 测试 fixture 的完整生命周期。
+ *
+ * 创建（环境变量隔离 → 临时用户空间 → fetch 桩 → 宿主）与清理放在同一处：
+ * 任何一步失败都先执行与正常结束相同的清理再抛出，避免 beforeAll 失败后
+ * afterAll 二次抛错，并保证临时目录、继承环境与全局 fetch 一定被还原。
+ */
+type HostFixture = {
+  env: IsolatedPiEnv | undefined
+  host: HarnessHost | undefined
+  fetchStub: TestFetchStub | undefined
+  savedEnv: Map<string, string | undefined>
+  disposed: boolean
+}
+
+async function createHostFixture(
+  options: {
+    /** 复用调用方已创建的隔离空间（清理责任同时移交 fixture）；默认新建。 */
+    env?: IsolatedPiEnv
+    /** 创建宿主的工厂（默认使用模块级隔离空间与测试默认值）。 */
+    createHost?: (targetEnv: IsolatedPiEnv) => Promise<HarnessHost>
+  } = {},
+): Promise<HostFixture> {
+  const fixture: HostFixture = {
+    env: undefined,
+    host: undefined,
+    fetchStub: undefined,
+    savedEnv: new Map(),
+    disposed: false,
+  }
+  try {
+    for (const key of TESTED_ENV_KEYS) {
+      fixture.savedEnv.set(key, process.env[key])
+      delete process.env[key]
+    }
+    fixture.env = options.env ?? (await createIsolatedPiEnv('huan-host-test-'))
+    fixture.fetchStub = installTestFetch()
+    const targetEnv = fixture.env
+    fixture.host = await (options.createHost ?? ((testEnv) => createTestHost({}, testEnv)))(
+      targetEnv,
+    )
+    return fixture
+  } catch (error) {
+    await disposeHostFixture(fixture)
+    throw error
+  }
+}
+
+/** 释放 fixture（幂等）：每一步独立执行，互不因前一步失败而跳过。 */
+async function disposeHostFixture(fixture: HostFixture | undefined): Promise<void> {
+  if (!fixture || fixture.disposed) return
+  fixture.disposed = true
+  const failures: unknown[] = []
+  const attempt = async (action: () => unknown) => {
+    try {
+      await action()
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  // 先读取非预期请求证据，避免被后续清理错误掩盖。
+  const unexpected = fixture.fetchStub?.unexpected() ?? []
+  await attempt(() => fixture.host?.dispose())
+  await attempt(() => fixture.fetchStub?.restore())
+  for (const [key, value] of fixture.savedEnv) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+  await attempt(() => fixture.env?.cleanup())
+  if (unexpected.length > 0) {
+    failures.push(new Error(`测试发生非预期网络请求：${unexpected.join('，')}`))
+  }
+  const [first] = failures
+  if (first !== undefined) throw first instanceof Error ? first : new Error(String(first))
+}
+
+let fixture: HostFixture | undefined
+
+beforeAll(async () => {
+  fixture = await createHostFixture()
+  if (!fixture.env || !fixture.host) throw new Error('测试 fixture 初始化不完整')
+  env = fixture.env
+  workspace = env.workspace
+  host = fixture.host
 })
 
 afterAll(async () => {
-  await host.dispose()
-  for (const file of sessionFileToCleanup) {
-    await rm(file, { force: true })
-  }
-  await rm(workspace, { recursive: true, force: true })
+  await disposeHostFixture(fixture)
 })
 
 describe('模型目录（修复②：扩展 provider 可见）', () => {
-  it('返回真实注册表且包含扩展注册的 provider 模型', async () => {
+  it('返回真实注册表且包含合成 provider 模型', async () => {
     const models = await host.getAvailableModels()
     expect(models.length).toBeGreaterThan(0)
     const ids = models.map((model) => `${model.provider}/${model.modelId}`)
-    expect(ids).toContain('my-provider/deepseek-v4.1-flash')
+    expect(ids).toContain(`${TEST_PROVIDER}/${TEST_MODEL_A}`)
+    expect(ids).toContain(`${TEST_PROVIDER}/${TEST_MODEL_B}`)
+    // 缺凭据模型不应出现在可用目录（可见性由 auth 决定）。
+    expect(ids).not.toContain(`${TEST_UNAUTH_PROVIDER}/${TEST_UNAUTH_MODEL}`)
   })
+
+  it('本地临时扩展 registerProvider 注册的 provider 可见并可用于新建会话', async () => {
+    // 回归「扩展注册 provider → 共享 modelRuntime → 目录/会话」的真实链路：
+    // 不依赖个人环境的扩展，扩展文件只落在临时工作区里。
+    const extensionEnv = await createIsolatedPiEnv('huan-host-extension-')
+    const extensionDir = join(extensionEnv.workspace, '.pi', 'extensions')
+    const providerId = 'huan-test-ext'
+    const modelId = 'ext-model'
+    await mkdir(extensionDir, { recursive: true })
+    await writeFile(
+      join(extensionDir, 'register-provider.ts'),
+      `
+export default function (pi) {
+  pi.registerProvider(${JSON.stringify(providerId)}, {
+    name: 'Huan Test Extension Provider',
+    baseUrl: ${JSON.stringify(TEST_BASE_URL)},
+    api: 'openai-completions',
+    apiKey: ${JSON.stringify(TEST_API_KEY)},
+    models: [
+      {
+        id: ${JSON.stringify(modelId)},
+        name: 'Extension Model',
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 16384,
+        maxTokens: 2048,
+      },
+    ],
+  })
+}
+`,
+    )
+
+    let extensionHost: HarnessHost | undefined
+    try {
+      extensionHost = await createTestHost({}, extensionEnv)
+      const ids = (await extensionHost.getAvailableModels()).map(
+        (model) => `${model.provider}/${model.modelId}`,
+      )
+      expect(ids).toContain(`${providerId}/${modelId}`)
+
+      const created = await extensionHost.createThread({
+        model: { provider: providerId, modelId },
+      })
+      expect(created.metadata.config?.provider).toBe(providerId)
+      expect(created.metadata.config?.modelId).toBe(modelId)
+      await extensionHost.deleteThread(created.metadata.id)
+    } finally {
+      await extensionHost?.dispose()
+      await extensionEnv.cleanup()
+    }
+  }, 60_000)
 
   it('模型条目带 provider 与 modelId（JSON-safe 基本形状）', async () => {
     const models = await host.getAvailableModels()
@@ -72,21 +231,21 @@ describe('模型目录（修复②：扩展 provider 可见）', () => {
 describe('会话生命周期', () => {
   it('新建会话使用默认模型（settings/环境变量解析）', async () => {
     const snapshot = await host.createThread()
-    expect(snapshot.metadata.config?.provider).toBe('my-provider')
-    expect(snapshot.metadata.config?.modelId).toBe('deepseek-v4.1-flash')
+    expect(snapshot.metadata.config?.provider).toBe(TEST_PROVIDER)
+    expect(snapshot.metadata.config?.modelId).toBe(TEST_MODEL_A)
     expect(snapshot.readiness?.state).toBe('ready')
     await host.deleteThread(snapshot.metadata.id)
   })
 
   it('创建时显式指定模型（空白页选模型场景）覆盖默认模型', async () => {
     const snapshot = await host.createThread({
-      model: { provider: 'my-provider', modelId: 'gpt-5.6-luna' },
+      model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
     })
-    expect(snapshot.metadata.config?.provider).toBe('my-provider')
-    expect(snapshot.metadata.config?.modelId).toBe('gpt-5.6-luna')
+    expect(snapshot.metadata.config?.provider).toBe(TEST_PROVIDER)
+    expect(snapshot.metadata.config?.modelId).toBe(TEST_MODEL_B)
     // 读回（冷/热一致）。
     const after = await host.getThread(snapshot.metadata.id)
-    expect(after.metadata.config?.modelId).toBe('gpt-5.6-luna')
+    expect(after.metadata.config?.modelId).toBe(TEST_MODEL_B)
     await host.deleteThread(snapshot.metadata.id)
   })
 
@@ -98,7 +257,7 @@ describe('会话生命周期', () => {
 
   it('创建时指定 thinkingLevel 生效（或按模型能力被规范到合法级别）', async () => {
     const snapshot = await host.createThread({
-      model: { provider: 'my-provider', modelId: 'gpt-5.6-luna' },
+      model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
       thinkingLevel: 'low',
     })
     // SDK 会按模型能力规范化级别（可能 clamp 到 off 等），只断言是合法值。
@@ -110,7 +269,7 @@ describe('会话生命周期', () => {
 
   it('首条消息使用创建时指定的模型（initialMessage 路径）', async () => {
     const snapshot = await host.createThread({
-      model: { provider: 'my-provider', modelId: 'gpt-5.6-terra' },
+      model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
       initialMessage: { content: '只回答一个数字：1+1=?' },
     })
     const id = snapshot.metadata.id
@@ -128,18 +287,18 @@ describe('会话生命周期', () => {
           break
         }
       }
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    expect(assistantModel).toBe('my-provider/gpt-5.6-terra')
+    expect(assistantModel).toBe(`${TEST_PROVIDER}/${TEST_MODEL_B}`)
     await host.deleteThread(id)
   }, 90_000)
 
   it('setModel 生效（快照 config 更新）且能切回', async () => {
     const created = await host.createThread()
     const id = created.metadata.id
-    await host.setModel(id, { provider: 'my-provider', modelId: 'gpt-5.6-luna' })
+    await host.setModel(id, { provider: TEST_PROVIDER, modelId: TEST_MODEL_B })
     const after = await host.getThread(id)
-    expect(after.metadata.config?.modelId).toBe('gpt-5.6-luna')
+    expect(after.metadata.config?.modelId).toBe(TEST_MODEL_B)
     await host.deleteThread(id)
   })
 
@@ -216,11 +375,7 @@ describe('标题口径（热/冷一致）', () => {
     expect(live.metadata.title).toBe(prompt)
 
     // 冷读：新建宿主（无 live record，走 session file 路径）。
-    const coldHost = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const coldHost = await createTestHost()
     const cold = await coldHost.getThread(id)
     expect(cold.metadata.title).toBe(prompt)
     await coldHost.dispose()
@@ -256,11 +411,7 @@ describe('标题口径（热/冷一致）', () => {
     const listed = (await host.listThreads()).find((item) => item.id === id)
     expect(listed?.title).toBe(prompt)
 
-    const coldHost = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const coldHost = await createTestHost()
     const cold = await coldHost.getThread(id)
     expect(cold.metadata.title).toBe(prompt)
     const coldListed = (await coldHost.listThreads()).find((item) => item.id === id)
@@ -287,11 +438,7 @@ describe('标题口径（热/冷一致）', () => {
     await host.renameThread(id, '')
     expect((await host.getThread(id)).metadata.title).toBe(prompt)
 
-    const coldHost = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const coldHost = await createTestHost()
     expect((await coldHost.getThread(id)).metadata.title).toBe(prompt)
     expect((await coldHost.listThreads()).find((item) => item.id === id)?.title).toBe(prompt)
     await coldHost.dispose()
@@ -303,21 +450,20 @@ describe('标题口径（热/冷一致）', () => {
     // 构造「文件首条 ≠ 当前分支首条」的会话（不依赖模型生成）：
     // 根下先写 A，再 resetLeaf() 回到「无父节点」，写入 B 作为新根。
     // 此时文件顺序首条是 A，而当前分支（leaf 侧）首条是 B。
-    // 注：使用默认 sessions 目录（宿主的列表/打开均走该目录；自定义目录的
-    // 支持是独立缺口，见 docs/todo.md）。
+    // 注：探针会话显式传隔离会话目录，不依赖进程环境变量。
     const now = Date.now()
     const userMessage = (text: string) => ({
       role: 'user' as const,
       content: [{ type: 'text' as const, text }],
       timestamp: now,
     })
-    const seed = SessionManager.create(workspace)
+    const probeDir = env.defaultSessionDir(workspace)
+    const seed = SessionManager.create(workspace, probeDir)
     seed.appendMessage(userMessage('文件首条 A'))
     seed.resetLeaf()
     seed.appendMessage(userMessage('当前分支首条 B'))
     const sessionFile = seed.getSessionFile()
     if (!sessionFile) throw new Error('无法创建分支探针会话')
-    sessionFileToCleanup.push(sessionFile)
 
     // 先确认构造本身符合预期：全文件首条是 A，当前分支首条是 B。
     const branchTexts = seed
@@ -327,17 +473,15 @@ describe('标题口径（热/冷一致）', () => {
       .filter((message) => message?.role === 'user')
     expect(branchTexts.length).toBeGreaterThan(0)
 
-    const info = (await SessionManager.list(workspace)).find((item) => item.path === sessionFile)
+    const info = (await SessionManager.list(workspace, probeDir)).find(
+      (item) => item.path === sessionFile,
+    )
     if (!info) throw new Error('无法定位探针会话')
     expect(info.firstMessage).toBe('文件首条 A')
     const id = info.id
 
     // 冷读：Pi 全文件顺序的首条 user 消息是 A。
-    const coldHost = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const coldHost = await createTestHost()
     expect((await coldHost.getThread(id)).metadata.title).toBe('文件首条 A')
     await coldHost.dispose()
 
@@ -367,11 +511,7 @@ describe('标题口径（热/冷一致）', () => {
 describe('并发去重与取消', () => {
   it('冷会话的并发订阅共享同一 record（pendingOpens 去重），各自收到快照', async () => {
     // 先在一个宿主里建立含消息的会话（触发落盘），再用第二个宿主进行冷打开。
-    const first = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const first = await createTestHost()
     const created = await first.createThread()
     const id = created.metadata.id
     await first.sendMessage(id, { content: 'reply with the single word: ok' })
@@ -384,11 +524,7 @@ describe('并发去重与取消', () => {
     }
     await first.dispose()
 
-    const second = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const second = await createTestHost()
     const received: Array<{ type: string; threadId: string }> = []
     const unsubscribers = [
       second.subscribe(id, (event) =>
@@ -454,11 +590,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'pause-input.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     // 模型请求计数：断言取消后**零请求**（比「无产出文本」更强，
     // 能捕获「已发出但尚未返回」的请求）。
     const realFetch = globalThis.fetch
@@ -548,11 +680,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'isolate-input.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
 
     try {
@@ -627,11 +755,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'guard-input.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -712,11 +836,7 @@ export default function (pi) {
     // 防回归：闸门若对「正常运行中」也等待结算，steer/follow-up 会被推迟到
     // 整次运行结束后才送达，破坏排队语义（迭代③ §3.3 契约）。
     // 断言：B 在 A 仍流式时即被接受并入队，且 clearQueue 能取回其文本。
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
 
     try {
@@ -824,11 +944,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'trigger-turn.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -903,11 +1019,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'shutdown-trigger.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -986,11 +1098,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'splice-batch.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1058,11 +1166,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'pause-settled.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
 
     try {
@@ -1148,11 +1252,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'pause-deferred.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1259,11 +1359,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'pause-start.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
 
     // 提前挂载结果处理，避免取消后的未处理 rejection。
     let createOutcome: { ok: true } | { ok: false; error: unknown } | undefined
@@ -1302,6 +1398,10 @@ export default function (pi) {
     // 仍可能继续进入 `_runAgentPrompt()` 启动运行（此时宿主已退订，
     // 无 agent_start 可兜底）。宿主的对策是在 `preflightResult('started')`
     // 中检查 retired 并抛出（SDK 不捕获该回调异常，prompt 以拒绝收尾）。
+    //
+    // Pi 1.4 语义：`preflightResult('started')` 在 `_prepareRun()`（含本 hook）
+    // **之后**才回调，因此不能再先 await sendMessage 再等 hook 进入；按语义改为
+    // 先等 hook 进入标记、期间不 await 发送，再 dispose、放行，最后等发送收尾。
     const extensionDir = join(workspace, '.pi', 'extensions')
     await mkdir(extensionDir, { recursive: true })
     const enteredFile = join(workspace, 'before-start-entered')
@@ -1309,7 +1409,9 @@ export default function (pi) {
     const extensionSource = `
 import { existsSync, writeFileSync } from 'node:fs'
 export default function (pi) {
-  pi.on('before_agent_start', async () => {
+  pi.on('before_agent_start', async (event) => {
+    // 1.4 起事件按 messageType 区分（用户输入 / 扩展 custom 消息）：只阻塞用户输入。
+    if (event.messageType !== 'user') return undefined
     writeFileSync(${JSON.stringify(enteredFile)}, 'entered')
     const release = ${JSON.stringify(releaseFile)}
     while (!existsSync(release)) {
@@ -1321,11 +1423,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'pause-before-start.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1339,14 +1437,25 @@ export default function (pi) {
       const id = created.metadata.id
 
       // 发送：停在 before_agent_start（已过输入守卫）。
-      const sending = isolated.sendMessage(id, { content: 'must not reach provider' })
+      // 不 await：1.4 下发送的「已接受」回调要等本 hook 返回。
+      let sendOutcome: unknown = 'pending'
+      const sending = isolated.sendMessage(id, { content: 'must not reach provider' }).then(
+        () => {
+          sendOutcome = 'resolved'
+        },
+        (error: unknown) => {
+          sendOutcome = error
+        },
+      )
       await waitForFile(enteredFile, 20_000)
 
-      // dispose（排空有 5s 上限；此处 hook 仍阻塞，排空必然超时）。
+      // dispose（排空与 abort 各有 5s 上限；此处 hook 仍阻塞，两者都会超时）。
       await isolated.dispose()
       // 放行：若 retired 检查缺失，prompt 会继续启动运行并发出模型请求。
       await writeFile(releaseFile, 'go')
-      await sending.catch(() => {})
+      await sending
+      // 取消/退休属预期结果：发送不得被上报为失败，也不得假成功与否无关。
+      expect(sendOutcome, String(sendOutcome)).toBe('resolved')
       await new Promise((resolve) => setTimeout(resolve, 1_500))
 
       expect(fetchCalls).toBe(0)
@@ -1389,11 +1498,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'ab-marker.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
 
     try {
       const a = await isolated.createThread()
@@ -1476,11 +1581,7 @@ export default function (pi) {
 `
     await writeFile(join(extensionDir, 'replace-message.ts'), extensionSource)
 
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir,
-      refreshCatalogOnStart: false,
-    })
+    const isolated = await createTestHost()
     const realFetch = globalThis.fetch
 
     try {
@@ -1574,4 +1675,49 @@ export default function (pi) {
       await rm(join(extensionDir, 'replace-message.ts'), { force: true })
     }
   }, 90_000)
+})
+
+describe('测试隔离（fixture 生命周期）', () => {
+  it('初始化失败也释放临时空间、还原继承环境与 fetch', async () => {
+    const previousFetch = globalThis.fetch
+    const failedEnv = await createIsolatedPiEnv('huan-fixture-fail-')
+    // 模拟继承的 PI_* 值：清理必须把它恢复（而不是丢弃或泄漏到后续用例）。
+    process.env.PI_PROVIDER = 'inherited-should-be-restored'
+    try {
+      await expect(
+        createHostFixture({
+          env: failedEnv,
+          createHost: async () => {
+            throw new Error('模拟宿主初始化失败')
+          },
+        }),
+      ).rejects.toThrow('模拟宿主初始化失败')
+      // 临时根已删除（初始化失败不残留、不二次抛错）。
+      expect(existsSync(failedEnv.root)).toBe(false)
+      // 继承环境被还原为进入前的值。
+      expect(process.env.PI_PROVIDER).toBe('inherited-should-be-restored')
+      // 全局 fetch 还原为套件自己的确定性桩。
+      expect(globalThis.fetch).toBe(previousFetch)
+    } finally {
+      delete process.env.PI_PROVIDER
+    }
+  }, 30_000)
+
+  it('fetch 桩只应答合成 provider 端点，其它本机地址计入意外请求', async () => {
+    const stub = installTestFetch()
+    try {
+      // 任意其它 localhost 端口都不得被当成成功响应（可能掩盖请求打错端点）。
+      await expect(fetch('http://localhost:1234/v1/chat/completions')).rejects.toThrow(
+        /非预期网络请求/,
+      )
+      expect(stub.unexpected()).toEqual(['http://localhost:1234/v1/chat/completions'])
+
+      const response = await fetch(`${TEST_BASE_URL}/chat/completions`)
+      expect(response.status).toBe(200)
+      expect(stub.calls()).toBe(1)
+      expect(stub.unexpected()).toHaveLength(1)
+    } finally {
+      stub.restore()
+    }
+  })
 })

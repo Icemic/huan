@@ -290,17 +290,28 @@ export const reduceHarnessThreadState = (
     }
 
     case 'message_end': {
-      if (
-        state.streamingMessageIndex !== undefined &&
-        state.streamingMessageIndex < state.messages.length
-      ) {
-        return stamped({
-          ...state,
-          messages: replaceAt(state.messages, state.streamingMessageIndex, event.message),
-          streamingMessageIndex: undefined,
-        })
+      if (!isAssistantMessage(event.message)) return stamped(state)
+      let index = state.streamingMessageIndex
+      // 重连快照只包含已提交消息，可能错过 start 和全部 update，下一条就是 end。
+      // 同一终态若已随快照到达则替换尾部，否则追加；不能猜测 stopReason 是流式标记。
+      if (index === undefined) {
+        const last = state.messages.at(-1)
+        if (
+          isAssistantMessage(last) &&
+          last.timestamp === event.message.timestamp &&
+          last.provider === event.message.provider &&
+          last.model === event.message.model
+        )
+          index = state.messages.length - 1
       }
-      return stamped({ ...state, streamingMessageIndex: undefined })
+      return stamped({
+        ...state,
+        messages:
+          index !== undefined && index < state.messages.length
+            ? replaceAt(state.messages, index, event.message)
+            : [...state.messages, event.message],
+        streamingMessageIndex: undefined,
+      })
     }
 
     case 'tool_execution_start':

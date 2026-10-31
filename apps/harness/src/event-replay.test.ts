@@ -1,7 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { createHarnessHost, mapSessionEvent } from '@huan/core'
+import { createHarnessHost, type HarnessHost, mapSessionEvent } from '@huan/core'
+import {
+  createIsolatedPiEnv,
+  type IsolatedPiEnv,
+  installTestFetch,
+  TEST_RESOURCE_ISOLATION,
+  type TestFetchStub,
+} from '@huan/core/testing'
 import type { HarnessAnyClientEvent, HarnessClientEventBody } from '@huan/protocol'
 import {
   createHarnessThreadState,
@@ -372,44 +376,36 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
    * 这覆盖了 fixture 层无法保证的东西：映射层 + 宿主 emit 的真实组合顺序
    * （快照 → 运行 → 消息流 → 结算）确实能被消费方还原。
    *
-   * 环境要求同宿主集成测试：需要用户 Pi 环境（~/.pi/agent）。
+   * 环境要求：隔离的临时用户空间（合成 provider + 临时会话目录），
+   * 不读写个人 Pi 配置；fetch 使用确定性桩。
    */
   it('一轮真实运行：回放终态与权威快照一致（消息/状态/seq）', async () => {
-    const workspace = await mkdtemp(join(tmpdir(), 'huan-replay-test-'))
-    const isolated = await createHarnessHost({
-      workspacePath: workspace,
-      agentDir: join(homedir(), '.pi', 'agent'),
-      refreshCatalogOnStart: false,
-    })
-    const realFetch = globalThis.fetch
+    // 清除继承的 Pi 环境变量：它们会让合成空间解析出无关的默认模型/目录。
+    const testedKeys = [
+      'PI_PROVIDER',
+      'PI_MODEL_ID',
+      'PI_CODING_AGENT_DIR',
+      'PI_CODING_AGENT_SESSION_DIR',
+    ] as const
+    const savedEnv = new Map<string, string | undefined>()
+    let env: IsolatedPiEnv | undefined
+    let isolated: HarnessHost | undefined
+    let fetchStub: TestFetchStub | undefined
 
     try {
-      // mock 成功 SSE：确定性单轮回复（避免真实模型的多轮工具调用）。
-      globalThis.fetch = (async () => {
-        const chunk = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`
-        const body =
-          chunk({
-            id: 'chatcmpl-replay',
-            object: 'chat.completion.chunk',
-            created: 0,
-            model: 'replay',
-            choices: [
-              { index: 0, delta: { role: 'assistant', content: '你好' }, finish_reason: null },
-            ],
-          }) +
-          chunk({
-            id: 'chatcmpl-replay',
-            object: 'chat.completion.chunk',
-            created: 0,
-            model: 'replay',
-            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-          }) +
-          'data: [DONE]\n\n'
-        return new Response(body, {
-          status: 200,
-          headers: { 'content-type': 'text/event-stream' },
-        })
-      }) as unknown as typeof fetch
+      for (const key of testedKeys) {
+        savedEnv.set(key, process.env[key])
+        delete process.env[key]
+      }
+      env = await createIsolatedPiEnv('huan-replay-test-')
+      isolated = await createHarnessHost({
+        workspacePath: env.workspace,
+        agentDir: env.agentDir,
+        refreshCatalogOnStart: false,
+        resourceLoaderOptions: TEST_RESOURCE_ISOLATION,
+      })
+      // 只应答合成 provider 端点：确定性单轮回复，其它地址一律记为意外请求。
+      fetchStub = installTestFetch('你好')
 
       const created = await isolated.createThread()
       const id = created.metadata.id
@@ -438,6 +434,9 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
       expect(completed, '本轮运行未在超时内完成（无助手消息或状态未回 idle）').toBe(true)
       // 运行不得以失败收场（mock 成功响应下出现 error 说明链路有缺陷）。
       expect(authoritative.lastError).toBeUndefined()
+      // 真实走了一次合成 provider，且没有任何非预期请求被吞掉。
+      expect(fetchStub.calls()).toBeGreaterThan(0)
+      expect(fetchStub.unexpected()).toEqual([])
 
       // 等结算事件落地（agent_settled 在 agent_end 之后，属同一轮的后继）。
       const settledDeadline = Date.now() + 5_000
@@ -481,9 +480,15 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
       // 订阅发生在发送之前：快照不应包含本轮的助手消息。
       expect((snapshotMessages ?? []).some((message) => message.role === 'assistant')).toBe(false)
     } finally {
-      globalThis.fetch = realFetch
-      await isolated.dispose()
-      await rm(workspace, { recursive: true, force: true })
+      await isolated?.dispose()
+      const unexpected = fetchStub?.unexpected() ?? []
+      fetchStub?.restore()
+      await env?.cleanup()
+      for (const [key, value] of savedEnv) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      expect(unexpected, '测试发生非预期网络请求').toEqual([])
     }
   }, 60_000)
 

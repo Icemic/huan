@@ -36,6 +36,9 @@ type FakeClient = HarnessClient & {
   thinkingChanges: Array<{ threadId: string; level: string }>
   hostUiResponses: Array<{ threadId: string; response: unknown }>
   getThreadSnapshot: HarnessThreadSnapshot
+  /** 模拟真实宿主：带快照的订阅在首帧投递当前线程快照。默认关闭，避免影响
+   * 不关心订阅首帧的既有用例。 */
+  snapshotOnSubscribe: boolean
 }
 
 const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClient => {
@@ -53,8 +56,12 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     thinkingChanges: [],
     hostUiResponses: [],
     getThreadSnapshot: initial,
+    snapshotOnSubscribe: false,
     emit(event) {
       for (const l of listeners) l(event)
+    },
+    async getHostInfo() {
+      throw new Error('Controller 不查询宿主信息')
     },
     async listThreads() {
       return []
@@ -91,10 +98,23 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async respondToHostUiRequest(threadId, response) {
       client.hostUiResponses.push({ threadId, response })
     },
-    subscribe(_threadId, listener, options) {
+    subscribe(threadId, listener, options) {
       client.subscribed += 1
       client.subscribeOptions.push(options)
       listeners.add(listener)
+      if (client.snapshotOnSubscribe && options?.includeSnapshot !== false) {
+        // 与真实宿主一致：快照来自订阅建立时刻的服务端状态，异步投递。
+        const current = client.getThreadSnapshot
+        queueMicrotask(() => {
+          if (!listeners.has(listener)) return
+          client.emit({
+            type: 'snapshot',
+            threadId,
+            seq: current.seq ?? 0,
+            snapshot: current,
+          } as HarnessClientEvent)
+        })
+      }
       return () => {
         listeners.delete(listener)
         client.unsubscribed += 1
@@ -143,6 +163,12 @@ const userMessageWithImage = (text: string, image: string) =>
 
 const ev = (body: HarnessClientEventBody, seq: number): HarnessClientEvent =>
   ({ ...body, threadId: THREAD, seq }) as HarnessClientEvent
+
+/** 等待假客户端把订阅首帧快照等微任务投递完（兼容假定时器）。 */
+const flushMicrotasks = async () => {
+  await Promise.resolve()
+  await Promise.resolve()
+}
 
 describe('HarnessThreadController', () => {
   it('seeds state from a snapshot on load and flips loadState', async () => {
@@ -1494,14 +1520,367 @@ describe('HarnessThreadController', () => {
     expect(eventStreams).toBe(2)
   })
 
-  it('skips the initial subscription snapshot after a thread has loaded', async () => {
+  it('requests the subscription snapshot even after a thread has loaded', async () => {
     const client = createFakeClient()
     const controller = new HarnessThreadController(client, THREAD)
 
     await controller.load()
     await controller.sendMessage(userMessage('instant'))
 
-    expect(client.subscribeOptions[0]).toEqual({ includeSnapshot: false })
+    expect(client.subscribeOptions[0]).toEqual({ includeSnapshot: true })
+  })
+
+  it('reuses the open subscription on repeated connect', () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+
+    const first = controller.connect()
+    const second = controller.connect()
+
+    expect(client.subscribed).toBe(1)
+    expect(client.subscribeOptions).toEqual([{ includeSnapshot: true }])
+
+    first()
+    vi.advanceTimersByTime(30_000)
+    expect(client.unsubscribed).toBe(0)
+
+    second()
+    vi.advanceTimersByTime(30_000)
+    expect(client.unsubscribed).toBe(1)
+  })
+
+  it('refills events missed while disconnected from the new subscription snapshot', async () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const before = { role: 'user' as const, content: 'before', timestamp: 1 }
+    const offline = { role: 'user' as const, content: 'offline', timestamp: 2 }
+    const client = createFakeClient(snapshot({ seq: 1, messages: [before] }))
+    client.snapshotOnSubscribe = true
+    const controller = new HarnessThreadController(client, THREAD)
+
+    await controller.load()
+    const release = controller.connect()
+    await flushMicrotasks()
+    expect(controller.getState().messages).toEqual([before])
+
+    release()
+    vi.advanceTimersByTime(30_000)
+    expect(client.unsubscribed).toBe(1)
+
+    // 宽限期结束后确实断开了；离线期间服务端有新增消息。
+    client.getThreadSnapshot = snapshot({ seq: 3, messages: [before, offline] })
+    controller.connect()
+    await flushMicrotasks()
+
+    expect(client.subscribed).toBe(2)
+    expect(client.subscribeOptions[1]).toEqual({ includeSnapshot: true })
+    expect(controller.getState()).toMatchObject({
+      lastSeq: 3,
+      messages: [before, offline],
+    })
+  })
+
+  it('keeps one optimistic message when the send opens a snapshot subscription', async () => {
+    const client = createFakeClient()
+    client.snapshotOnSubscribe = true
+    let releaseSend!: () => void
+    client.sendMessage = async (threadId, input) => {
+      client.sent.push({ threadId, input })
+      await new Promise<void>((resolve) => {
+        releaseSend = resolve
+      })
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+
+    const send = controller.sendMessage(userMessage('hello'))
+    await flushMicrotasks()
+
+    // 订阅首帧快照不含刚发出的消息，乐观消息只能显示一次。
+    expect(client.subscribeOptions[0]).toEqual({ includeSnapshot: true })
+    expect(controller.getProjectedMessages()).toMatchObject([
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+    ])
+
+    client.emit(
+      ev(
+        {
+          type: 'message_start',
+          message: { role: 'user', content: 'hello', timestamp: 2 },
+        },
+        2,
+      ),
+    )
+    expect(
+      controller.getProjectedMessages().filter((message) => message.role === 'user'),
+    ).toHaveLength(1)
+
+    releaseSend()
+    await send
+  })
+
+  it('keeps an in-flight queued send when the new subscription snapshot omits it', async () => {
+    const client = createFakeClient()
+    let releaseSend!: () => void
+    client.sendMessage = async (threadId, input) => {
+      client.sent.push({ threadId, input })
+      await new Promise<void>((resolve) => {
+        releaseSend = resolve
+      })
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    // 关掉订阅，模拟发送时重建订阅（此时 runStatus 仍为 running）。
+    controller.dispose()
+
+    client.snapshotOnSubscribe = true
+    client.getThreadSnapshot = snapshot({ seq: 2, metadata: { id: THREAD, status: 'running' } })
+    const send = controller.sendMessage(userMessage('queued'))
+    await flushMicrotasks()
+
+    expect(client.subscribeOptions[1]).toEqual({ includeSnapshot: true })
+    expect(controller.getState().queue.followUp).toEqual(['queued'])
+
+    // 服务端确认后仍只有一条，不重复。
+    client.emit(ev({ type: 'queue_update', steering: [], followUp: ['queued'] }, 3))
+    expect(controller.getState().queue.followUp).toEqual(['queued'])
+
+    releaseSend()
+    await send
+  })
+
+  it('rolls back a queued send that a subscription snapshot had re-mirrored', async () => {
+    const client = createFakeClient()
+    let rejectSend!: (error: Error) => void
+    client.sendMessage = () =>
+      new Promise<void>((_, reject) => {
+        rejectSend = reject
+      })
+    const controller = new HarnessThreadController(client, THREAD)
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    controller.dispose()
+
+    client.snapshotOnSubscribe = true
+    client.getThreadSnapshot = snapshot({ seq: 2, metadata: { id: THREAD, status: 'running' } })
+    const send = controller.sendMessage(userMessage('queued'))
+    await flushMicrotasks()
+    expect(controller.getState().queue.followUp).toEqual(['queued'])
+
+    rejectSend(new Error('nope'))
+    await expect(send).rejects.toThrow('nope')
+    expect(controller.getState().queue.followUp).toEqual([])
+  })
+
+  it('does not revive a consumed queued send while its HTTP response is pending', async () => {
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+    onTestFinished(() => controller.dispose())
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    let release!: () => void
+    client.sendMessage = () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      })
+    const send = controller.sendMessage(userMessage('consumed'))
+    await vi.waitFor(() => expect(release).toBeDefined())
+
+    client.emit(ev({ type: 'queue_update', steering: [], followUp: ['consumed'] }, 2))
+    client.emit(ev({ type: 'queue_update', steering: [], followUp: [] }, 3))
+    client.emit(
+      ev(
+        {
+          type: 'snapshot',
+          snapshot: snapshot({
+            metadata: { id: THREAD, status: 'running' },
+            messages: [{ role: 'user', content: 'consumed', timestamp: 2 }],
+          }),
+        },
+        4,
+      ),
+    )
+    release()
+    await send
+    expect(controller.getState().queue.followUp).toEqual([])
+  })
+
+  it('does not revive a pending send after a snapshot has already confirmed it', async () => {
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+    onTestFinished(() => controller.dispose())
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    let release!: () => void
+    client.sendMessage = () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      })
+    const send = controller.sendMessage(userMessage('confirmed'))
+    await vi.waitFor(() => expect(release).toBeDefined())
+    client.emit(
+      ev(
+        {
+          type: 'snapshot',
+          snapshot: snapshot({
+            metadata: {
+              id: THREAD,
+              status: 'running',
+              queuedMessages: [{ id: 'q', mode: 'followUp', content: 'confirmed' }],
+            },
+          }),
+        },
+        2,
+      ),
+    )
+    client.emit(
+      ev(
+        {
+          type: 'snapshot',
+          snapshot: snapshot({
+            metadata: {
+              id: THREAD,
+              status: 'running',
+            },
+          }),
+        },
+        3,
+      ),
+    )
+    release()
+    await send
+    expect(controller.getState().queue.followUp).toEqual([])
+  })
+
+  it('does not restore an accepted queue entry after clearQueue or cancel', async () => {
+    for (const action of ['clearQueue', 'cancel'] as const) {
+      const client = createFakeClient()
+      const controller = new HarnessThreadController(client, THREAD)
+      onTestFinished(() => controller.dispose())
+      controller.connect()
+      client.emit(ev({ type: 'agent_start' }, 1))
+      let release!: () => void
+      client.sendMessage = () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        })
+      const send = controller.sendMessage(userMessage('cleared'))
+      await vi.waitFor(() => expect(release).toBeDefined())
+      await controller[action]()
+      client.emit(
+        ev(
+          {
+            type: 'snapshot',
+            snapshot: snapshot({
+              metadata: {
+                id: THREAD,
+                status: 'running',
+              },
+            }),
+          },
+          2,
+        ),
+      )
+      release()
+      await send
+      expect(controller.getState().queue.followUp).toEqual([])
+    }
+  })
+
+  it('does not restore a queued send after it has been promoted to a normal message', async () => {
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+    onTestFinished(() => controller.dispose())
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    const send = controller.sendMessage(userMessage('promoted'))
+    client.emit(ev({ type: 'agent_end' }, 2))
+    let release!: () => void
+    client.sendMessage = () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      })
+    await vi.waitFor(() => expect(release).toBeDefined())
+    client.emit(ev({ type: 'snapshot', snapshot: snapshot() }, 3))
+    release()
+    await send
+    expect(controller.getState().queue.followUp).toEqual([])
+    expect(controller.getProjectedMessages()).toMatchObject([
+      { role: 'user', content: [{ type: 'text', text: 'promoted' }] },
+    ])
+  })
+
+  it('removes both local queue entries when serialized sends fail after a snapshot', async () => {
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+    onTestFinished(() => controller.dispose())
+    controller.connect()
+    client.emit(ev({ type: 'agent_start' }, 1))
+    let rejectFirst!: (reason: Error) => void
+    let calls = 0
+    client.sendMessage = () => {
+      calls += 1
+      if (calls === 1)
+        return new Promise<void>((_, reject) => {
+          rejectFirst = reject
+        })
+      return Promise.reject(new Error('second rejected'))
+    }
+    const first = controller.sendMessage(userMessage('same')).catch((error: unknown) => error)
+    const second = controller.sendMessage(userMessage('same')).catch((error: unknown) => error)
+    await vi.waitFor(() => expect(rejectFirst).toBeDefined())
+    client.emit(
+      ev(
+        {
+          type: 'snapshot',
+          snapshot: snapshot({
+            metadata: {
+              id: THREAD,
+              status: 'running',
+            },
+          }),
+        },
+        2,
+      ),
+    )
+    expect(controller.getState().queue.followUp).toEqual(['same', 'same'])
+    rejectFirst(new Error('first rejected'))
+    expect(await first).toBeInstanceOf(Error)
+    expect(await second).toBeInstanceOf(Error)
+    expect(controller.getState().queue.followUp).toEqual([])
+  })
+
+  it('does not let a late HTTP load overwrite subscription snapshot events', async () => {
+    const history = { role: 'user' as const, content: 'history', timestamp: 1 }
+    const client = createFakeClient(snapshot({ seq: 2, messages: [history] }))
+    client.snapshotOnSubscribe = true
+    let resolveLoad!: (snapshot: HarnessThreadSnapshot) => void
+    client.getThread = () =>
+      new Promise((resolve) => {
+        resolveLoad = resolve
+      })
+    const controller = new HarnessThreadController(client, THREAD)
+    controller.connect()
+    await flushMicrotasks()
+    expect(controller.getState().lastSeq).toBe(2)
+
+    const load = controller.load()
+    client.emit(ev({ type: 'message_start', message: assistantMessage('live', 2) }, 3))
+    resolveLoad(snapshot({ seq: 2, messages: [history] }))
+    await load
+
+    expect(controller.getState()).toMatchObject({
+      loadState: 'loaded',
+      lastSeq: 3,
+      messages: [history, assistantMessage('live', 2)],
+    })
   })
 
   it('does not dispatch an idle send cancelled by its optimistic notification', async () => {

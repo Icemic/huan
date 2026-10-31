@@ -42,6 +42,7 @@
 import type {
   HarnessClient,
   HarnessClientEvent,
+  HarnessHostInfo,
   HarnessHostUiResponse,
   HarnessModelInfo,
   HarnessSendMessageInput,
@@ -169,6 +170,37 @@ const parseModelListResponse = (value: unknown): HarnessModelInfo[] => {
   return value
 }
 
+/** 校验 GUI 实际读取的宿主字段；诊断只接受约定代码，不展示任意扩展文案。 */
+const isHostInfo = (value: unknown): value is HarnessHostInfo => {
+  if (!isRecord(value) || !isRecord(value.sessionStorage) || !isRecord(value.defaultModel))
+    return false
+  const storage = value.sessionStorage
+  const model = value.defaultModel
+  return (
+    typeof value.workspacePath === 'string' &&
+    typeof value.agentDir === 'string' &&
+    typeof value.agentDirSource === 'string' &&
+    typeof storage.root === 'string' &&
+    typeof storage.directory === 'string' &&
+    typeof storage.source === 'string' &&
+    (storage.mode === 'grouped' || storage.mode === 'flat') &&
+    typeof model.providerSource === 'string' &&
+    typeof model.modelIdSource === 'string' &&
+    isRecord(model.readiness) &&
+    typeof model.readiness.state === 'string' &&
+    (model.readiness.message === undefined || typeof model.readiness.message === 'string') &&
+    (model.provider === undefined || typeof model.provider === 'string') &&
+    (model.modelId === undefined || typeof model.modelId === 'string') &&
+    Array.isArray(value.diagnostics) &&
+    value.diagnostics.every(
+      (code) =>
+        code === 'assembly-warning' ||
+        code === 'catalog-refresh-failed' ||
+        code === 'model-fallback',
+    )
+  )
+}
+
 /**
  * 创建浏览器侧 HTTP 客户端。
  *
@@ -256,6 +288,12 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
   }
 
   return {
+    getHostInfo: async () => {
+      const value = await readJson(await send(`${base}/host`, 'GET'), 'fetching host information')
+      if (!isHostInfo(value))
+        throw invalidResponse('fetching host information', 'expected valid host information.')
+      return value
+    },
     listThreads: async (input) => {
       const params = new URLSearchParams()
       if (input?.workspacePath) params.set('workspacePath', input.workspacePath)

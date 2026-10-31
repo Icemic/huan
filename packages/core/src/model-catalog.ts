@@ -10,11 +10,35 @@
 import {
   createAgentSessionServices,
   type InlineExtension,
-  ModelRegistry,
   ModelRuntime,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
-import type { HarnessModelInfo, HarnessThinkingLevel } from '@huan/protocol'
+import type {
+  HarnessHostInfo,
+  HarnessModelInfo,
+  HarnessRuntimeReadiness,
+  HarnessThinkingLevel,
+} from '@huan/protocol'
+
+/**
+ * 宿主可控的资源装配选项（受约束子集）。
+ *
+ * 用途：自动化测试关闭 Skills/模板/主题/上下文发现，避免读到个人或祖先目录
+ * 资源；不提供 `extensionFactories` 等可替换宿主守卫的字段——宿主注入的合成
+ * 扩展始终由宿主追加在调用者选项之后。生产环境保持默认（不关闭原生发现）。
+ */
+export type HarnessResourceLoaderOptions = {
+  noExtensions?: boolean
+  noSkills?: boolean
+  noPromptTemplates?: boolean
+  noThemes?: boolean
+  noContextFiles?: boolean
+  /** 追加资源路径（须为绝对路径；与 Pi CLI 的临时启用含义一致）。 */
+  additionalExtensionPaths?: readonly string[]
+  additionalSkillPaths?: readonly string[]
+  additionalPromptTemplatePaths?: readonly string[]
+  additionalThemePaths?: readonly string[]
+}
 
 /** 与 protocol 的 thinking 级别清单一致的顺序。 */
 const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
@@ -70,50 +94,143 @@ export async function refreshModelCatalog(
  */
 export async function createHostServices(options: {
   cwd: string
-  agentDir: string | undefined
+  /** 已解析为绝对路径的用户空间目录。 */
+  agentDir: string
   modelRuntime: ModelRuntime
+  /** 调用者的受约束资源选项（宿主守卫随后追加，不可被替换）。 */
+  resourceLoaderOptions?: HarnessResourceLoaderOptions | undefined
   /** 宿主注入的合成扩展（追加在文件扩展之后；用于输入守卫等提交前拦截）。 */
   extensionFactories?: InlineExtension[]
 }) {
+  const resourceLoaderOptions = {
+    ...mapResourceLoaderOptions(options.resourceLoaderOptions),
+    ...(options.extensionFactories?.length
+      ? { extensionFactories: options.extensionFactories }
+      : {}),
+  }
   const services = await createAgentSessionServices({
     cwd: options.cwd,
-    ...(options.agentDir ? { agentDir: options.agentDir } : {}),
+    agentDir: options.agentDir,
     modelRuntime: options.modelRuntime,
-    ...(options.extensionFactories?.length
-      ? { resourceLoaderOptions: { extensionFactories: options.extensionFactories } }
-      : {}),
+    ...(Object.keys(resourceLoaderOptions).length ? { resourceLoaderOptions } : {}),
   })
+  // SDK 的装配诊断不包含所有扩展加载错误，补入本地诊断；对 GUI 只投影安全代码。
+  const loaded = services.resourceLoader.getExtensions()
+  for (const error of loaded.errors) {
+    services.diagnostics.push({
+      type: 'error',
+      message: `扩展加载（${error.path}）：${error.error}`,
+    })
+  }
+  for (const warning of loaded.warnings ?? []) {
+    services.diagnostics.push({
+      type: 'warning',
+      message: `扩展加载（${warning.path}）：${warning.warning}`,
+    })
+  }
   return services
 }
 
-/** 创建全局共享的 ModelRuntime。 */
-export function createSharedModelRuntime(agentDir: string | undefined): Promise<ModelRuntime> {
-  return ModelRuntime.create({
-    ...(agentDir
-      ? { authPath: `${agentDir}/auth.json`, modelsPath: `${agentDir}/models.json` }
+/** 把受约束选项映射为 SDK 选项（数组复制为可变数组，避免调用者后续改动）。 */
+function mapResourceLoaderOptions(options: HarnessResourceLoaderOptions | undefined) {
+  if (!options) return {}
+  return {
+    ...(options.noExtensions !== undefined ? { noExtensions: options.noExtensions } : {}),
+    ...(options.noSkills !== undefined ? { noSkills: options.noSkills } : {}),
+    ...(options.noPromptTemplates !== undefined
+      ? { noPromptTemplates: options.noPromptTemplates }
       : {}),
+    ...(options.noThemes !== undefined ? { noThemes: options.noThemes } : {}),
+    ...(options.noContextFiles !== undefined ? { noContextFiles: options.noContextFiles } : {}),
+    ...(options.additionalExtensionPaths
+      ? { additionalExtensionPaths: [...options.additionalExtensionPaths] }
+      : {}),
+    ...(options.additionalSkillPaths
+      ? { additionalSkillPaths: [...options.additionalSkillPaths] }
+      : {}),
+    ...(options.additionalPromptTemplatePaths
+      ? { additionalPromptTemplatePaths: [...options.additionalPromptTemplatePaths] }
+      : {}),
+    ...(options.additionalThemePaths
+      ? { additionalThemePaths: [...options.additionalThemePaths] }
+      : {}),
+  }
+}
+
+/** 创建全局共享的 ModelRuntime。 */
+export function createSharedModelRuntime(agentDir: string): Promise<ModelRuntime> {
+  return ModelRuntime.create({
+    authPath: `${agentDir}/auth.json`,
+    modelsPath: `${agentDir}/models.json`,
   })
 }
 
+/** 仅查询本地目录和认证快照，不联网刷新或返回凭据。 */
+export function getModelReadiness(
+  runtime: ModelRuntime,
+  selection: { provider: string; modelId: string } | undefined,
+  source: 'env' | 'session' | 'pi-default',
+): HarnessRuntimeReadiness {
+  if (!selection)
+    return { state: 'missing-model', message: '未配置完整默认模型，可先在界面选择模型。' }
+  if (!runtime.getModel(selection.provider, selection.modelId)) {
+    return {
+      state: 'unavailable-model',
+      selection,
+      message: '所选模型不在注册表中，请选择其他模型或修正配置后重启宿主。',
+    }
+  }
+  if (!runtime.hasConfiguredAuth(selection.provider)) {
+    return {
+      state: 'missing-credentials',
+      provider: selection.provider,
+      message: '所选模型缺少凭据，请配置对应 provider 的认证后重启宿主。',
+    }
+  }
+  return { state: 'ready', selection, source }
+}
+
 /**
- * 解析默认模型（供新会话使用）。
- *
- * 优先级：PI_PROVIDER/PI_MODEL_ID 环境变量 → settings.json 的 defaultProvider/defaultModel。
- * 结果：未配置返回 undefined（新会话交 SDK 自行解析）；已配置但解析失败抛出明确错误。
+ * 默认模型按原有逐字段优先级解析：显式模型 > 环境变量 > settings。
+ * 无效模型成为可诊断的结构化状态，不能阻止宿主启动和读取其他历史会话。
  */
 export function resolveDefaultModel(options: {
   modelRuntime: ModelRuntime
   cwd: string
-  agentDir: string | undefined
-}) {
+  agentDir: string
+  model?: ReturnType<ModelRuntime['getModel']>
+}): {
+  model: ReturnType<ModelRuntime['getModel']>
+  info: HarnessHostInfo['defaultModel']
+} {
   const settings = SettingsManager.create(options.cwd, options.agentDir)
-  const provider = process.env.PI_PROVIDER?.trim() || settings.getDefaultProvider()
-  const modelId = process.env.PI_MODEL_ID?.trim() || settings.getDefaultModel()
-  if (!provider || !modelId) return undefined
-
-  const model = new ModelRegistry(options.modelRuntime).find(provider, modelId)
-  if (!model) {
-    throw new Error(`默认模型 ${provider}/${modelId} 在模型注册表中不存在`)
+  const envProvider = process.env.PI_PROVIDER?.trim()
+  const envModel = process.env.PI_MODEL_ID?.trim()
+  const provider = options.model?.provider ?? (envProvider || settings.getDefaultProvider())
+  const modelId = options.model?.id ?? (envModel || settings.getDefaultModel())
+  const selection = provider && modelId ? { provider, modelId } : undefined
+  return {
+    model:
+      options.model ??
+      (selection
+        ? options.modelRuntime.getModel(selection.provider, selection.modelId)
+        : undefined),
+    info: {
+      ...(provider ? { provider } : {}),
+      ...(modelId ? { modelId } : {}),
+      providerSource: options.model
+        ? 'option'
+        : envProvider
+          ? 'env'
+          : provider
+            ? 'settings'
+            : 'default',
+      modelIdSource: options.model ? 'option' : envModel ? 'env' : modelId ? 'settings' : 'default',
+      readiness: getModelReadiness(
+        options.modelRuntime,
+        selection,
+        envProvider || envModel ? 'env' : 'pi-default',
+      ),
+    },
   }
-  return model
 }

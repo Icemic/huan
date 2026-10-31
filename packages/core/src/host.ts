@@ -9,6 +9,10 @@
  *   让 SDK 从会话记录恢复（否则默认模型会覆盖会话自身记录）。
  * - **行为契约**：sendMessage 返回 = 输入已被接受（不等待运行结束）；
  *   删除先 abort 再 dispose 再 unlink；订阅先快照后实时（同一 record、同一 seq 边界）。
+ * - **存储作用域（G1.1 §3）**：agentDir 与 sessionDir 在宿主创建时解析为绝对路径
+ *   并固定（显式 > `PI_CODING_AGENT_SESSION_DIR` > 启动工作区 setting >
+ *   `<agentDir>/sessions/<编码 cwd>`）；创建、枚举、按 ID 查找、打开、改名、
+ *   删除均限定在该作用域，无覆盖时跨 cwd 只枚举当前 agentDir 下的分组目录。
  * - **取消与失败口径**：取消以 SDK 的 `agent_settled.aborted` 为权威，
  *   不向前端报告为失败；失败在 `agent_settled` 时结算（不在 `agent_end`，
  *   因为其后仍可能重试/压缩/继续）。
@@ -20,7 +24,8 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { unlink } from 'node:fs/promises'
+import { readdir, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   type AgentSession,
   createAgentSessionFromServices,
@@ -48,29 +53,49 @@ import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
 import { createHostUiBridge, type HostUiBridge } from './host-ui.js'
 import {
-  deriveReadiness,
   extractMessageText,
   mapColdMetadata,
   mapQueuedMessages,
   mapSessionInfo,
   normalizeTitle,
-  readinessFromSessionContext,
   type SessionCatalogInfo,
 } from './metadata.js'
 import {
   createHostServices,
   createSharedModelRuntime,
+  getModelReadiness,
+  type HarnessResourceLoaderOptions,
   listModelCatalog,
   refreshModelCatalog,
   resolveDefaultModel,
 } from './model-catalog.js'
+import {
+  createSessionDirResolver,
+  defaultSessionsRoot,
+  ENV_SESSION_DIR,
+  isPathWithinScope,
+  type ResolvedSessionDir,
+  readSessionDirSetting,
+  resolveAgentDir,
+} from './session-dir.js'
 
 /** 宿主动作选项。 */
 export type HarnessHostOptions = {
   /** 默认工作目录（listThreads/createThread 未指定时使用）。 */
   workspacePath: string
-  /** Pi 配置目录（默认 Pi 自行解析）。 */
+  /**
+   * Pi 配置目录（用户空间）。
+   * 未提供时用 Pi 的 `getAgentDir()`（读取 `PI_CODING_AGENT_DIR`，缺省 `~/.pi/agent`）；
+   * 宿主创建时解析为绝对路径并固定，auth/models/settings/资源/默认会话均使用它。
+   */
   agentDir?: string
+  /**
+   * 会话存储目录覆盖（对应 CLI 的 `--session-dir`）。
+   * 设置后所有 cwd 共享该平铺目录；未设置时按优先级读取
+   * `PI_CODING_AGENT_SESSION_DIR` → 启动工作区合并后的 `sessionDir` setting →
+   * 默认 `<agentDir>/sessions/<编码 cwd>`。宿主创建时固定。
+   */
+  sessionDir?: string
   /**
    * 覆盖默认模型（最高优先级；通常由环境变量解析后传入）。
    * 未提供时，新建会话交 SDK 按 settings 解析；冷打开永不传模型。
@@ -80,6 +105,11 @@ export type HarnessHostOptions = {
   refreshCatalogOnStart?: boolean
   /** 目录刷新超时（毫秒；默认 15000；0 表示不设超时）。 */
   catalogRefreshTimeoutMs?: number
+  /**
+   * 受约束的资源装配选项（测试隔离用）。
+   * 只影响 Skills/模板/主题/上下文等发现的开关；宿主输入守卫始终追加，不可替换。
+   */
+  resourceLoaderOptions?: HarnessResourceLoaderOptions
 }
 
 /** 默认模型的宽松形状（SDK Model 的透明转发）。 */
@@ -226,6 +256,46 @@ type StartingSend = { cancelled: boolean }
 const RETIRE_DRAIN_TIMEOUT_MS = 5_000
 
 /**
+ * 会话收尾等待 `session.abort()` 返回的上限。
+ *
+ * Pi 1.4 的 `abort()` 会 `await waitForIdle()`，而运行可能停在无法中断的扩展
+ * hook（`input` / `before_agent_start`）里；此时若无限等待，删除/断开会挂死。
+ * 超时后继续收尾（会话即将 dispose/退订，不再有模型请求），与
+ * `RETIRE_DRAIN_TIMEOUT_MS` 的已知限制同口径。
+ */
+const RETIRE_ABORT_TIMEOUT_MS = 5_000
+
+/** 收尾用中止：有上限、不抛错（单会话中止失败不阻断其余清理）。 */
+async function abortForRetire(session: AgentSession): Promise<void> {
+  await withTimeout(session.abort(), RETIRE_ABORT_TIMEOUT_MS, '会话中止').catch(() => {})
+}
+
+/** 默认空间跨分组枚举的并发上限（与 Pi 自身目录发现的保守值一致）。 */
+const SCOPE_LIST_CONCURRENCY = 8
+
+/** 按上限并发执行（结果保持输入顺序）。 */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = next
+      next += 1
+      if (index >= items.length) return
+      const item = items[index]
+      if (item === undefined) continue
+      results[index] = await fn(item)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/**
  * 丢弃 SDK 在结算窗口内缓冲的延迟动作（`_deferredSettledActions`）。
  *
  * 为什么需要：扩展 `sendMessage(..., { triggerTurn: true })` 在结算窗口
@@ -260,17 +330,45 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 
 export async function createHarnessHost(options: HarnessHostOptions): Promise<HarnessHost> {
   const workspacePath = options.workspacePath
-  const agentDir = options.agentDir
+  // 用户空间在宿主创建时固定：显式值 > PI_CODING_AGENT_DIR > 默认 ~/.pi/agent。
+  // 全进程只在这里解析一次，不在运行中改写 process.env（支持同进程多空间）。
+  const agentDir = resolveAgentDir(options.agentDir)
+  const agentDirSource = options.agentDir?.trim()
+    ? 'option'
+    : process.env.PI_CODING_AGENT_DIR?.trim()
+      ? 'env'
+      : 'default'
+  // 会话目录覆盖同理只读一次；无覆盖时每个目标 cwd 使用自己的默认分组。
+  const resolveSessionDirFor = createSessionDirResolver({
+    agentDir,
+    workspacePath,
+    option: options.sessionDir,
+    env: process.env[ENV_SESSION_DIR],
+    setting: readSessionDirSetting(workspacePath, agentDir),
+  })
+  const resourceLoaderOptions = options.resourceLoaderOptions
   const diagnostics: string[] = []
+  // GUI 只接收受控诊断代码，原始扩展/网络错误可能包含密钥，留在宿主本地。
+  const safeDiagnostics = new Set<
+    'assembly-warning' | 'catalog-refresh-failed' | 'model-fallback'
+  >()
 
   // ---- 装配层：共享 modelRuntime（全宿主一份），其余每会话独立 ----
   const modelRuntime = await createSharedModelRuntime(agentDir)
   // 启动引导装配：经官方入口加载扩展并把 provider（含虚拟模型）注册进共享
   // modelRuntime。默认模型解析与目录查询都依赖这一步（否则扩展 provider 不可见）；
   // 该次装配的 resourceLoader 仅为注册服务，随用随弃。
-  const bootstrap = await createHostServices({ cwd: workspacePath, agentDir, modelRuntime })
+  const bootstrap = await createHostServices({
+    cwd: workspacePath,
+    agentDir,
+    modelRuntime,
+    resourceLoaderOptions,
+  })
   for (const diagnostic of bootstrap.diagnostics) {
-    if (diagnostic.type !== 'info') diagnostics.push(`启动装配：${diagnostic.message}`)
+    if (diagnostic.type !== 'info') {
+      diagnostics.push(`启动装配：${diagnostic.message}`)
+      safeDiagnostics.add('assembly-warning')
+    }
   }
   const startRefresh = options.refreshCatalogOnStart ?? true
   const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
@@ -283,17 +381,28 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         refreshTimeoutMs,
         '模型目录刷新',
       ).then(
-        ({ errors }) => diagnostics.push(...errors.map((message) => `模型目录刷新：${message}`)),
-        (error: unknown) => diagnostics.push(`模型目录刷新失败：${String(error)}`),
+        ({ errors }) => {
+          diagnostics.push(...errors.map((message) => `模型目录刷新：${message}`))
+          if (errors.length) safeDiagnostics.add('catalog-refresh-failed')
+        },
+        (error: unknown) => {
+          diagnostics.push(`模型目录刷新失败：${String(error)}`)
+          safeDiagnostics.add('catalog-refresh-failed')
+        },
       )
     } catch (error) {
       diagnostics.push(`模型目录刷新失败：${String(error)}`)
+      safeDiagnostics.add('catalog-refresh-failed')
     }
   }
 
   // 默认模型：显式 options.model 优先；否则启动时解析（env → settings）。
-  const resolvedDefault =
-    options.model ?? resolveDefaultModel({ modelRuntime, cwd: workspacePath, agentDir })
+  const resolvedDefault = resolveDefaultModel({
+    modelRuntime,
+    cwd: workspacePath,
+    agentDir,
+    model: options.model,
+  })
 
   const records = new Map<string, ThreadRecord>()
   /** 进行中的冷打开（并发调用共享同一 promise，避免同文件双开）。 */
@@ -316,23 +425,53 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     string,
     { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> }
   >()
-  const catalogInfoByThreadId = new Map<string, SessionCatalogInfo>()
+  /** 整个存储作用域（默认空间或平铺覆盖）的跨 cwd 列表缓存，按作用域目录区分。 */
+  const scopeCatalogCache = new Map<
+    string,
+    { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> }
+  >()
 
   const assertActive = () => {
     if (disposed) throw new Error('Harness host has been disposed')
   }
 
-  // ---- 目录读取（SessionManager.list 带缓存，用于 thread 列表与冷读定位） ----
+  /** 作用域目录：记录本身的 cwd（空值回退启动工作区）。 */
+  const scopeOf = (cwd: string | undefined): ResolvedSessionDir =>
+    resolveSessionDirFor(cwd?.trim() ? cwd : workspacePath)
+
+  /** 作用域根：默认空间为 `<agentDir>/sessions`（可跨分组），平铺覆盖为其自身。 */
+  const scopeRootOf = (scope: ResolvedSessionDir): string =>
+    scope.grouped ? defaultSessionsRoot(agentDir) : scope.dir
+
+  /**
+   * 存储作用域校验：仅接受当前空间内的会话文件。
+   * 作用域外的路径（包括指向外部的符号链接）一律拒绝，用于打开/改名/删除。
+   */
+  const assertSessionFileInScope = (
+    filePath: string,
+    cwd: string | undefined,
+  ): ResolvedSessionDir => {
+    const scope = scopeOf(cwd)
+    if (!isPathWithinScope(scopeRootOf(scope), filePath)) {
+      throw new Error(`会话文件不在当前存储作用域内：${filePath}`)
+    }
+    return scope
+  }
+
+  // ---- 目录读取（SessionManager.list 结果由宿主缓存，用于 thread 列表与冷读定位） ----
   const listSessionInfos = async (cwd: string): Promise<SessionCatalogInfo[]> => {
     const existing = catalogCache.get(cwd)
     if (existing?.infos) return existing.infos
     if (existing?.promise) return existing.promise
     const entry: { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> } = {}
-    const promise = SessionManager.list(cwd)
+    const { dir } = resolveSessionDirFor(cwd)
+    const promise = SessionManager.list(cwd, dir)
       .then((infos) => {
         const mapped = infos as unknown as SessionCatalogInfo[]
-        entry.infos = mapped
-        rememberSessionInfos(mapped)
+        // 空结果不缓存：首条消息落盘发生在创建之后，否则「创建后立即列表」
+        // 会把过期空列表长期缓存住（实测：随后再也看不到新会话）。
+        if (mapped.length === 0) catalogCache.delete(cwd)
+        else entry.infos = mapped
         return mapped
       })
       .finally(() => {
@@ -343,26 +482,99 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return promise
   }
 
-  const rememberSessionInfos = (infos: readonly SessionCatalogInfo[]) => {
-    for (const info of infos) catalogInfoByThreadId.set(info.id, info)
+  /**
+   * 默认空间的跨 cwd 枚举：只扫描当前 agentDir 下 sessions 的直接分组目录。
+   *
+   * 不用无参 `SessionManager.listAll()`（它读进程默认用户空间，会泄漏到另一个
+   * agentDir）；也不用递归扫描。路径符号链接的分组目录不作为隐式入口（避免
+   * 默认空间变成任意外部目录的入口）。
+   */
+  const listGroupedScopeInfos = async (): Promise<SessionCatalogInfo[]> => {
+    const sessionsRoot = defaultSessionsRoot(agentDir)
+    let entries: Array<{ name: string; isDirectory: () => boolean; isSymbolicLink: () => boolean }>
+    try {
+      entries = await readdir(sessionsRoot, { withFileTypes: true })
+    } catch (error) {
+      // 只有「不存在」等价于空目录；权限、非目录等故障必须上报，
+      // 不能笼统吞成空列表（否则用户看到的是「没有会话」而不是「目录不可用」）。
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw new Error(
+        `会话目录不可用（${sessionsRoot}）：${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      )
+    }
+    const dirs = entries
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => join(sessionsRoot, entry.name))
+    // 限制并发：项目多的用户空间不应一次性打开所有分组目录（Pi 自己的
+    // listAll 也做并发限制）；总工作量仍为 O(会话数)。
+    const listed = await mapWithConcurrency(dirs, SCOPE_LIST_CONCURRENCY, (dir) =>
+      SessionManager.listAll(dir),
+    )
+    return listed.flat() as unknown as SessionCatalogInfo[]
+  }
+
+  /**
+   * 存储作用域内的全部会话（跨 cwd）。
+   *
+   * 默认空间：枚举 `<agentDir>/sessions/` 的直接分组目录，逐个经公开列表方法读取；
+   * 显式平铺目录：`SessionManager.listAll(explicitDir)`。不把平铺目录当默认根递归扫描。
+   */
+  const listScopeInfos = async (): Promise<SessionCatalogInfo[]> => {
+    const scope = scopeOf(workspacePath)
+    const key = scopeRootOf(scope)
+    const existing = scopeCatalogCache.get(key)
+    if (existing?.infos) return existing.infos
+    if (existing?.promise) return existing.promise
+    const entry: { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> } = {}
+    const promise = (async () => {
+      const infos = scope.grouped
+        ? await listGroupedScopeInfos()
+        : ((await SessionManager.listAll(scope.dir)) as unknown as SessionCatalogInfo[])
+      // 空结果不缓存（同上：会话可能在创建后落盘）。
+      if (infos.length === 0) scopeCatalogCache.delete(key)
+      else entry.infos = infos
+      return infos
+    })().finally(() => {
+      entry.promise = undefined
+    })
+    entry.promise = promise
+    scopeCatalogCache.set(key, entry)
+    return promise
   }
 
   const invalidateCatalog = (cwd: string = workspacePath) => {
     catalogCache.delete(cwd)
-    // 同时丢弃冷路径的元数据缓存，避免删除/更名后仍读到旧值。
-    for (const [threadId, info] of catalogInfoByThreadId) {
-      if (info.cwd === cwd || info.cwd === '') catalogInfoByThreadId.delete(threadId)
+    // 同时丢弃跨 cwd 作用域缓存，避免删除/更名后仍读到旧值。
+    scopeCatalogCache.clear()
+  }
+
+  /**
+   * 在给定列表里按 ID 定位会话；同一 ID 对应多个文件时报歧义（不静默选一个）。
+   */
+  const pickSessionInfo = (
+    infos: readonly SessionCatalogInfo[],
+    threadId: string,
+  ): SessionCatalogInfo | undefined => {
+    let hit: SessionCatalogInfo | undefined
+    const paths = new Set<string>()
+    for (const info of infos) {
+      if (info.id !== threadId) continue
+      paths.add(info.path)
+      hit = info
     }
+    if (paths.size > 1) {
+      throw new Error(`会话 ID ${threadId} 在存储作用域内对应多个文件，无法安全定位`)
+    }
+    return hit
   }
 
   const findSessionInfo = async (threadId: string): Promise<SessionCatalogInfo | undefined> => {
-    const cached = catalogInfoByThreadId.get(threadId)
-    if (cached) return cached
-    const hit = (await listSessionInfos(workspacePath)).find((info) => info.id === threadId)
-    if (hit) return hit
-    const all = (await SessionManager.listAll()) as unknown as SessionCatalogInfo[]
-    rememberSessionInfos(all)
-    return all.find((info) => info.id === threadId)
+    // 统一经作用域缓存（默认空间跨分组 / 平铺覆盖）定位，不先做「本地命中即返回」：
+    // 本地列表只是作用域的子集，直接返回会让「同一 ID 存在于另一个 cwd 分组」
+    // 的重复 ID 被静默选中，违背作用域内重复 ID 必须报歧义的约定。
+    // 缓存命中时这里是纯内存 O(n) 过滤，不逐次重扫目录。
+    return pickSessionInfo(await listScopeInfos(), threadId)
   }
 
   // ---- 状态推导（热/冷共用口径） ----
@@ -463,12 +675,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return {
       metadata: metadataOf(record),
       messages: isolateMessages(record.session.messages),
-      readiness: deriveReadiness({
-        model: record.session.model
-          ? { provider: record.session.model.provider, id: record.session.model.id }
+      readiness: getModelReadiness(
+        modelRuntime,
+        record.session.model
+          ? {
+              provider: record.session.model.provider,
+              modelId: record.session.model.id,
+            }
           : undefined,
-        source: 'session',
-      }),
+        'session',
+      ),
       seq: record.seq,
       ...(pending.length ? { hostUiRequests: pending } : {}),
       ...(record.lastError ? { lastError: record.lastError } : {}),
@@ -607,15 +823,19 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       cwd,
       agentDir,
       modelRuntime,
+      resourceLoaderOptions,
       extensionFactories: [createInputGuardExtension(() => guardRecord)],
     })
     for (const diagnostic of services.diagnostics) {
-      if (diagnostic.type !== 'info') diagnostics.push(`扩展装配（${cwd}）：${diagnostic.message}`)
+      if (diagnostic.type !== 'info') {
+        diagnostics.push(`扩展装配（${cwd}）：${diagnostic.message}`)
+        safeDiagnostics.add('assembly-warning')
+      }
     }
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
     // 新会话：显式模型 > 启动时解析的默认模型；冷打开不传，由 SDK 从会话记录恢复。
-    const newSessionModel = opts.model ?? resolvedDefault
+    const newSessionModel = opts.model ?? resolvedDefault.model
     const { session, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -624,6 +844,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
     if (modelFallbackMessage) {
       diagnostics.push(`模型回退（${cwd}）：${modelFallbackMessage}`)
+      safeDiagnostics.add('model-fallback')
     }
 
     if (openWasCancelled(opts.signal, openedGeneration)) {
@@ -788,7 +1009,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       records.set(threadId, existingBySessionFile)
       return existingBySessionFile
     }
-    const sessionManager = SessionManager.open(info.path)
+    // 打开也使用同一存储规则：会话文件必须属于当前作用域（含符号链接真实路径）。
+    const scope = assertSessionFileInScope(info.path, info.cwd)
+    const sessionManager = SessionManager.open(info.path, scope.dir)
     return openSession(sessionManager, info.cwd || workspacePath, { isNew: false, signal })
   }
 
@@ -1039,6 +1262,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const sessionFile = record?.session.sessionFile ?? info?.path
     const cwd = record?.workspacePath ?? info?.cwd
     if (!sessionFile) throw new Error(`Unknown thread: ${threadId}`)
+    // 在中止或移除 live record 之前拒绝越界路径，失败不得先破坏当前会话。
+    assertSessionFileInScope(sessionFile, cwd)
 
     if (record) {
       // 0) 进入收尾：不再接受新运行，并唤醒等待闸门的发送使其退出。
@@ -1050,12 +1275,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       for (const pending of record.inFlight) pending.cancelled = true
       // 2) 先解除阻断式 UI 等待，否则 abort 可能等一个永不应答的对话（工具在等 UI）。
       record.uiBridge.dismissAll()
-      // 3) 中止运行并等待收尾（此时工具/UI 已不再阻断）。
-      try {
-        await record.session.abort()
-      } catch {
-        // 已空闲或中止失败不阻断删除。
-      }
+      // 3) 中止运行并等待收尾（此时工具/UI 已不再阻断；等待有上限）。
+      await abortForRetire(record.session)
       // 4) 等待在途发送的预检退出（它们不再启动运行）。
       await drainInFlight(record)
       // 5) 收尾：先补发 shutdown（扩展可能在 handler 里再次提交延迟动作），
@@ -1072,7 +1293,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       recordsBySessionFile.delete(sessionFile)
     }
     archivedSessionFiles.delete(sessionFile)
-    catalogInfoByThreadId.delete(threadId)
+    // 删除同样限于当前存储作用域（防止作用域外路径被作用到）。
+    assertSessionFileInScope(sessionFile, cwd)
     await unlink(sessionFile).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
     })
@@ -1096,7 +1318,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         extensionsResult.extensions,
         extensionsResult.runtime,
         record.workspacePath,
-        SessionManager.open(record.session.sessionFile ?? ''),
+        SessionManager.open(
+          record.session.sessionFile ?? '',
+          resolveSessionDirFor(record.workspacePath).dir,
+        ),
         new ModelRegistry(modelRuntime),
       )
       await runner.emit({ type: 'session_shutdown', reason })
@@ -1106,10 +1331,44 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   }
 
   const client: HarnessClient = {
+    async getHostInfo() {
+      assertActive()
+      const scope = scopeOf(workspacePath)
+      return {
+        workspacePath,
+        agentDir,
+        agentDirSource,
+        sessionStorage: {
+          mode: scope.grouped ? 'grouped' : 'flat',
+          root: scopeRootOf(scope),
+          directory: scope.dir,
+          source: scope.source,
+        },
+        defaultModel: {
+          ...resolvedDefault.info,
+          readiness: getModelReadiness(
+            modelRuntime,
+            resolvedDefault.info.provider && resolvedDefault.info.modelId
+              ? {
+                  provider: resolvedDefault.info.provider,
+                  modelId: resolvedDefault.info.modelId,
+                }
+              : undefined,
+            resolvedDefault.info.providerSource === 'env' ||
+              resolvedDefault.info.modelIdSource === 'env'
+              ? 'env'
+              : 'pi-default',
+          ),
+        },
+        diagnostics: [...safeDiagnostics],
+      }
+    },
     async listThreads(input) {
       assertActive()
       const cwd = input?.workspacePath ?? workspacePath
+      const scopeRoot = scopeRootOf(scopeOf(cwd))
       return (await listSessionInfos(cwd))
+        .filter((info) => isPathWithinScope(scopeRoot, info.path))
         .filter((info) => input?.includeArchived || !archivedSessionFiles.has(info.path))
         .map((info) => {
           const live = records.get(info.id)
@@ -1136,7 +1395,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         }
         explicitModel = resolved
       }
-      const sessionManager = SessionManager.create(cwd)
+      if (!input?.model && resolvedDefault.info.readiness.state === 'unavailable-model') {
+        throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
+      }
+      const sessionDir = resolveSessionDirFor(cwd).dir
+      // 尚未生成文件名，先检查目录中的探针路径；父目录链接也不得越过默认空间。
+      assertSessionFileInScope(join(sessionDir, '.huan-scope-check'), cwd)
+      const sessionManager = SessionManager.create(cwd, sessionDir)
       const record = await openSession(sessionManager, cwd, {
         isNew: true,
         ...(explicitModel ? { model: explicitModel } : {}),
@@ -1242,7 +1507,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       }
       const info = await findSessionInfo(threadId)
       if (!info) throw new Error(`Unknown thread: ${threadId}`)
-      SessionManager.open(info.path).appendSessionInfo(title)
+      const scope = assertSessionFileInScope(info.path, info.cwd)
+      SessionManager.open(info.path, scope.dir).appendSessionInfo(title)
       invalidateCatalog(info.cwd || workspacePath)
     },
 
@@ -1321,7 +1587,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   /** 冷读快照（不经 AgentSession）。 */
   const snapshotFromSessionFile = (info: SessionCatalogInfo): HarnessThreadSnapshot => {
-    const sessionManager = SessionManager.open(info.path)
+    const scope = assertSessionFileInScope(info.path, info.cwd)
+    const sessionManager = SessionManager.open(info.path, scope.dir)
     const branch = sessionManager.getBranch() as unknown as HarnessAnySessionEntry[]
     const context = sessionManager.buildSessionContext()
     const contextWindow = context.model
@@ -1340,7 +1607,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return {
       metadata,
       messages: context.messages as HarnessAgentMessage[],
-      readiness: readinessFromSessionContext(context),
+      readiness: getModelReadiness(
+        modelRuntime,
+        context.model
+          ? {
+              provider: context.model.provider,
+              modelId: context.model.modelId,
+            }
+          : undefined,
+        'session',
+      ),
     }
   }
 
@@ -1361,11 +1637,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         // 使在途发送失效，并解除阻断式 UI 等待（避免 abort 等不到对话）。
         for (const pending of record.inFlight) pending.cancelled = true
         record.uiBridge.dismissAll()
-        try {
-          await record.session.abort()
-        } catch {
-          // 单个会话中止失败不阻断其余清理。
-        }
+        // 中止运行并等待收尾（等待有上限：SDK 的 abort() 会等 idle）。
+        await abortForRetire(record.session)
         // 等待在途发送退出（有上限）。
         await drainInFlight(record)
         // 收尾：先补发 shutdown（扩展可能在 handler 里再次提交延迟动作），随后
