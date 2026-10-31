@@ -1,6 +1,6 @@
 # 幻（huan）— 技术架构文档
 
-**最后更新**：2026-10-15
+**最后更新**：2026-10-31
 **状态**：持续维护文档，随技术变更同步更新
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
@@ -19,13 +19,15 @@
 | 基础组件 | shadcn 模式：组件源码拷入项目 | 对话框、按钮、菜单、树等；无头逻辑用 Base UI（默认）或 Radix |
 | 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 逻辑层直接依赖；浏览器侧运行时由 `@huan/react` 自研（M2，2026-10-18） |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
-| 代码查看/Diff | Monaco Editor（`monaco-editor`） | 查看 + diff editor（D-21） |
-| 状态管理 | Zustand | 单一 store + selector 订阅；React 外可读写（D-24） |
+| 代码查看/Diff | Monaco Editor（规划选型，尚未接入） | 增强阶段的查看 + diff editor（D-21），不作为 Pi GUI 基础依赖 |
+| 状态管理 | 运行时 Controller + hooks；Zustand 已为依赖 | 当前无应用级单一 store；出现窗口级自主状态需求时再设计（D-24） |
 | i18n | Lingui（源语言中文，首期仅中文包） | 编译期宏（D-22/D-25） |
 | 包管理 | pnpm workspaces | monorepo；`@huan/*` 命名空间（D-13） |
 | 测试 | Vitest | 单元与集成 |
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
+
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 2（新增必需 getHostInfo 方法）。
 
 **运行形态（首期）**：Node 宿主进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与宿主持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 
@@ -117,7 +119,7 @@ react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐�
 
 实现时必须处理的三个点：
 
-1. **空闲会话的跨窗实时**：会话空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力已在 M2 纳入公共 Controller（`useHarnessExtras().connect()`，见 `roadmap.md` §2.3）。
+1. **空闲会话的跨窗实时**：会话空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力已在 M2 纳入公共 Controller（`useHarnessExtras().connect()`）；新建传输订阅始终请求权威快照，关闭后再连也补齐历史；快照仅含 SDK 已提交消息，直接到达的助手 message_end 可独立补齐。
 2. **Host UI 并发响应**：两个窗口可能同时响应同一请求，按「先响应生效、重复响应幂等忽略」处理；验证 bridge 对重复 resolve 的实际行为。
 3. **窗口本地状态不共享**：各窗口的选中会话、输入草稿、滚动位置等属于本地 UI 状态，默认不跨窗同步；仅经 Pi/宿主的状态（消息、运行状态、Host UI 请求、模型配置）全局一致。
 
@@ -144,7 +146,7 @@ react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐�
 - **外部改动检测**：恢复前比对待恢复文件的实际内容与快照元数据，检测到外部改动时展示冲突并允许取消，不静默覆盖。
 - **Git 关系**：不做 Git 依赖、不碰用户 index/暂存区；未来如遇性能瓶颈，Git 仅可作为快照层之上的加速层。
 
-**待细化的边界**（未跟踪/忽略文件、重命名识别、符号链接、权限位、大文件阈值）：在 M3 迭代设计中确定，见 `roadmap.md` §3.2。
+**待细化的边界**（未跟踪/忽略文件、重命名识别、符号链接、权限位、大文件阈值）：在文件快照迭代设计中确定，保留范围见 `roadmap.md` §7。
 
 ### 5.3 Provider 契约
 
@@ -179,7 +181,7 @@ apps/harness（页面装配、布局、主题）
 ### 6.2 代码工作区
 
 - 布局：可拖拽分栏（文件树 / Monaco 查看 / Diff 审查 / 聊天区）。
-- Monaco：`monaco-editor` + 语言支持；diff 使用内置 diff editor；worker 资源在桌面壳下需按打包方式配置（见 `roadmap.md` §3.2 与 §6.3）。
+- Monaco：`monaco-editor` + 语言支持；diff 使用内置 diff editor；worker 资源在桌面壳下需按打包方式配置（见 `roadmap.md` §7 与 §5.3）。
 - 文件树：忽略规则与快照忽略策略共享同一套判定。
 
 ---
@@ -197,7 +199,10 @@ apps/harness（页面装配、布局、主题）
 
 ## 8. 兼容性与演进
 
-- **Pi 兼容**：SDK 会话与 CLI 默认行为差异（内置扩展不自动加载等）通过启动配置对照测试保证；升级 Pi 版本前跑 §8.2 回归清单。
+- **Pi 兼容**：SDK 会话与 CLI 默认行为差异（内置扩展不自动加载等）通过启动配置对照测试保证；升级 Pi 版本前跑 §8.2 回归清单并重审能力规范。
+- **用户空间**：默认使用 Pi 空间；显式 agentDir 统一配置与默认会话。sessionDir 按 option → 环境变量 → 启动工作区 setting → 默认 cwd 分组解析，宿主创建时固定；平铺覆盖可主动共享，跨 cwd 查找限当前空间。
+- **测试空间**：默认自动化使用临时用户空间和确定性 provider；`@huan/core/testing` 为显式测试入口，不从生产主入口导出辅助。个人环境兼容验证单独显式运行。
+- **宿主诊断**：受保护的 `getHostInfo` 提供只读目录、配置来源及受控诊断代码；不透传任意扩展错误与凭据。无效默认模型不阻断宿主启动或历史读取，可显式选有效模型新建。
 - **react-pi / assistant-ui**：锁定版本；升级前跑 UI 回归；适配层集中封装，避免散落。
 - **协议与历史**：协议显式版本化；应用元数据（快照引用、关联 ID）支持版本迁移；兼容 Pi 原生 JSONL 会话格式，不修改 Pi 内部历史文件作为存储接口。
 - **快照数据**：manifest 带格式版本；对象库可独立重建（孤儿 blob 定期回收）。
@@ -206,7 +211,7 @@ apps/harness（页面装配、布局、主题）
 
 协议声明 JSON-safe，但宿主进程内可能出现不可序列化载荷（循环引用、BigInt、函数、Symbol）。当前约定：霜容未知字段，可序列化性由宿主映射层负责（JSON 往返测试覆盖代表性扩展数据）。
 
-**待定**：异常载荷的边界策略（如 BigInt → 字符串、循环引用拒绝或标记为占位）与对应测试；触发条件见 `roadmap.md` §6.1。
+**待定**：异常载荷的边界策略（如 BigInt → 字符串、循环引用拒绝或标记为占位）与对应测试；触发条件见 `roadmap.md` §5.1。
 
 ### 8.2 依赖升级回归清单
 
