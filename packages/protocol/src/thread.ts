@@ -59,7 +59,12 @@ export type HarnessQueuedMessage = {
 /** 会话目录条目元数据。 */
 export type HarnessThreadMetadata = {
   id: string
+  /** 显示标题：显式名称 > 首条用户消息（截断）> 会话文件名。 */
   title?: string
+  /** 显式会话名（不含回退标题）；「仅命名」过滤使用，缺失表示未命名。 */
+  name?: string
+  /** 首条用户消息文本（全文件口径、未截断）；列表搜索使用。 */
+  firstMessageText?: string
   /** 会话固定起始目录（cwd）；不是工作区 ID。 */
   workspacePath?: string
   /** 显式归属的工作区；缺失表示未归属（不按 cwd 推断）。 */
@@ -220,6 +225,39 @@ export type HarnessClientEvent = HarnessClientEventBody & HarnessClientEventEnve
 export type HarnessAnyClientEvent =
   | HarnessClientEvent
   | (HarnessUnknownClientEventBody & HarnessClientEventEnvelope)
+
+/** 会话累计统计：全文件（含已压缩历史与其他分支）聚合结果。 */
+export type HarnessThreadStats = {
+  userMessages: number
+  assistantMessages: number
+  toolResults: number
+  toolCalls: number
+  totalMessages: number
+  tokens: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    total: number
+  }
+  /** 累计费用（USD）。 */
+  cost: number
+}
+
+/**
+ * 只读会话详情。
+ *
+ * 明确区分「全文件累计统计」与「当前活动分支上下文」：前者覆盖已压缩掉
+ * 的历史与其他分支的实际计费量，后者只描述下一次请求可见的上下文。
+ */
+export type HarnessThreadDetails = {
+  metadata: HarnessThreadMetadata
+  stats: HarnessThreadStats
+  /** 当前活动分支的上下文用量；模型窗口未知时缺失。 */
+  contextUsage?: HarnessContextUsage
+  /** 当前活动分支的条目数（区别于全文件累计统计）。 */
+  branchEntryCount: number
+}
 
 /** 会话快照（权威状态；订阅首帧与重连恢复均用它）。 */
 export type HarnessThreadSnapshot = {

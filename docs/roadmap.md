@@ -29,7 +29,7 @@
 | M1 最小闭环 | Agent 经 Pi SDK 运行并渲染 | ✅ 已完成，2026-10-16 |
 | M1.5 宿主自研 | Node 运行时归 `@huan/core` | ✅ 已完成，2026-10-18 |
 | M2 公共层固化 | 自研浏览器 Controller，移除 react-pi 依赖 | ✅ 已完成，2026-10-18 |
-| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.2a、多项目工作区与 Base UI/主题已完成；下一项 G1.2b** |
+| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.2a/b、多项目工作区与 Base UI/主题已完成；下一项 G1.2c** |
 | M3 文件快照与审查 | 快照、ChangeSet、Diff、选择性恢复 | 延后，保留设计见 §7 |
 | M4 工作区增强 | 文件树、代码浏览、审查布局及进一步体验优化 | 延后，原生 Pi 兼容部分已迁入 G1，见 §3 |
 | M5 末语工坊接入 | Editor Bridge 与第二消费方 | 延后，见 §4 |
@@ -52,7 +52,7 @@
 | --- | --- | --- |
 | G1.0 范围盘点 | 建立锁定版本能力规范、源码基线与计划调整 | ✅ 文档交付完成；[范围迭代](iteration/2026-10/2026-10-31-feat-pi-gui-scope.md) |
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
-| G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 启动期用户扩展交互仍有限制（无 UI 回答），不标整项完成；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计 → c 树导航 → d fork/clone/import 待实施 |
+| G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 启动期用户扩展交互仍有限制（无 UI 回答），不标整项完成；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航 → d fork/clone/import 待实施 |
 | G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | 待启动；已有对话/队列/模型基础，需补入口与验收 |
 | G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 待启动；资源已有 SDK 装配，MCP 等内置工厂尚未注入 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 待启动；原生条件能力不因未配置而删项 |
@@ -63,11 +63,11 @@
 
 ### 2.3 当前阶段：G1.2 分项实施
 
-用户确认的[Base UI 与末语工坊主题统一](iteration/2026-10/2026-10-31-refactor-base-ui-theme.md)已完成开发：主 agent review 修复后验证 517 项测试、16 条 Chromium、类型检查与构建通过。自有组件已移除 Radix/cmdk 直接依赖，沿用末语工坊 Base UI 基础和紧凑主题，assistant-ui 内部间接 Radix 依赖按决定保留。下一项继续 G1.2b 会话管理与统计。
+用户确认的[Base UI 与末语工坊主题统一](iteration/2026-10/2026-10-31-refactor-base-ui-theme.md)已完成开发：主 agent review 修复后验证 517 项测试、16 条 Chromium、类型检查与构建通过。自有组件已移除 Radix/cmdk 直接依赖，沿用末语工坊 Base UI 基础和紧凑主题，assistant-ui 内部间接 Radix 依赖按决定保留。G1.2b 会话管理与统计也已完成，下一项为 G1.2c 会话树与跨窗导航同步。
 
-阶段设计见 [项目、会话与分支](iteration/2026-10/2026-10-31-feat-project-session-branches.md)，已核对 1.4.0 SDK。a 项目入口与信任已完成；用户随后确认[多项目工作区](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)：会话归属工作区，左侧工作区一级、会话二级。新增工作区迭代已完成开发与主 agent 验证；下一项为 b 会话管理与统计，随后 c 树导航和跨窗同步、d 独立分支与导入。
+阶段设计见 [项目、会话与分支](iteration/2026-10/2026-10-31-feat-project-session-branches.md)，已核对 1.4.0 SDK。a 项目入口与信任已完成；用户随后确认[多项目工作区](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)：会话归属工作区，左侧工作区一级、会话二级。新增工作区迭代与 b 会话管理/统计已完成开发与主 agent 验证；下一项为 c 树导航和跨窗同步，随后 d 独立分支与导入。
 
-工作区新增迭代先验证从 pi-workspaces 选择性复用的路径/工具代码与公开 SDK 的适配，不加载整个插件；新建会话选择并固定起始 cwd，工作区成员改动在运行结算后、下一轮前生效。仅起始目录装配项目设置/扩展/MCP；其他成员提供路径与指令。huan 自主管理定义与生命周期，不要求与上游格式或 Pi TUI 同步。存储采用 `<agentDir>/huan/state.json`，具体 schema、会话存储作用域和失败规则见工作区设计 §4。state.json、协议/HTTP、宿主归属与两级 GUI 已完成；主 agent review 修复与 517 项测试、12 条 Chromium 验证见[工作区迭代 §8](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#8-开发实施与验证记录)。G1.2b 尚未开始。
+工作区新增迭代先验证从 pi-workspaces 选择性复用的路径/工具代码与公开 SDK 的适配，不加载整个插件；新建会话选择并固定起始 cwd，工作区成员改动在运行结算后、下一轮前生效。仅起始目录装配项目设置/扩展/MCP；其他成员提供路径与指令。huan 自主管理定义与生命周期，不要求与上游格式或 Pi TUI 同步。存储采用 `<agentDir>/huan/state.json`，具体 schema、会话存储作用域和失败规则见工作区设计 §4。state.json、协议/HTTP、宿主归属与两级 GUI 已完成；主 agent review 修复与 517 项测试、12 条 Chromium 验证见[工作区迭代 §8](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#8-开发实施与验证记录)。G1.2b 的持久归档、列表搜索/排序/外部刷新、删除确认与只读冷热统计已完成，见[会话管理与统计](iteration/2026-10/2026-10-31-feat-session-management-stats.md)。
 
 用户已确认路径输入+最近项目、持久化归档与树节点、双入口 JSONL 导入。[G1.2a](iteration/2026-10/2026-10-31-feat-project-trust.md)已完成；新增工作区设计替代其按单项目组织会话的入口，保留路径/信任基础。启动期用户信任扩展无 UI 交互的限制保留至 Host UI 能力核对。
 

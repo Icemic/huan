@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a 与多项目工作区开发完成；G1.2b/c/d 尚未实施
+- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a/b、多项目工作区与 Base UI/主题开发完成；G1.2c/d 尚未实施
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -27,13 +27,21 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 实测：517 项测试、16 条 Chromium 流程、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。多项目工作区与 Base UI/主题迁移开发完成，记录见 `iteration/2026-10/2026-10-31-refactor-base-ui-theme.md` §4～§6。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 实测：536 项测试、20 条 Chromium 流程、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。本轮会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.2b 会话管理与统计（✅ 开发完成，`feat`）
+
+记录：[会话管理与统计](iteration/2026-10/2026-10-31-feat-session-management-stats.md)
+
+- 工作区范围、名称/首条消息搜索、排序和仅命名过滤；归档保存至 huan state.json，重启保留；删除前显示路径并确认。
+- 只读详情区分全文件累计统计与当前分支上下文；冷查询不执行项目扩展或联网。
+- 主 agent 修复热详情缺字段、刷新乱序、删除清理重试及名称清空；536 项测试、20 条 Chromium、类型与构建通过。
 
 ### Base UI 与末语工坊主题统一（✅ 开发完成，`refactor`）
 
@@ -158,12 +166,11 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | 限制 | 说明 |
 | --- | --- |
 | `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false） |
-| 归档状态不跨重启 | 内存态标记，重启丢失 |
 | 附件仅图片 | 无其他文件类型支持 |
 | skills / extensions 不暴露 UI | SDK 层已支持加载，界面不呈现 |
 | 会话分支 / 树导航不可用 | Pi 侧数据保留，当前协议和 UI 未接入；已纳入基础 GUI 范围 |
 | 无文件快照 / 回滚 | 属后续增强能力 |
-| 会话搜索有限 | 已有按标题过滤与日期分组，非全文搜索；文案仍有英文 |
+| 会话搜索范围有限 | 只匹配显式名称与首条用户消息，不含全历史全文检索；支持全部/当前工作区范围与最近活动/创建时间/名称排序 |
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
 | 内置 MCP 等能力未装配 | 尚未注入 MCP、codemode、tool search 工厂，无 GUI 管理入口 |
 | 多项原生操作无 GUI 入口 | 包括手动 compact、reload、认证、导入导出与直接 Shell 输入，完整范围见能力规范 |

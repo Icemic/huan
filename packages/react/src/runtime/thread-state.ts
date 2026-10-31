@@ -387,8 +387,15 @@ export const reduceHarnessThreadState = (
 
     case 'session_info_changed': {
       const metadata = { ...state.metadata }
-      if (event.name !== undefined) metadata.title = event.name
-      else delete metadata.title
+      if (event.name?.trim()) {
+        metadata.name = event.name.trim()
+        metadata.title = metadata.name
+      } else {
+        delete metadata.name
+        if (metadata.firstMessageText) {
+          metadata.title = metadata.firstMessageText.slice(0, 60).trim()
+        } else delete metadata.title
+      }
       return stamped({ ...state, metadata })
     }
 

@@ -84,6 +84,21 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async getThread() {
       return client.getThreadSnapshot
     },
+    async getThreadDetails(threadId) {
+      return {
+        metadata: { ...client.getThreadSnapshot.metadata, id: threadId },
+        stats: {
+          userMessages: 0,
+          assistantMessages: 0,
+          toolResults: 0,
+          toolCalls: 0,
+          totalMessages: 0,
+          tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          cost: 0,
+        },
+        branchEntryCount: 0,
+      }
+    },
     async sendMessage(threadId, input) {
       client.sent.push({ threadId, input })
     },

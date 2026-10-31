@@ -66,6 +66,25 @@ describe('threadState（线程状态 reducer）', () => {
     expect(s.loadState).toBe('loaded')
   })
 
+  it('改名事件同步显式名称，清空后回到首条消息标题', () => {
+    let state = apply(
+      createHarnessThreadState('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: { id: 't1', status: 'idle', title: '首条消息', firstMessageText: '首条消息' },
+          messages: [],
+        },
+      }),
+    )
+    state = apply(state, ev({ type: 'session_info_changed', name: '已命名' }))
+    expect(state.metadata.name).toBe('已命名')
+    expect(state.metadata.title).toBe('已命名')
+    state = apply(state, ev({ type: 'session_info_changed' }))
+    expect(state.metadata.name).toBeUndefined()
+    expect(state.metadata.title).toBe('首条消息')
+  })
+
   it('流式助手消息：start → update → end（原地替换）', () => {
     let s = apply(
       createHarnessThreadState('t1'),

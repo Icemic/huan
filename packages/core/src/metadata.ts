@@ -82,8 +82,14 @@ export function mapSessionInfo(
   info: SessionCatalogInfo,
   opts?: { liveStatus?: HarnessThreadMetadata['status'] },
 ): HarnessThreadMetadata {
+  const explicitName = info.name?.trim()
+  // 占位值不是首条消息，既不能当标题也不能作为搜索命中。
+  const firstMessageText =
+    info.firstMessage && info.firstMessage !== NO_MESSAGES_PLACEHOLDER
+      ? info.firstMessage
+      : undefined
   const title = normalizeTitle({
-    explicitName: info.name,
+    explicitName,
     firstMessageText: info.firstMessage,
     sessionFilePath: info.path,
   })
@@ -95,6 +101,9 @@ export function mapSessionInfo(
     createdAt: info.created.toISOString(),
     updatedAt: info.modified.toISOString(),
     ...(title ? { title } : {}),
+    // 命名状态与首条消息独立暴露：回退标题不表示会话已命名，搜索只看这两个字段。
+    ...(explicitName ? { name: explicitName } : {}),
+    ...(firstMessageText ? { firstMessageText } : {}),
     ...(info.cwd ? { workspacePath: info.cwd } : {}),
     ...(info.parentSessionPath ? { parentSessionPath: info.parentSessionPath } : {}),
   }

@@ -23,6 +23,7 @@ import type {
   HarnessModelInfo,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
+  HarnessThreadDetails,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from './thread.js'
@@ -47,14 +48,23 @@ export interface HarnessClient {
   /**
    * 列出当前存储作用域内的会话；按 workspaceId 过滤归属，`unassigned`
    * 列出未归属会话，两者都不传时返回全部。
+   *
+   * `refresh` 为显式重扫：清空并重新扫描作用域目录（外部 Pi 改动可见）；
+   * 缺省时沿用宿主缓存与已有失效机制。
    */
   listThreads(input?: {
     workspaceId?: string
     unassigned?: boolean
     includeArchived?: boolean
+    refresh?: boolean
   }): Promise<HarnessThreadMetadata[]>
   createThread(input?: HarnessCreateThreadInput): Promise<HarnessThreadSnapshot>
   getThread(threadId: string): Promise<HarnessThreadSnapshot>
+  /**
+   * 只读详情：元数据、全文件累计统计与当前活动分支上下文。
+   * 冷会话不装配项目扩展、不发起网络请求；热会话直接使用 SDK 统计。
+   */
+  getThreadDetails(threadId: string): Promise<HarnessThreadDetails>
   sendMessage(threadId: string, input: HarnessSendMessageInput): Promise<void>
   /**
    * 停止：中止当前运行、丢弃未送达的排队输入，覆盖 prompt 预检窗口。

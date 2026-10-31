@@ -35,7 +35,14 @@ export type WorkspaceStoreWorkspace = {
 
 /** 会话在某个存储作用域内的附加元数据。 */
 export type WorkspaceSessionMetadata = {
-  workspaceId: string
+  /**
+   * 明确归属的工作区；缺失表示未归属。
+   *
+   * 未归属会话也允许保存归档等组织标记，因此该字段可选。
+   */
+  workspaceId?: string
+  /** 归档标记；重启保留，不修改 Pi JSONL。 */
+  archived?: boolean
 }
 
 /** 对外暴露的只读快照（深拷贝，调用方不能修改内部状态）。 */
@@ -233,11 +240,23 @@ function parseStoredFile(value: unknown): WorkspaceStoreState {
       if (entry === null || typeof entry !== 'object') {
         throw new Error(`会话 ${sessionId} 的元数据无效`)
       }
-      const workspaceId = (entry as { workspaceId?: unknown }).workspaceId
-      if (typeof workspaceId !== 'string' || !workspaceId) {
-        throw new Error(`会话 ${sessionId} 缺少 workspaceId`)
+      const candidate = entry as { workspaceId?: unknown; archived?: unknown }
+      const workspaceId = candidate.workspaceId
+      if (workspaceId !== undefined && (typeof workspaceId !== 'string' || !workspaceId)) {
+        throw new Error(`会话 ${sessionId} 的 workspaceId 无效`)
       }
-      sessions[sessionId] = { workspaceId }
+      const archived = candidate.archived
+      if (archived !== undefined && typeof archived !== 'boolean') {
+        throw new Error(`会话 ${sessionId} 的 archived 无效`)
+      }
+      if (workspaceId === undefined && archived !== true) {
+        // 既无归属也未归档的空条目没有语义，视为损坏而不静默丢弃。
+        throw new Error(`会话 ${sessionId} 的元数据为空`)
+      }
+      sessions[sessionId] = {
+        ...(typeof workspaceId === 'string' ? { workspaceId } : {}),
+        ...(archived === true ? { archived: true } : {}),
+      }
     }
     sessionMetadata[storeId] = sessions
   }
@@ -353,6 +372,11 @@ export class WorkspaceStore {
     return this.#state.sessionMetadata[storeId]?.[sessionId]?.workspaceId
   }
 
+  /** 会话归档标记；没有记录时为 false。 */
+  sessionArchived(storeId: string, sessionId: string): boolean {
+    return this.#state.sessionMetadata[storeId]?.[sessionId]?.archived === true
+  }
+
   /**
    * 启动时的单项目工作区兜底。
    *
@@ -441,7 +465,7 @@ export class WorkspaceStore {
     })
   }
 
-  /** 会话明确加入工作区（覆盖为同一工作区是幂等操作）。 */
+  /** 会话明确加入工作区（覆盖为同一工作区是幂等操作）；保留归档标记。 */
   async assignSession(input: {
     storeId: string
     sessionId: string
@@ -452,9 +476,57 @@ export class WorkspaceStore {
       if (!this.workspace(input.workspaceId)) throw new WorkspaceNotFoundError(input.workspaceId)
       if (this.sessionWorkspace(input.storeId, input.sessionId) === input.workspaceId) return
       const next = cloneState(this.#state)
+      const existing = next.sessionMetadata[input.storeId]?.[input.sessionId]
       const sessions = next.sessionMetadata[input.storeId] ?? {}
-      sessions[input.sessionId] = { workspaceId: input.workspaceId }
+      // 归属更新不能丢掉同一会话的归档等组织标记。
+      sessions[input.sessionId] = { ...existing, workspaceId: input.workspaceId }
       next.sessionMetadata[input.storeId] = sessions
+      await this.commit(next)
+    })
+  }
+
+  /**
+   * 设置/清除归档标记。
+   *
+   * 不改工作区 revision，也不修改 Pi JSONL；未归属会话同样可以归档。
+   */
+  async setSessionArchived(input: {
+    storeId: string
+    sessionId: string
+    archived: boolean
+  }): Promise<void> {
+    await this.enqueue(async () => {
+      this.assertHealthy()
+      const existing = this.#state.sessionMetadata[input.storeId]?.[input.sessionId]
+      if ((existing?.archived === true) === input.archived) return
+      const next = cloneState(this.#state)
+      const sessions = { ...(next.sessionMetadata[input.storeId] ?? {}) }
+      const entry: WorkspaceSessionMetadata = { ...existing }
+      if (input.archived) entry.archived = true
+      else delete entry.archived
+      // 既无归属也不再归档时删除条目，避免留下空对象。
+      if (entry.workspaceId === undefined && entry.archived === undefined) {
+        delete sessions[input.sessionId]
+      } else {
+        sessions[input.sessionId] = entry
+      }
+      if (Object.keys(sessions).length === 0) delete next.sessionMetadata[input.storeId]
+      else next.sessionMetadata[input.storeId] = sessions
+      await this.commit(next)
+    })
+  }
+
+  /** 删除会话文件成功后清理其归属与归档元数据。 */
+  async removeSessionMetadata(input: { storeId: string; sessionId: string }): Promise<void> {
+    await this.enqueue(async () => {
+      this.assertHealthy()
+      const existing = this.#state.sessionMetadata[input.storeId]?.[input.sessionId]
+      if (!existing) return
+      const next = cloneState(this.#state)
+      const sessions = { ...(next.sessionMetadata[input.storeId] ?? {}) }
+      delete sessions[input.sessionId]
+      if (Object.keys(sessions).length === 0) delete next.sessionMetadata[input.storeId]
+      else next.sessionMetadata[input.storeId] = sessions
       await this.commit(next)
     })
   }

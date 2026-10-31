@@ -32,17 +32,37 @@ msgstr "Solarized Light"
 msgid "Thinking"
 msgstr "Thinking"
 
+#: src/components/session-dialogs.tsx:162
+msgid "Token"
+msgstr "Token"
+
 #: src/components/theme-selector.tsx:24
 msgid "主题"
 msgstr "主题"
+
+#: src/components/workspace-sidebar.tsx:627
+msgid "仅命名"
+msgstr "仅命名"
 
 #: src/components/workspace-manager.tsx:109
 msgid "仅用户资源"
 msgstr "仅用户资源"
 
+#: src/components/session-dialogs.tsx:123
+msgid "会话 ID"
+msgstr "会话 ID"
+
+#: src/components/session-dialogs.tsx:124
+msgid "会话文件"
+msgstr "会话文件"
+
 #: src/components/pi-host-status.tsx:128
 msgid "会话目录"
 msgstr "会话目录"
+
+#: src/components/session-dialogs.tsx:110
+msgid "会话详情"
+msgstr "会话详情"
 
 #: src/components/workspace-manager.tsx:495
 msgid "保存"
@@ -52,18 +72,50 @@ msgstr "保存"
 msgid "信任查询或保存失败，请查看宿主终端后重试。"
 msgstr "信任查询或保存失败，请查看宿主终端后重试。"
 
+#: src/components/workspace-sidebar.tsx:569
+#: src/components/workspace-sidebar.tsx:583
+msgid "全部工作区（含未归属）"
+msgstr "全部工作区（含未归属）"
+
+#. placeholder {0}: stats.totalMessages
+#: src/components/session-dialogs.tsx:160
+msgid "共 {0} 条"
+msgstr "共 {0} 条"
+
+#: src/components/session-dialogs.tsx:217
 #: src/components/ui/dialog.tsx:74
 #: src/components/ui/dialog.tsx:109
 msgid "关闭"
 msgstr "关闭"
 
+#: src/components/session-dialogs.tsx:134
+#: src/components/workspace-sidebar.tsx:593
+#: src/components/workspace-sidebar.tsx:608
+msgid "最近活动"
+msgstr "最近活动"
+
 #: src/components/workspace-manager.tsx:450
 msgid "决定信任"
 msgstr "决定信任"
 
-#: src/components/workspace-sidebar.tsx:204
+#: src/components/session-dialogs.tsx:133
+#: src/components/workspace-sidebar.tsx:594
+#: src/components/workspace-sidebar.tsx:611
+msgid "创建时间"
+msgstr "创建时间"
+
+#: src/components/workspace-sidebar.tsx:292
 msgid "删除"
 msgstr "删除"
+
+#: src/components/session-dialogs.tsx:271
+#: src/components/session-dialogs.tsx:305
+msgid "删除会话"
+msgstr "删除会话"
+
+#: src/components/session-dialogs.tsx:214
+msgid "刷新详情"
+msgstr "刷新详情"
 
 #: src/components/workspace-manager.tsx:736
 msgid "加入"
@@ -73,15 +125,35 @@ msgstr "加入"
 msgid "加入工作区"
 msgstr "加入工作区"
 
+#. placeholder {0}: stats.assistantMessages
+#: src/components/session-dialogs.tsx:154
+msgid "助手 {0}"
+msgstr "助手 {0}"
+
 #: src/components/pi-host-status.tsx:173
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 
+#: src/components/session-dialogs.tsx:185
+msgid "压缩后上下文未知，等待下一次响应"
+msgstr "压缩后上下文未知，等待下一次响应"
+
+#: src/components/session-dialogs.tsx:297
 #: src/components/workspace-manager.tsx:488
 #: src/components/workspace-manager.tsx:630
 #: src/components/workspace-manager.tsx:731
 msgid "取消"
 msgstr "取消"
+
+#: src/components/session-dialogs.tsx:113
+msgid "只读信息。累计统计覆盖整个会话文件（含已压缩历史与其他分支）；当前上下文只按活动分支估算。"
+msgstr "只读信息。累计统计覆盖整个会话文件（含已压缩历史与其他分支）；当前上下文只按活动分支估算。"
+
+#: src/components/session-dialogs.tsx:120
+#: src/components/workspace-sidebar.tsx:595
+#: src/components/workspace-sidebar.tsx:614
+msgid "名称"
+msgstr "名称"
 
 #: src/components/pi-host-status.tsx:144
 msgid "启动默认模型"
@@ -120,7 +192,20 @@ msgstr "实际生效 v{0}"
 msgid "宿主信息与诊断"
 msgstr "宿主信息与诊断"
 
+#: src/components/session-dialogs.tsx:125
+msgid "尚未创建会话文件"
+msgstr "尚未创建会话文件"
+
+#: src/components/session-dialogs.tsx:285
+msgid "尚未创建会话文件；删除后当前会话记录不会保留。"
+msgstr "尚未创建会话文件；删除后当前会话记录不会保留。"
+
+#: src/components/session-dialogs.tsx:128
+msgid "工作区"
+msgstr "工作区"
+
 #: src/components/session-context-bar.tsx:51
+#: src/components/session-dialogs.tsx:130
 msgid "工作区不可用"
 msgstr "工作区不可用"
 
@@ -148,6 +233,16 @@ msgstr "工作区名称"
 msgid "工作目录"
 msgstr "工作目录"
 
+#. placeholder {0}: stats.toolResults
+#: src/components/session-dialogs.tsx:156
+msgid "工具结果 {0}"
+msgstr "工具结果 {0}"
+
+#. placeholder {0}: stats.toolCalls
+#: src/components/session-dialogs.tsx:158
+msgid "工具调用 {0}"
+msgstr "工具调用 {0}"
+
 #: src/components/workspace-manager.tsx:102
 msgid "已信任"
 msgstr "已信任"
@@ -156,7 +251,7 @@ msgstr "已信任"
 msgid "已复制"
 msgstr "已复制"
 
-#: src/components/workspace-sidebar.tsx:424
+#: src/components/workspace-sidebar.tsx:636
 msgid "已归档会话"
 msgstr "已归档会话"
 
@@ -164,15 +259,34 @@ msgstr "已归档会话"
 msgid "开始新会话"
 msgstr "开始新会话"
 
-#: src/components/workspace-sidebar.tsx:189
+#: src/components/workspace-sidebar.tsx:280
 msgid "归档"
 msgstr "归档"
+
+#: src/components/session-dialogs.tsx:180
+msgid "当前上下文"
+msgstr "当前上下文"
+
+#. placeholder {0}: details.branchEntryCount
+#: src/components/session-dialogs.tsx:199
+msgid "当前分支 {0} 条记录"
+msgstr "当前分支 {0} 条记录"
+
+#: src/components/workspace-sidebar.tsx:570
+#: src/components/workspace-sidebar.tsx:586
+msgid "当前工作区"
+msgstr "当前工作区"
 
 #: src/components/workspace-manager.tsx:170
 msgid "当前状态"
 msgstr "当前状态"
 
-#: src/components/workspace-sidebar.tsx:189
+#. placeholder {0}: formatTokens(stats.tokens.total)
+#: src/components/session-dialogs.tsx:174
+msgid "总计 {0}"
+msgstr "总计 {0}"
+
+#: src/components/workspace-sidebar.tsx:280
 msgid "恢复"
 msgstr "恢复"
 
@@ -198,12 +312,16 @@ msgstr "按工作目录分组"
 msgid "搜索模型"
 msgstr "搜索模型"
 
+#: src/components/workspace-sidebar.tsx:563
+msgid "搜索范围：会话名称与首条消息"
+msgstr "搜索范围：会话名称与首条消息"
+
 #: src/components/workspace-manager.tsx:563
 msgid "新建会话"
 msgstr "新建会话"
 
 #: src/components/workspace-manager.tsx:319
-#: src/components/workspace-sidebar.tsx:435
+#: src/components/workspace-sidebar.tsx:650
 msgid "新建工作区"
 msgstr "新建工作区"
 
@@ -223,15 +341,21 @@ msgstr "显式共享的平铺目录"
 msgid "显式参数"
 msgstr "显式参数"
 
-#: src/components/workspace-sidebar.tsx:309
+#: src/components/workspace-sidebar.tsx:409
 msgid "暂无会话"
 msgstr "暂无会话"
 
+#: src/components/session-dialogs.tsx:121
+#: src/components/session-dialogs.tsx:282
 #: src/components/workspace-manager.tsx:703
 msgid "未命名会话"
 msgstr "未命名会话"
 
-#: src/components/workspace-sidebar.tsx:458
+#: src/components/session-dialogs.tsx:130
+msgid "未归属"
+msgstr "未归属"
+
+#: src/components/workspace-sidebar.tsx:675
 msgid "未归属会话"
 msgstr "未归属会话"
 
@@ -251,6 +375,10 @@ msgstr "本次拒绝"
 msgid "检查路径与信任…"
 msgstr "检查路径与信任…"
 
+#: src/components/session-dialogs.tsx:135
+msgid "模型"
+msgstr "模型"
+
 #: src/components/pi-host-status.tsx:154
 msgid "模型来源"
 msgstr "模型来源"
@@ -259,15 +387,23 @@ msgstr "模型来源"
 msgid "模型目录刷新失败，当前目录可能来自缓存。"
 msgstr "模型目录刷新失败，当前目录可能来自缓存。"
 
+#: src/components/session-dialogs.tsx:182
+msgid "模型窗口未知，无法估算"
+msgstr "模型窗口未知，无法估算"
+
 #: src/components/pi-host-status.tsx:92
 msgid "正在查询宿主配置…"
 msgstr "正在查询宿主配置…"
+
+#: src/components/session-dialogs.tsx:143
+msgid "正在读取会话统计…"
+msgstr "正在读取会话统计…"
 
 #: src/app.tsx:90
 msgid "正在连接宿主…"
 msgstr "正在连接宿主…"
 
-#: src/components/workspace-sidebar.tsx:430
+#: src/components/workspace-sidebar.tsx:645
 msgid "没有匹配的会话。"
 msgstr "没有匹配的会话。"
 
@@ -279,6 +415,10 @@ msgstr "没有匹配的模型。"
 msgid "浅色"
 msgstr "浅色"
 
+#: src/components/session-dialogs.tsx:151
+msgid "消息"
+msgstr "消息"
+
 #: src/components/theme-selector.tsx:12
 msgid "深色"
 msgstr "深色"
@@ -287,9 +427,18 @@ msgstr "深色"
 msgid "添加成员"
 msgstr "添加成员"
 
+#: src/components/session-dialogs.tsx:132
+msgid "父会话"
+msgstr "父会话"
+
 #: src/components/pi-host-status.tsx:14
 msgid "环境变量"
 msgstr "环境变量"
+
+#. placeholder {0}: stats.userMessages
+#: src/components/session-dialogs.tsx:152
+msgid "用户 {0}"
+msgstr "用户 {0}"
 
 #: src/components/pi-host-status.tsx:122
 msgid "用户空间"
@@ -303,6 +452,10 @@ msgstr "移除成员"
 msgid "稍后处理"
 msgstr "稍后处理"
 
+#: src/components/session-dialogs.tsx:188
+msgid "窗口"
+msgstr "窗口"
+
 #: src/components/workspace-manager.tsx:319
 msgid "管理工作区"
 msgstr "管理工作区"
@@ -310,6 +463,20 @@ msgstr "管理工作区"
 #: src/components/session-context-bar.tsx:78
 msgid "管理项目"
 msgstr "管理项目"
+
+#: src/components/session-dialogs.tsx:177
+msgid "累计费用"
+msgstr "累计费用"
+
+#. placeholder {0}: formatTokens(stats.tokens.cacheWrite)
+#: src/components/session-dialogs.tsx:171
+msgid "缓存写 {0}"
+msgstr "缓存写 {0}"
+
+#. placeholder {0}: formatTokens(stats.tokens.cacheRead)
+#: src/components/session-dialogs.tsx:169
+msgid "缓存读 {0}"
+msgstr "缓存读 {0}"
 
 #: src/components/workspace-manager.tsx:86
 msgid "装配失败"
@@ -323,13 +490,29 @@ msgstr "记住此决定（写入当前路径的 trust.json）"
 msgid "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
 msgstr "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
 
+#: src/components/session-dialogs.tsx:274
+msgid "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
+msgstr "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
+
 #: src/components/workspace-manager.tsx:162
 msgid "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 msgstr "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 
+#: src/components/workspace-sidebar.tsx:249
+msgid "详情"
+msgstr "详情"
+
+#: src/components/session-dialogs.tsx:147
+msgid "读取会话详情失败，请检查宿主连接后重试。"
+msgstr "读取会话详情失败，请检查宿主连接后重试。"
+
 #: src/components/pi-host-status.tsx:169
 msgid "资源装配存在警告，详细原因请查看宿主终端。"
 msgstr "资源装配存在警告，详细原因请查看宿主终端。"
+
+#: src/components/session-dialogs.tsx:127
+msgid "起始目录"
+msgstr "起始目录"
 
 #: src/components/workspace-manager.tsx:574
 msgid "起始项目"
@@ -351,7 +534,17 @@ msgstr "路径缺失"
 msgid "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 msgstr "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 
-#: src/components/workspace-sidebar.tsx:430
+#. placeholder {0}: formatTokens(stats.tokens.input)
+#: src/components/session-dialogs.tsx:164
+msgid "输入 {0}"
+msgstr "输入 {0}"
+
+#. placeholder {0}: formatTokens(stats.tokens.output)
+#: src/components/session-dialogs.tsx:166
+msgid "输出 {0}"
+msgstr "输出 {0}"
+
+#: src/components/workspace-sidebar.tsx:645
 msgid "还没有工作区。"
 msgstr "还没有工作区。"
 
@@ -363,7 +556,7 @@ msgstr "选择起始项目。会话创建后 cwd 固定，可在同一工作区�
 msgid "配置文件"
 msgstr "配置文件"
 
-#: src/components/workspace-sidebar.tsx:170
+#: src/components/workspace-sidebar.tsx:261
 msgid "重命名"
 msgstr "重命名"
 

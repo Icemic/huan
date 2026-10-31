@@ -133,11 +133,13 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     const workspaceId = c.req.query('workspaceId') ?? undefined
     const unassigned = c.req.query('unassigned') === 'true'
     const includeArchived = c.req.query('includeArchived') === 'true'
+    const refresh = c.req.query('refresh') === 'true'
     return c.json(
       await piClient.listThreads({
         ...(workspaceId ? { workspaceId } : {}),
         ...(unassigned ? { unassigned } : {}),
         includeArchived,
+        ...(refresh ? { refresh } : {}),
       }),
     )
   })
@@ -159,6 +161,11 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   app.get('/api/pi/threads/:id', async (c) => {
     return c.json(await piClient.getThread(c.req.param('id')))
+  })
+
+  // 只读详情：受同一 Host/Origin/凭证中间件保护，不订阅、不隐式激活冷会话。
+  app.get('/api/pi/threads/:id/details', async (c) => {
+    return c.json(await piClient.getThreadDetails(c.req.param('id')))
   })
 
   app.patch('/api/pi/threads/:id', async (c) => {

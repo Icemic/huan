@@ -4,6 +4,7 @@ import type {
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessRecentProject,
+  HarnessThreadDetails,
   HarnessThreadMetadata,
   HarnessWorkspace,
 } from '@huan/protocol'
@@ -78,6 +79,7 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     listThreads: vi.fn(),
     createThread: vi.fn(),
     getThread: vi.fn(),
+    getThreadDetails: vi.fn(),
     sendMessage: vi.fn(),
     cancelRun: vi.fn(),
     clearQueue: vi.fn(),
@@ -241,5 +243,63 @@ describe('工作区路由与真实 HTTP 客户端', () => {
         Response.json({ workspaces: [{ id: 1 }], state: 'ok' })) as typeof fetch,
     })
     await expect(invalid.listWorkspaces()).rejects.toThrow('Invalid Pi HTTP response')
+  })
+})
+
+describe('会话列表刷新与只读详情路由', () => {
+  const details: HarnessThreadDetails = {
+    metadata: thread,
+    stats: {
+      userMessages: 1,
+      assistantMessages: 2,
+      toolResults: 3,
+      toolCalls: 4,
+      totalMessages: 6,
+      tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 },
+      cost: 0.0123,
+    },
+    contextUsage: { tokens: 500, contextWindow: 32_768, percent: 1.53 },
+    branchEntryCount: 7,
+  }
+
+  it('传递显式刷新参数并往返只读详情，均经受保护路由', async () => {
+    const { app, client } = setup({
+      listThreads: vi.fn(async () => [thread]),
+      getThreadDetails: vi.fn(async () => details),
+    })
+    const http = createHarnessHttpClient({
+      baseUrl: 'http://localhost:8788/api/pi',
+      headers,
+      fetchImpl: ((input, init) => app.fetch(new Request(input, init))) as typeof fetch,
+    })
+
+    expect(await http.listThreads({ includeArchived: true, refresh: true })).toEqual([thread])
+    expect(client.listThreads).toHaveBeenCalledWith({ includeArchived: true, refresh: true })
+
+    expect(await http.getThreadDetails('t1')).toEqual(details)
+    expect(client.getThreadDetails).toHaveBeenCalledWith('t1')
+
+    // 无凭证/无来源的请求被安全中间件拒绝，不会读到会话文件。
+    const denied = await app.request('/api/pi/threads/t1/details', {
+      headers: { host: 'localhost:8788' },
+    })
+    expect(denied.status).toBe(401)
+  })
+
+  it('详情失败传播为宿主错误响应，畸形载荷被客户端拒绝', async () => {
+    const failing = setup({
+      getThreadDetails: vi.fn(async () => {
+        throw new Error('detail failure')
+      }),
+    })
+    const failed = await failing.app.request('/api/pi/threads/t1/details', { headers })
+    expect(failed.status).toBe(500)
+    expect(await failed.json()).toEqual({ error: 'internal-error' })
+
+    const invalid = createHarnessHttpClient({
+      fetchImpl: (async () =>
+        Response.json({ metadata: thread, stats: {}, branchEntryCount: 0 })) as typeof fetch,
+    })
+    await expect(invalid.getThreadDetails('t1')).rejects.toThrow('Invalid Pi HTTP response')
   })
 })

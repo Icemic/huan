@@ -16,6 +16,7 @@ import type {
   HarnessAssistantMessage,
   HarnessAssistantMessageDelta,
   HarnessHostUiRequest,
+  HarnessThreadDetails,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
@@ -241,6 +242,9 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   (value.queuedMessages === undefined ||
     (Array.isArray(value.queuedMessages) && value.queuedMessages.every(isQueuedMessage))) &&
   isOptionalString(value.title) &&
+  isOptionalString(value.name) &&
+  isOptionalString(value.firstMessageText) &&
+  isOptionalString(value.workspaceId) &&
   isOptionalString(value.workspacePath) &&
   isOptionalBoolean(value.archived) &&
   isOptionalBoolean(value.compactionActive) &&
@@ -254,6 +258,30 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   isOptionalNumber(value.messageCount) &&
   isOptionalString(value.createdAt) &&
   isOptionalString(value.updatedAt)
+
+/** 累计统计守卫：详情面板会直接读取这些数值。 */
+const isThreadStats = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.userMessages === 'number' &&
+  typeof value.assistantMessages === 'number' &&
+  typeof value.toolResults === 'number' &&
+  typeof value.toolCalls === 'number' &&
+  typeof value.totalMessages === 'number' &&
+  isRecord(value.tokens) &&
+  typeof value.tokens.input === 'number' &&
+  typeof value.tokens.output === 'number' &&
+  typeof value.tokens.cacheRead === 'number' &&
+  typeof value.tokens.cacheWrite === 'number' &&
+  typeof value.tokens.total === 'number' &&
+  typeof value.cost === 'number'
+
+/** 只读详情守卫：累计统计与当前上下文必须分别合法。 */
+export const isThreadDetails = (value: unknown): value is HarnessThreadDetails =>
+  isRecord(value) &&
+  isThreadMetadata(value.metadata) &&
+  isThreadStats(value.stats) &&
+  typeof value.branchEntryCount === 'number' &&
+  (value.contextUsage === undefined || isContextUsage(value.contextUsage))
 
 const isRenderableTranscriptMessage = (value: unknown): value is HarnessAgentMessage => {
   if (!isRecord(value) || typeof value.role !== 'string') return false

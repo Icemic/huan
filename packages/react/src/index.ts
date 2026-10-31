@@ -35,6 +35,7 @@ export {
   isCompleteTranscriptMessage,
   isContextUsage,
   isHostUiRequest,
+  isThreadDetails,
   isThreadMetadata,
   isThreadSnapshot,
 } from './client/validation.js'

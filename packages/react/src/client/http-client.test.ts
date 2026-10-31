@@ -114,6 +114,48 @@ describe('createHarnessHttpClient', () => {
     expect(calls[0]!.url).toBe('/api/pi/threads')
   })
 
+  it('adds the explicit refresh flag when rescanning threads', async () => {
+    const { fn, calls } = fakeFetch(() => json([]))
+    await createHarnessHttpClient({ fetchImpl: fn }).listThreads({
+      includeArchived: true,
+      refresh: true,
+    })
+    expect(calls[0]!.method).toBe('GET')
+    expect(calls[0]!.url).toBe('/api/pi/threads?includeArchived=true&refresh=true')
+  })
+
+  it('fetches read-only thread details with accumulated stats', async () => {
+    const details = {
+      metadata: { id: 't1', status: 'idle', name: '已命名', firstMessageText: '首条消息' },
+      stats: {
+        userMessages: 1,
+        assistantMessages: 2,
+        toolResults: 3,
+        toolCalls: 4,
+        totalMessages: 6,
+        tokens: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, total: 100 },
+        cost: 0.0123,
+      },
+      contextUsage: { tokens: 500, contextWindow: 32_768, percent: 1.53 },
+      branchEntryCount: 7,
+    }
+    const { fn, calls } = fakeFetch(() => json(details))
+
+    await expect(
+      createHarnessHttpClient({ fetchImpl: fn }).getThreadDetails('t1'),
+    ).resolves.toEqual(details)
+    expect(calls[0]).toMatchObject({ url: '/api/pi/threads/t1/details', method: 'GET' })
+  })
+
+  it('rejects malformed thread details', async () => {
+    const { fn } = fakeFetch(() =>
+      json({ metadata: { id: 't1', status: 'idle' }, stats: {}, branchEntryCount: 0 }),
+    )
+    await expect(createHarnessHttpClient({ fetchImpl: fn }).getThreadDetails('t1')).rejects.toThrow(
+      'Invalid Pi HTTP response while fetching thread details: expected metadata, accumulated stats and an optional context usage.',
+    )
+  })
+
   it('creates a thread by POSTing the input and parses the snapshot', async () => {
     const { fn, calls } = fakeFetch(() => json(snapshot))
     const client = createHarnessHttpClient({ fetchImpl: fn })

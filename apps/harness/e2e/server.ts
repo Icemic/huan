@@ -204,6 +204,20 @@ export default function () {
   }
   return c.json({ path: projectPath, name, marker })
 })
+// 外部 Pi 会话：用于验证「显式刷新重新扫描作用域」能发现宿主启动后新增的文件。
+// 刻意不经宿主 API 创建，也不写入 huan 工作区元数据（应出现在未归属分组）。
+app.post('/__e2e__/sessions', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; name?: unknown }
+  const text = typeof body.text === 'string' ? body.text : '外部会话'
+  const manager = SessionManager.create(env.workspace, env.defaultSessionDir(env.workspace))
+  if (typeof body.name === 'string' && body.name) manager.appendSessionInfo(body.name)
+  manager.appendMessage({
+    role: 'user',
+    content: [{ type: 'text', text }],
+    timestamp: Date.now(),
+  })
+  return c.json({ id: manager.getSessionId(), path: manager.getSessionFile() ?? null })
+})
 app.get('/__e2e__/subscriptions', (c) => c.json({ totalSubscriptions, activeSubscriptions }))
 // 工作区元数据读写：仅供损坏文件 UI 场景备份/恢复，不进入生产应用。
 app.get('/__e2e__/workspace-state', async (c) => {

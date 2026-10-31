@@ -25,10 +25,11 @@
  *   GET    /workspaces              → HarnessWorkspaceCatalog
  *   POST   /workspaces              → HarnessWorkspaceMutationResult (body: 创建输入)
  *   PATCH  /workspaces/:id          → HarnessWorkspaceMutationResult (body: 修改输入)
- *   GET    /threads                 → HarnessThreadMetadata[]   (?workspaceId=&unassigned=&includeArchived=)
+ *   GET    /threads                 → HarnessThreadMetadata[]   (?workspaceId=&unassigned=&includeArchived=&refresh=)
  *   POST   /threads                 → HarnessThreadSnapshot      (body: workspaceId + startProjectPath 等)
  *   POST   /threads/:id/workspace   → HarnessAssignThreadResult  (body: { workspaceId })
  *   GET    /threads/:id             → HarnessThreadSnapshot
+ *   GET    /threads/:id/details     → HarnessThreadDetails       (只读详情与累计统计)
  *   PATCH  /threads/:id             → 204                        (body: { title })
  *   POST   /threads/:id/messages    → 204                        (body: { input })
  *   POST   /threads/:id/cancel      → 204
@@ -68,7 +69,7 @@ import type {
 } from '@huan/protocol'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import { createHarnessEventStreamConnection, isTerminalStreamError } from './event-source.js'
-import { isThreadMetadata, isThreadSnapshot } from './validation.js'
+import { isThreadDetails, isThreadMetadata, isThreadSnapshot } from './validation.js'
 
 /** HTTP 客户端选项。 */
 export interface HarnessHttpClientOptions {
@@ -480,6 +481,8 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
       if (input?.workspaceId) params.set('workspaceId', input.workspaceId)
       if (input?.unassigned) params.set('unassigned', 'true')
       if (input?.includeArchived) params.set('includeArchived', 'true')
+      // 显式刷新清除宿主作用域缓存并重新扫描（外部 Pi 改动可见）。
+      if (input?.refresh) params.set('refresh', 'true')
       const query = params.toString()
       return parseThreadListResponse(
         await readJson(
@@ -500,6 +503,20 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         await readJson(await send(threadUrl(threadId), 'GET'), 'fetching a thread'),
         'fetching a thread',
       ),
+
+    getThreadDetails: async (threadId) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/details`, 'GET'),
+        'fetching thread details',
+      )
+      if (!isThreadDetails(value)) {
+        throw invalidResponse(
+          'fetching thread details',
+          'expected metadata, accumulated stats and an optional context usage.',
+        )
+      }
+      return value
+    },
 
     sendMessage: async (threadId, input: HarnessSendMessageInput) => {
       await assertOk(await send(`${threadUrl(threadId)}/messages`, 'POST', { input }))

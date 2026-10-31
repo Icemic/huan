@@ -57,6 +57,7 @@ import type {
   HarnessRecentProject,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
+  HarnessThreadDetails,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
   HarnessWorkspace,
@@ -98,6 +99,7 @@ import {
   readSessionDirSetting,
   resolveAgentDir,
 } from './session-dir.js'
+import { aggregateSessionStats } from './session-stats.js'
 import { pathKey, type WorkspaceSnapshot } from './workspace-path.js'
 import {
   defaultWorkspaceId,
@@ -454,8 +456,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const startingSends = new Map<string, Set<StartingSend>>()
   const pendingDeletes = new Map<string, Promise<void>>()
   const recordsBySessionFile = new Map<string, ThreadRecord>()
-  /** 归档标记（内存态；重启丢失为已知限制）。 */
-  const archivedSessionFiles = new Set<string>()
   /** dispose 后拒绝新操作。 */
   let disposed = false
   /** 代数计数：使 dispose 前发起的异步打开失效。 */
@@ -1061,6 +1061,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       const infos = scope.grouped
         ? await listGroupedScopeInfos()
         : ((await SessionManager.listAll(scope.dir)) as unknown as SessionCatalogInfo[])
+      // 只在本次扫描仍是当前缓存条目时写回：显式刷新可能已用新条目替换它，
+      // 旧 promise 不得覆盖新结果，也不能删掉新条目。
+      if (scopeCatalogCache.get(key) !== entry) return infos
       // 空结果不缓存（同上：会话可能在创建后落盘）。
       if (infos.length === 0) scopeCatalogCache.delete(key)
       else entry.infos = infos
@@ -1144,6 +1147,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const usage = session.getContextUsage()
     const queued = mapQueuedMessages(session.getSteeringMessages(), session.getFollowUpMessages())
     const title = deriveLiveTitle(record)
+    const explicitName = session.sessionName?.trim()
+    const firstMessageText = firstUserMessageTextOf(record)
     return {
       id: record.threadId,
       status: runStatus(record),
@@ -1156,6 +1161,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 标题口径与冷读路径一致：显式会话名 > 首条用户消息（截断）> 会话文件名。
       // 注意：仅「显式命名」会持久化；未命名会话重启后由冷路径推导同一标题。
       ...(title ? { title } : {}),
+      // 命名状态与首条消息独立暴露：与冷读路径同为全文件口径。
+      ...(explicitName ? { name: explicitName } : {}),
+      ...(firstMessageText ? { firstMessageText } : {}),
       ...(session.sessionFile ? { sessionFile: session.sessionFile } : {}),
       ...(model
         ? {
@@ -1167,9 +1175,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
           }
         : { config: { thinkingLevel: session.thinkingLevel } }),
       ...(usage ? { contextUsage: usage } : {}),
-      ...(session.sessionFile && archivedSessionFiles.has(session.sessionFile)
-        ? { archived: true }
-        : {}),
+      ...(workspaceStore.sessionArchived(storeId, record.threadId) ? { archived: true } : {}),
       ...(queued.length ? { queuedMessages: queued } : {}),
     }
   }
@@ -1844,7 +1850,18 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     pendingOpens.get(threadId)?.controller.abort()
     const record = records.get(threadId)
     const info = record ? undefined : await findSessionInfo(threadId)
-    if (!record && !info) return
+    if (!record && !info) {
+      // 上次可能已删除文件但侧车清理失败；重试仍须完成清理。
+      await workspaceStore.removeSessionMetadata({ storeId, sessionId: threadId })
+      return
+    }
+    // 已知侧车不可写时在删除文件前拒绝，避免可预知的部分删除。
+    if (!workspaceStore.healthy) {
+      throw new WorkspaceStateUnavailableError(
+        workspaceStore.integrity === 'ok' ? 'unreadable' : workspaceStore.integrity,
+        workspaceStore.stateFile,
+      )
+    }
     const sessionFile = record?.session.sessionFile ?? info?.path
     const cwd = record?.workspacePath ?? info?.cwd
     if (!sessionFile) throw new Error(`Unknown thread: ${threadId}`)
@@ -1878,13 +1895,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       records.delete(threadId)
       recordsBySessionFile.delete(sessionFile)
     }
-    archivedSessionFiles.delete(sessionFile)
     // 删除同样限于当前存储作用域（防止作用域外路径被作用到）。
     assertSessionFileInScope(sessionFile, cwd)
     await unlink(sessionFile).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
     })
     if (cwd) invalidateCatalog(cwd)
+    // 文件删除成功后才清理归属与归档元数据。文件与 sidecar 没有跨文件事务，
+    // 清理失败必须报告（由调用方呈现），不伪造成功。
+    await workspaceStore.removeSessionMetadata({ storeId, sessionId: threadId })
   }
 
   /**
@@ -2044,10 +2063,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         return { ok: true as const, thread: metadataOf(record) }
       }
       const workspace = workspaceStore.workspace(input.workspaceId)
+      // 到这里 record 为空，info 必然存在（已在上面按 not-found 返回）。
+      const catalogInfo = info as SessionCatalogInfo
       return {
         ok: true as const,
         thread: {
-          ...mapSessionInfo(info as SessionCatalogInfo, { liveStatus: 'idle' }),
+          ...mapSessionInfo(catalogInfo, { liveStatus: 'idle' }),
           ...(workspace
             ? {
                 workspaceId: workspace.id,
@@ -2055,19 +2076,22 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
                 workspaceAppliedRevision: workspace.revision,
               }
             : {}),
-          ...(archivedSessionFiles.has((info as SessionCatalogInfo).path)
-            ? { archived: true }
-            : {}),
+          ...(workspaceStore.sessionArchived(storeId, catalogInfo.id) ? { archived: true } : {}),
         },
       }
     },
 
     async listThreads(input) {
       assertActive()
+      // 显式刷新（含窗口重新聚焦）：清空作用域缓存后重新扫描，外部 Pi 新增/
+      // 删除/改名可见；普通操作仍复用已有失效机制。
+      if (input?.refresh) scopeCatalogCache.clear()
       // 工作区会话跨 cwd 聚合：使用整个存储作用域列表，而不是只过滤 header.cwd。
       const infos = await listScopeInfos()
       return infos
-        .filter((info) => input?.includeArchived || !archivedSessionFiles.has(info.path))
+        .filter(
+          (info) => input?.includeArchived || !workspaceStore.sessionArchived(storeId, info.id),
+        )
         .flatMap((info) => {
           const storedWorkspaceId = workspaceStore.sessionWorkspace(storeId, info.id)
           const workspace = storedWorkspaceId
@@ -2105,7 +2129,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
                     workspaceAppliedRevision: workspace.revision,
                   }
                 : {}),
-              ...(archivedSessionFiles.has(info.path) ? { archived: true } : {}),
+              ...(workspaceStore.sessionArchived(storeId, info.id) ? { archived: true } : {}),
             },
           ]
         })
@@ -2212,6 +2236,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return snapshotFromSessionFile(info)
     },
 
+    async getThreadDetails(threadId: string) {
+      assertActive()
+      return threadDetailsOf(threadId)
+    },
+
     async sendMessage(threadId, input) {
       assertActive()
       const token: StartingSend = { cancelled: false }
@@ -2306,19 +2335,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     },
 
     async archiveThread(threadId) {
+      assertActive()
       const record = records.get(threadId)
       const info = record ? undefined : await findSessionInfo(threadId)
-      const sessionFile = record?.session.sessionFile ?? info?.path
-      if (!sessionFile) throw new Error(`Unknown thread: ${threadId}`)
-      archivedSessionFiles.add(sessionFile)
-      invalidateCatalog(record?.workspacePath ?? info?.cwd ?? workspacePath)
+      if (!record && !info) throw new Error(`Unknown thread: ${threadId}`)
+      // 归档是 huan 侧车组织标记：不改 Pi JSONL、不改工作区 revision、不停止任务。
+      await workspaceStore.setSessionArchived({ storeId, sessionId: threadId, archived: true })
       if (record) emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
     },
 
     async unarchiveThread(threadId) {
-      const info = await findSessionInfo(threadId)
-      if (info) archivedSessionFiles.delete(info.path)
+      assertActive()
       const record = records.get(threadId)
+      const info = record ? undefined : await findSessionInfo(threadId)
+      if (!record && !info) throw new Error(`Unknown thread: ${threadId}`)
+      await workspaceStore.setSessionArchived({ storeId, sessionId: threadId, archived: false })
       if (record) emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
     },
 
@@ -2393,8 +2424,14 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     },
   }
 
-  /** 冷读快照（不经 AgentSession）。 */
-  const snapshotFromSessionFile = (info: SessionCatalogInfo): HarnessThreadSnapshot => {
+  /**
+   * 冷读装载：只打开作用域校验后的 SessionManager，读取活动分支与上下文。
+   *
+   * 不构造 AgentSession、不装配项目设置/扩展、不联网；未知模型窗口时
+   * `contextUsage` 缺失（不填 0）；压缩后无有效助手 usage 时由
+   * `deriveContextUsage` 返回 tokens=null。
+   */
+  const loadColdSession = (info: SessionCatalogInfo) => {
     const scope = assertSessionFileInScope(info.path, info.cwd)
     const sessionManager = SessionManager.open(info.path, scope.dir)
     const branch = sessionManager.getBranch() as unknown as HarnessAnySessionEntry[]
@@ -2408,7 +2445,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       info.id,
       storedWorkspaceId ? workspaceStore.workspace(storedWorkspaceId)?.revision : undefined,
     )
-    const metadata = {
+    const metadata: HarnessThreadMetadata = {
       ...mapColdMetadata(
         info,
         {
@@ -2417,25 +2454,76 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
           model: context.model,
         },
         {
-          archived: archivedSessionFiles.has(info.path),
+          archived: workspaceStore.sessionArchived(storeId, info.id),
           ...(contextUsage ? { contextUsage } : {}),
         },
       ),
       ...workspaceMetadata,
     }
+    return { sessionManager, branch, context, contextUsage, metadata }
+  }
+
+  /** 冷读快照（不经 AgentSession）。 */
+  const snapshotFromSessionFile = (info: SessionCatalogInfo): HarnessThreadSnapshot => {
+    const cold = loadColdSession(info)
     return {
-      metadata,
-      messages: context.messages as HarnessAgentMessage[],
+      metadata: cold.metadata,
+      messages: cold.context.messages as HarnessAgentMessage[],
       readiness: getModelReadiness(
         modelRuntime,
-        context.model
+        cold.context.model
           ? {
-              provider: context.model.provider,
-              modelId: context.model.modelId,
+              provider: cold.context.model.provider,
+              modelId: cold.context.model.modelId,
             }
           : undefined,
         'session',
       ),
+    }
+  }
+
+  /**
+   * 只读详情：热会话直接使用 SDK 统计，冷会话按 SDK 同口径聚合全文件条目。
+   *
+   * 详情按需请求，不随每个 token 事件聚合整棵树，也不建立全历史索引。
+   */
+  const threadDetailsOf = async (threadId: string): Promise<HarnessThreadDetails> => {
+    const info = await findSessionInfo(threadId)
+    const record = records.get(threadId)
+    if (record) {
+      // 热会话：`getSessionStats()` 是权威口径（全文件累计），上下文复用同一会话。
+      const stats = record.session.getSessionStats()
+      return {
+        metadata: {
+          ...metadataOf(record),
+          ...(info
+            ? {
+                createdAt: info.created.toISOString(),
+                updatedAt: info.modified.toISOString(),
+                ...(info.parentSessionPath ? { parentSessionPath: info.parentSessionPath } : {}),
+              }
+            : {}),
+        },
+        stats: {
+          userMessages: stats.userMessages,
+          assistantMessages: stats.assistantMessages,
+          toolResults: stats.toolResults,
+          toolCalls: stats.toolCalls,
+          totalMessages: stats.totalMessages,
+          tokens: stats.tokens,
+          cost: stats.cost,
+        },
+        ...(stats.contextUsage ? { contextUsage: stats.contextUsage } : {}),
+        branchEntryCount: record.sessionManager.getBranch().length,
+      }
+    }
+    if (!info) throw new Error(`Unknown thread: ${threadId}`)
+    const cold = loadColdSession(info)
+    return {
+      metadata: cold.metadata,
+      stats: aggregateSessionStats(cold.sessionManager.getEntries()),
+      ...(cold.contextUsage ? { contextUsage: cold.contextUsage } : {}),
+      branchEntryCount: cold.branch.length,
     }
   }
 

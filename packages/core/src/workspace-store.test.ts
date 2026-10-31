@@ -209,6 +209,90 @@ describe('工作区元数据存储', () => {
     ).toEqual(['并发一', '并发二'])
   })
 
+  it('归档可独立于归属保存：未归属归档、再归属保留、重启恢复与删除清理', async () => {
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    const workspace = await store.createWorkspace({
+      name: '工作区',
+      projects: [{ alias: 'a', path: join(root, 'a') }],
+    })
+    const storeA = sessionStoreId(join(root, 'sessions'))
+    const storeB = sessionStoreId(join(root, 'flat-sessions'))
+
+    // 未归属会话可以归档：只写 archived，不要求 workspaceId。
+    await store.setSessionArchived({ storeId: storeA, sessionId: 's1', archived: true })
+    expect(store.sessionArchived(storeA, 's1')).toBe(true)
+    expect(store.sessionWorkspace(storeA, 's1')).toBeUndefined()
+    const onDisk = JSON.parse(await readFile(workspaceStateFile(agentDir), 'utf8'))
+    expect(onDisk.sessionMetadata[storeA].s1).toEqual({ archived: true })
+    // 归档按存储作用域隔离。
+    expect(store.sessionArchived(storeB, 's1')).toBe(false)
+
+    // 归属更新保留归档，且不改工作区 revision。
+    await store.assignSession({ storeId: storeA, sessionId: 's1', workspaceId: workspace.id })
+    expect(store.sessionWorkspace(storeA, 's1')).toBe(workspace.id)
+    expect(store.sessionArchived(storeA, 's1')).toBe(true)
+    const afterAssign = JSON.parse(await readFile(workspaceStateFile(agentDir), 'utf8'))
+    expect(afterAssign.workspaces[workspace.id].revision).toBe(workspace.revision)
+
+    // 重启后归档与归属都恢复。
+    const reloaded = new WorkspaceStore(agentDir)
+    await reloaded.load()
+    expect(reloaded.sessionArchived(storeA, 's1')).toBe(true)
+    expect(reloaded.sessionWorkspace(storeA, 's1')).toBe(workspace.id)
+
+    // 清除归档但保留归属；再清除后条目被删除。
+    await reloaded.setSessionArchived({ storeId: storeA, sessionId: 's1', archived: false })
+    expect(reloaded.sessionArchived(storeA, 's1')).toBe(false)
+    expect(reloaded.sessionWorkspace(storeA, 's1')).toBe(workspace.id)
+    const assignedOnly = JSON.parse(await readFile(workspaceStateFile(agentDir), 'utf8'))
+    expect(assignedOnly.sessionMetadata[storeA].s1).toEqual({ workspaceId: workspace.id })
+
+    // 删除会话元数据后不留空作用域。
+    await reloaded.removeSessionMetadata({ storeId: storeA, sessionId: 's1' })
+    expect(reloaded.sessionWorkspace(storeA, 's1')).toBeUndefined()
+    const cleared = JSON.parse(await readFile(workspaceStateFile(agentDir), 'utf8'))
+    expect(cleared.sessionMetadata[storeA]).toBeUndefined()
+  })
+
+  it('未归属归档被取消后删除空条目，不产生无意义元数据', async () => {
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    const storeA = sessionStoreId(join(root, 'sessions'))
+    await store.setSessionArchived({ storeId: storeA, sessionId: 's2', archived: true })
+    await store.setSessionArchived({ storeId: storeA, sessionId: 's2', archived: false })
+    const onDisk = JSON.parse(await readFile(workspaceStateFile(agentDir), 'utf8'))
+    expect(onDisk.sessionMetadata[storeA]).toBeUndefined()
+  })
+
+  it('损坏状态下归档与删除清理被拒绝，原文件保持不变', async () => {
+    const file = workspaceStateFile(agentDir)
+    await mkdir(join(agentDir, 'huan'), { recursive: true })
+    await writeFile(file, '{ broken')
+    const original = await readFile(file, 'utf8')
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    expect(store.integrity).toBe('corrupted')
+    await expect(
+      store.setSessionArchived({ storeId: 's', sessionId: 'x', archived: true }),
+    ).rejects.toBeInstanceOf(WorkspaceStateUnavailableError)
+    await expect(
+      store.removeSessionMetadata({ storeId: 's', sessionId: 'x' }),
+    ).rejects.toBeInstanceOf(WorkspaceStateUnavailableError)
+    expect(await readFile(file, 'utf8')).toBe(original)
+  })
+
+  it('会话元数据缺少归属且未归档时视为损坏，不静默丢弃', async () => {
+    await mkdir(join(agentDir, 'huan'), { recursive: true })
+    await writeFile(
+      workspaceStateFile(agentDir),
+      JSON.stringify({ version: 1, workspaces: {}, sessionMetadata: { store: { s: {} } } }),
+    )
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    expect(store.integrity).toBe('corrupted')
+  })
+
   it('启动默认工作区使用稳定 ID，同一路径重启一致', async () => {
     const path = join(root, 'project')
     const store = new WorkspaceStore(agentDir)

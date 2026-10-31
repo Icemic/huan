@@ -32,6 +32,22 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
 export const threadListItem = (page: Page, title: string) =>
   page.locator('[data-slot="huan-session-trigger"]').filter({ hasText: title })
 
+/** 会话行（含操作按钮与副行信息）。 */
+export const sessionRow = (page: Page, title: string) =>
+  page.locator('[data-slot="huan-session-row"]').filter({ hasText: title })
+
+/** 经会话操作菜单重命名（侧栏与宿主列表都应以新名称刷新）。 */
+export async function renameThread(page: Page, title: string, nextTitle: string): Promise<void> {
+  const row = sessionRow(page, title)
+  await row.hover()
+  await row.getByRole('button', { name: '会话操作' }).click()
+  await page.getByRole('button', { name: '重命名', exact: true }).click()
+  const input = page.getByRole('textbox', { name: '重命名会话' })
+  await input.fill(nextTitle)
+  await input.press('Enter')
+  await expect(threadListItem(page, nextTitle)).toBeVisible()
+}
+
 /** 工作区分组（按显示名称定位）。 */
 export const workspaceGroup = (page: Page, name: string) =>
   page.locator('[data-slot="huan-workspace-group"]').filter({ hasText: name })

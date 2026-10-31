@@ -45,7 +45,7 @@ type WorkspaceContextValue = {
   busy: boolean
   error: WorkspaceUiError | undefined
   notice: string | undefined
-  refresh: (options?: { threads?: boolean }) => Promise<void>
+  refresh: (options?: { threads?: boolean; rescan?: boolean }) => Promise<void>
   selectWorkspace: (workspaceId: string) => void
   toggleWorkspace: (workspaceId: string) => void
   startProjectFor: (workspace: HarnessWorkspace) => string | undefined
@@ -131,8 +131,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const creationTargetRef = useRef<{ workspaceId?: string; startProjectPath?: string }>({})
   const catalogRef = useRef<HarnessWorkspaceCatalog | undefined>(undefined)
   const initializedRef = useRef(false)
-  const refreshRef = useRef<(() => Promise<void>) | undefined>(undefined)
+  const refreshRef = useRef<
+    ((options?: { threads?: boolean; rescan?: boolean }) => Promise<void>) | undefined
+  >(undefined)
   const active = useRef(true)
+  const refreshGeneration = useRef(0)
 
   useEffect(() => {
     active.current = true
@@ -163,16 +166,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(
-    async (options?: { threads?: boolean }) => {
+    async (options?: { threads?: boolean; rescan?: boolean }) => {
+      const generation = ++refreshGeneration.current
       try {
         const [nextHost, nextCatalog, nextThreads] = await Promise.all([
           hostInfo ? Promise.resolve(hostInfo) : harnessHttpClient.getHostInfo(),
           harnessHttpClient.listWorkspaces(),
           options?.threads === false
             ? Promise.resolve(threads)
-            : harnessHttpClient.listThreads({ includeArchived: true }),
+            : harnessHttpClient.listThreads({
+                includeArchived: true,
+                // 显式刷新/窗口重新聚焦：清空宿主作用域缓存并重扫，
+                // 外部 Pi 新增、删除、改名才能可见。
+                ...(options?.rescan ? { refresh: true } : {}),
+              }),
         ])
-        if (!active.current) return
+        if (!active.current || generation !== refreshGeneration.current) return
         if (!initializedRef.current) {
           // 并发 refresh（挂载 + 聚焦/事件）只能有一个执行窗口状态恢复；
           // 否则后完成的空 expanded 会覆盖先完成的默认展开。
@@ -199,9 +208,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (chosen !== activeRef.current) applyActive(chosen)
         else if (chosen) setActiveWorkspaceId(chosen)
       } catch {
-        if (active.current) setError('load-failed')
+        if (active.current && generation === refreshGeneration.current) setError('load-failed')
       } finally {
-        if (active.current) setBusy(false)
+        if (active.current && generation === refreshGeneration.current) setBusy(false)
       }
     },
     [applyActive, chooseActive, hostInfo, threads],
@@ -215,10 +224,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshRef.current?.()
-    // 窗口聚焦/恢复时显式重查，跨窗口改动可见。
-    const onFocus = () => void refreshRef.current?.()
+    // 窗口聚焦/恢复时显式重扫作用域，外部 Pi 改动与跨窗口改动可见。
+    const onFocus = () => void refreshRef.current?.({ rescan: true })
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refreshRef.current?.()
+      if (document.visibilityState === 'visible') void refreshRef.current?.({ rescan: true })
     }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
