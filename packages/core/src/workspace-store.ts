@@ -33,16 +33,26 @@ export type WorkspaceStoreWorkspace = {
   projects: WorkspaceStoreProject[]
 }
 
+/** 会话树落点（未发送新消息时的活动位置）。 */
+export type WorkspaceSessionLeaf = {
+  /** Pi entryId；null 表示根之前（空上下文）。 */
+  leafId: string | null
+  /** 保存时的条目数（不含 header）；与当前文件不同即丢弃落点。 */
+  entryCount: number
+}
+
 /** 会话在某个存储作用域内的附加元数据。 */
 export type WorkspaceSessionMetadata = {
   /**
    * 明确归属的工作区；缺失表示未归属。
    *
-   * 未归属会话也允许保存归档等组织标记，因此该字段可选。
+   * 未归属会话也允许保存归档与树落点等组织标记，因此该字段可选。
    */
   workspaceId?: string
   /** 归档标记；重启保留，不修改 Pi JSONL。 */
   archived?: boolean
+  /** 树落点；只在结构操作边界写入。 */
+  leaf?: WorkspaceSessionLeaf
 }
 
 /** 对外暴露的只读快照（深拷贝，调用方不能修改内部状态）。 */
@@ -240,7 +250,7 @@ function parseStoredFile(value: unknown): WorkspaceStoreState {
       if (entry === null || typeof entry !== 'object') {
         throw new Error(`会话 ${sessionId} 的元数据无效`)
       }
-      const candidate = entry as { workspaceId?: unknown; archived?: unknown }
+      const candidate = entry as { workspaceId?: unknown; archived?: unknown; leaf?: unknown }
       const workspaceId = candidate.workspaceId
       if (workspaceId !== undefined && (typeof workspaceId !== 'string' || !workspaceId)) {
         throw new Error(`会话 ${sessionId} 的 workspaceId 无效`)
@@ -249,13 +259,32 @@ function parseStoredFile(value: unknown): WorkspaceStoreState {
       if (archived !== undefined && typeof archived !== 'boolean') {
         throw new Error(`会话 ${sessionId} 的 archived 无效`)
       }
-      if (workspaceId === undefined && archived !== true) {
-        // 既无归属也未归档的空条目没有语义，视为损坏而不静默丢弃。
+      const rawLeaf = candidate.leaf
+      let leaf: WorkspaceSessionLeaf | undefined
+      if (rawLeaf !== undefined) {
+        if (rawLeaf === null || typeof rawLeaf !== 'object') {
+          throw new Error(`会话 ${sessionId} 的树落点无效`)
+        }
+        const value = rawLeaf as { leafId?: unknown; entryCount?: unknown }
+        if (
+          value.leafId !== null &&
+          (typeof value.leafId !== 'string' || value.leafId.length === 0)
+        ) {
+          throw new Error(`会话 ${sessionId} 的树落点 leafId 无效`)
+        }
+        if (!Number.isSafeInteger(value.entryCount) || (value.entryCount as number) < 0) {
+          throw new Error(`会话 ${sessionId} 的树落点水位无效`)
+        }
+        leaf = { leafId: value.leafId as string | null, entryCount: value.entryCount as number }
+      }
+      if (workspaceId === undefined && archived !== true && leaf === undefined) {
+        // 既无归属、也未归档、也无树落点的空条目没有语义，视为损坏而不静默丢弃。
         throw new Error(`会话 ${sessionId} 的元数据为空`)
       }
       sessions[sessionId] = {
         ...(typeof workspaceId === 'string' ? { workspaceId } : {}),
         ...(archived === true ? { archived: true } : {}),
+        ...(leaf ? { leaf } : {}),
       }
     }
     sessionMetadata[storeId] = sessions
@@ -283,7 +312,13 @@ function cloneState(state: WorkspaceStoreState): WorkspaceStoreState {
   const sessionMetadata: WorkspaceStoreState['sessionMetadata'] = {}
   for (const [storeId, sessions] of Object.entries(state.sessionMetadata)) {
     sessionMetadata[storeId] = Object.fromEntries(
-      Object.entries(sessions).map(([sessionId, entry]) => [sessionId, { ...entry }]),
+      Object.entries(sessions).map(([sessionId, entry]) => [
+        sessionId,
+        {
+          ...entry,
+          ...(entry.leaf ? { leaf: { ...entry.leaf } } : {}),
+        },
+      ]),
     )
   }
   return { version: state.version, workspaces, sessionMetadata }
@@ -375,6 +410,12 @@ export class WorkspaceStore {
   /** 会话归档标记；没有记录时为 false。 */
   sessionArchived(storeId: string, sessionId: string): boolean {
     return this.#state.sessionMetadata[storeId]?.[sessionId]?.archived === true
+  }
+
+  /** 会话树落点；没有记录或未保存落点时返回 undefined。 */
+  sessionLeaf(storeId: string, sessionId: string): WorkspaceSessionLeaf | undefined {
+    const leaf = this.#state.sessionMetadata[storeId]?.[sessionId]?.leaf
+    return leaf ? { ...leaf } : undefined
   }
 
   /**
@@ -504,8 +545,8 @@ export class WorkspaceStore {
       const entry: WorkspaceSessionMetadata = { ...existing }
       if (input.archived) entry.archived = true
       else delete entry.archived
-      // 既无归属也不再归档时删除条目，避免留下空对象。
-      if (entry.workspaceId === undefined && entry.archived === undefined) {
+      // 既无归属、也不再归档、也没有树落点时删除条目，避免留下空对象。
+      if (entry.workspaceId === undefined && entry.archived === undefined && !entry.leaf) {
         delete sessions[input.sessionId]
       } else {
         sessions[input.sessionId] = entry
@@ -516,7 +557,42 @@ export class WorkspaceStore {
     })
   }
 
-  /** 删除会话文件成功后清理其归属与归档元数据。 */
+  /**
+   * 设置或清除会话树落点。
+   *
+   * 只写 huan sidecar，不改 Pi JSONL；与其他会话元数据更新共用串行原子队列，
+   * 且保留归属/归档。`leaf` 为 undefined 时清除落点。
+   */
+  async setSessionLeaf(input: {
+    storeId: string
+    sessionId: string
+    leaf: WorkspaceSessionLeaf | undefined
+  }): Promise<void> {
+    await this.enqueue(async () => {
+      this.assertHealthy()
+      const existing = this.#state.sessionMetadata[input.storeId]?.[input.sessionId]
+      const current = existing?.leaf
+      const same = input.leaf
+        ? current?.leafId === input.leaf.leafId && current.entryCount === input.leaf.entryCount
+        : current === undefined
+      if (same) return
+      const next = cloneState(this.#state)
+      const sessions = { ...(next.sessionMetadata[input.storeId] ?? {}) }
+      const entry: WorkspaceSessionMetadata = { ...existing }
+      if (input.leaf) entry.leaf = { ...input.leaf }
+      else delete entry.leaf
+      if (entry.workspaceId === undefined && entry.archived === undefined && !entry.leaf) {
+        delete sessions[input.sessionId]
+      } else {
+        sessions[input.sessionId] = entry
+      }
+      if (Object.keys(sessions).length === 0) delete next.sessionMetadata[input.storeId]
+      else next.sessionMetadata[input.storeId] = sessions
+      await this.commit(next)
+    })
+  }
+
+  /** 删除会话文件成功后清理其归属、归档与树落点元数据。 */
   async removeSessionMetadata(input: { storeId: string; sessionId: string }): Promise<void> {
     await this.enqueue(async () => {
       this.assertHealthy()

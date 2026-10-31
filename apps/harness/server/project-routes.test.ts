@@ -1,4 +1,4 @@
-import { ProjectTrustRequiredError } from '@huan/core'
+import { ProjectTrustRequiredError, ThreadStructureBusyError } from '@huan/core'
 import type {
   HarnessClient,
   HarnessProjectInfo,
@@ -80,6 +80,13 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     createThread: vi.fn(),
     getThread: vi.fn(),
     getThreadDetails: vi.fn(),
+    getThreadTree: vi.fn(),
+    navigateThreadTree: vi.fn(),
+    setThreadEntryLabel: vi.fn(),
+    cancelThreadTreeNavigation: vi.fn(),
+    forkThread: vi.fn(),
+    previewThreadImport: vi.fn(),
+    importThread: vi.fn(),
     sendMessage: vi.fn(),
     cancelRun: vi.fn(),
     clearQueue: vi.fn(),
@@ -301,5 +308,297 @@ describe('会话列表刷新与只读详情路由', () => {
         Response.json({ metadata: thread, stats: {}, branchEntryCount: 0 })) as typeof fetch,
     })
     await expect(invalid.getThreadDetails('t1')).rejects.toThrow('Invalid Pi HTTP response')
+  })
+})
+
+describe('会话树路由与真实 HTTP 客户端', () => {
+  const tree = {
+    threadId: 't1',
+    leafId: 'e2',
+    revision: 'v1:2:e2',
+    branchSummarySkipPrompt: false,
+    nodes: [
+      {
+        entryId: 'e1',
+        parentId: null,
+        depth: 0,
+        kind: 'user' as const,
+        entryType: 'message',
+        role: 'user',
+        summary: '第一问',
+        timestamp: '2026-10-31T00:00:00.000Z',
+        active: true,
+        isLeaf: false,
+        childCount: 1,
+      },
+      {
+        entryId: 'e2',
+        parentId: 'e1',
+        depth: 1,
+        kind: 'assistant' as const,
+        entryType: 'message',
+        role: 'assistant',
+        summary: '第一答',
+        active: true,
+        isLeaf: true,
+        childCount: 0,
+        hasToolCalls: true,
+      },
+    ],
+  }
+  const navigateResult = {
+    status: 'applied' as const,
+    leafId: 'e1',
+    treeRevision: 'v1:2:e1',
+    editorText: '第一问',
+    persistence: 'saved' as const,
+    recoveredQueue: { steering: ['引导'], followUp: ['后续'] },
+  }
+  const labelResult = {
+    status: 'applied' as const,
+    label: '起点',
+    treeRevision: 'v1:3:e2',
+    persistence: 'saved' as const,
+  }
+
+  it('读取、导航、标签与取消经鉴权路由并回传 JSON 结果', async () => {
+    const { app, client } = setup({
+      getThreadTree: vi.fn(async () => tree),
+      navigateThreadTree: vi.fn(async () => navigateResult),
+      setThreadEntryLabel: vi.fn(async () => labelResult),
+      cancelThreadTreeNavigation: vi.fn(async () => ({ status: 'cancelled' as const })),
+    })
+    const http = createHarnessHttpClient({
+      baseUrl: 'http://localhost:8788/api/pi',
+      headers,
+      fetchImpl: ((input, init) => app.fetch(new Request(input, init))) as typeof fetch,
+    })
+
+    expect(await http.getThreadTree('t1')).toEqual(tree)
+    expect(client.getThreadTree).toHaveBeenCalledWith('t1')
+
+    expect(
+      await http.navigateThreadTree('t1', {
+        targetId: 'e1',
+        expectedRevision: 'v1:2:e2',
+        summarize: true,
+        customInstructions: '保留决策',
+        stopRunning: true,
+      }),
+    ).toEqual(navigateResult)
+    expect(client.navigateThreadTree).toHaveBeenCalledWith('t1', {
+      targetId: 'e1',
+      expectedRevision: 'v1:2:e2',
+      summarize: true,
+      customInstructions: '保留决策',
+      stopRunning: true,
+    })
+
+    expect(
+      await http.setThreadEntryLabel('t1', {
+        entryId: 'e1',
+        label: '起点',
+        expectedRevision: 'v1:2:e2',
+      }),
+    ).toEqual(labelResult)
+    expect(client.setThreadEntryLabel).toHaveBeenCalledWith('t1', {
+      entryId: 'e1',
+      label: '起点',
+      expectedRevision: 'v1:2:e2',
+    })
+
+    expect(await http.cancelThreadTreeNavigation('t1')).toEqual({ status: 'cancelled' })
+    expect(client.cancelThreadTreeNavigation).toHaveBeenCalledWith('t1')
+  })
+
+  it('缺少 targetId/expectedRevision 返回 400，busy 返回可识别 409', async () => {
+    const { app } = setup()
+    const invalid = await app.request('/api/pi/threads/t1/tree/navigate', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ targetId: 'e1' }),
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toEqual({ error: 'invalid-tree-input' })
+
+    const busy = setup({
+      navigateThreadTree: vi.fn(async () => {
+        throw new ThreadStructureBusyError()
+      }),
+    })
+    const response = await busy.app.request('/api/pi/threads/t1/tree/navigate', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ targetId: 'e1', expectedRevision: 'v1:2:e2' }),
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: 'thread-structure-busy' })
+  })
+
+  it('畸形树载荷被客户端拒绝', async () => {
+    const invalid = createHarnessHttpClient({
+      fetchImpl: (async () => Response.json({ threadId: 't1' })) as typeof fetch,
+    })
+    await expect(invalid.getThreadTree('t1')).rejects.toThrow('Invalid Pi HTTP response')
+  })
+})
+
+describe('独立分支与 JSONL 导入路由', () => {
+  const forkResult = {
+    status: 'created' as const,
+    threadId: 'child',
+    parentThreadId: 't1',
+    selectedText: '第一问',
+    snapshot: { metadata: { ...thread, id: 'child' }, messages: [] },
+  }
+  const importPreview = {
+    status: 'ok' as const,
+    source: { kind: 'path' as const, id: 'imported', cwd: '/projects/app', entries: 2, version: 3 },
+    workspaceId: 'ws_1',
+    cwd: '/projects/app',
+    sourceCwd: { path: '/projects/app', available: true, workspaceMember: true },
+    sessionDir: '/sessions/app',
+    conflict: 'none' as const,
+    warnings: ['请确认没有敏感信息'],
+  }
+  const importResult = { status: 'imported' as const, threadId: 'imported', preview: importPreview }
+
+  it('fork 路由校验输入并经客户端往返结果', async () => {
+    const { app, client } = setup({ forkThread: vi.fn(async () => forkResult) })
+    const http = createHarnessHttpClient({
+      baseUrl: 'http://localhost:8788/api/pi',
+      headers,
+      fetchImpl: ((input, init) => app.fetch(new Request(input, init))) as typeof fetch,
+    })
+
+    expect(
+      await http.forkThread('t1', {
+        entryId: 'e1',
+        position: 'before',
+        expectedRevision: 'v1:2:e1',
+      }),
+    ).toEqual(forkResult)
+    expect(client.forkThread).toHaveBeenCalledWith('t1', {
+      entryId: 'e1',
+      position: 'before',
+      expectedRevision: 'v1:2:e1',
+    })
+
+    const invalidPosition = await app.request('/api/pi/threads/t1/fork', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ entryId: 'e1', position: 'middle' }),
+    })
+    expect(invalidPosition.status).toBe(400)
+    expect(await invalidPosition.json()).toEqual({ error: 'invalid-fork-input' })
+
+    const invalidEntry = await app.request('/api/pi/threads/t1/fork', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ entryId: 1 }),
+    })
+    expect(invalidEntry.status).toBe(400)
+  })
+
+  it('导入预览/确认路由传递路径与上传源，并拒绝超大或缺失输入', async () => {
+    const { app, client } = setup({
+      previewThreadImport: vi.fn(async () => importPreview),
+      importThread: vi.fn(async () => importResult),
+    })
+    const http = createHarnessHttpClient({
+      baseUrl: 'http://localhost:8788/api/pi',
+      headers,
+      fetchImpl: ((input, init) => app.fetch(new Request(input, init))) as typeof fetch,
+    })
+
+    expect(
+      await http.previewThreadImport({
+        source: { kind: 'path', path: '/tmp/source.jsonl' },
+        workspaceId: 'ws_1',
+      }),
+    ).toEqual(importPreview)
+    expect(client.previewThreadImport).toHaveBeenCalledWith({
+      source: { kind: 'path', path: '/tmp/source.jsonl' },
+      workspaceId: 'ws_1',
+    })
+
+    expect(
+      await http.importThread({
+        source: { kind: 'upload', filename: 'source.jsonl', content: '{}\n' },
+        workspaceId: 'ws_1',
+        asCopy: true,
+        expectedSourceId: 'imported',
+        expectedSourceFingerprint: 'fingerprint-v1',
+      }),
+    ).toEqual(importResult)
+    expect(client.importThread).toHaveBeenCalledWith({
+      source: { kind: 'upload', filename: 'source.jsonl', content: '{}\n' },
+      workspaceId: 'ws_1',
+      asCopy: true,
+      expectedSourceId: 'imported',
+      expectedSourceFingerprint: 'fingerprint-v1',
+    })
+
+    // 无效源与缺少工作区在读取正文前被路由拒绝。
+    const invalidSource = await app.request('/api/pi/threads/import/preview', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ source: { kind: 'other' } }),
+    })
+    expect(invalidSource.status).toBe(400)
+    expect(await invalidSource.json()).toEqual({ error: 'invalid-import-input' })
+
+    const missingWorkspace = await app.request('/api/pi/threads/import', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ source: { kind: 'path', path: '/tmp/a.jsonl' } }),
+    })
+    expect(missingWorkspace.status).toBe(400)
+
+    // Content-Length 超限时直接 413，不读取正文。
+    const tooLarge = await app.request('/api/pi/threads/import/preview', {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+        'content-length': String(30 * 1024 * 1024),
+      },
+      body: '{}',
+    })
+    expect(tooLarge.status).toBe(413)
+    expect(await tooLarge.json()).toEqual({ error: 'import-too-large' })
+
+    // 不带 Content-Length 的流也逐块计数，超限不能进入客户端实现。
+    const chunk = new Uint8Array(1024 * 1024).fill(32)
+    let chunks = 0
+    const streamed = new Request('http://localhost:8788/api/pi/threads/import/preview', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: new ReadableStream({
+        pull(controller) {
+          if (chunks++ < 25) controller.enqueue(chunk)
+          else controller.close()
+        },
+      }),
+      duplex: 'half',
+    } as RequestInit)
+    const oversizedStream = await app.fetch(streamed)
+    expect(oversizedStream.status).toBe(413)
+    expect(client.previewThreadImport).toHaveBeenCalledTimes(1)
+  })
+
+  it('畸形 fork/导入载荷被客户端拒绝', async () => {
+    const invalid = createHarnessHttpClient({
+      fetchImpl: (async () => Response.json({ status: 'created', threadId: 1 })) as typeof fetch,
+    })
+    await expect(invalid.forkThread('t1', { position: 'at' })).rejects.toThrow(
+      'Invalid Pi HTTP response',
+    )
+    await expect(
+      invalid.previewThreadImport({ source: { kind: 'path', path: '/x' } }),
+    ).rejects.toThrow('Invalid Pi HTTP response')
+    await expect(
+      invalid.importThread({ source: { kind: 'path', path: '/x' }, workspaceId: 'ws_1' }),
+    ).rejects.toThrow('Invalid Pi HTTP response')
   })
 })

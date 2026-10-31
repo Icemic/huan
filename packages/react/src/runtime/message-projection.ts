@@ -58,10 +58,20 @@ type Step = NonNullable<NonNullable<ThreadMessageLike['metadata']>['steps']>[num
 /** 投影输入：记录 + 实时运行态。 */
 export interface HarnessProjectionInput {
   messages: readonly HarnessAgentMessage[]
+  /** 与 messages 等长的来源 entryId；用于树定位，不从下标/时间戳猜测。 */
+  messageEntryIds?: readonly (string | null)[]
   toolExecutions: HarnessThreadState['toolExecutions']
   runStatus: HarnessThreadState['runStatus']
   hostUiRequests: readonly HarnessHostUiRequest[]
 }
+
+/** 取某条权威消息的来源 entryId（缺失/空值返回 undefined）。 */
+const sourceEntryIdOf = (input: HarnessProjectionInput, index: number): string | undefined =>
+  input.messageEntryIds?.[index] ?? undefined
+
+/** 投影消息的来源元数据（assistant-ui 自定义字段，供树定位复用）。 */
+const sourceMetadata = (sourceEntryId: string | undefined) =>
+  sourceEntryId ? { custom: { pi: { sourceEntryId } } } : undefined
 
 const messageId = (index: number) => `pi-msg:${index}`
 const stepId = (index: number) => `pi-step:${index}`
@@ -165,6 +175,8 @@ type GroupAccumulator = {
   /** 组内最新的助手消息（决定最终状态）。 */
   lastAssistant: HarnessAssistantMessage
   hasPendingHostUi: boolean
+  /** 组内最后一条权威消息的来源 entryId（用于树定位）。 */
+  sourceEntryId?: string
 }
 
 const projectAssistantInto = (
@@ -177,6 +189,7 @@ const projectAssistantInto = (
 ) => {
   const parentId = stepId(index)
   group.lastAssistant = message
+  group.sourceEntryId = sourceEntryIdOf(input, index) ?? group.sourceEntryId
   group.steps.push({
     messageId: parentId,
     usage: {
@@ -248,6 +261,7 @@ const buildAssistantMessage = (
           usage: last.usage,
           stopReason: last.stopReason,
           ...(last.errorMessage ? { errorMessage: last.errorMessage } : {}),
+          ...(group.sourceEntryId ? { sourceEntryId: group.sourceEntryId } : {}),
         },
       },
     },
@@ -343,6 +357,9 @@ const projectHarnessThreadMessagesFrom = (
           role: 'user',
           createdAt: createdAtOf(message as HarnessUserMessage),
           content: projectUserContent((message as HarnessUserMessage).content),
+          ...(sourceMetadata(sourceEntryIdOf(input, index))
+            ? { metadata: sourceMetadata(sourceEntryIdOf(input, index)) }
+            : {}),
         })
         break
 
@@ -350,14 +367,20 @@ const projectHarnessThreadMessagesFrom = (
         flush(false)
         const m = message as HarnessBashExecutionMessage
         out.push(
-          standaloneData(index, m, 'pi-bash-execution', {
-            command: m.command,
-            output: m.output,
-            exitCode: m.exitCode,
-            cancelled: m.cancelled,
-            truncated: m.truncated,
-            fullOutputPath: m.fullOutputPath,
-          }),
+          standaloneData(
+            index,
+            m,
+            'pi-bash-execution',
+            {
+              command: m.command,
+              output: m.output,
+              exitCode: m.exitCode,
+              cancelled: m.cancelled,
+              truncated: m.truncated,
+              fullOutputPath: m.fullOutputPath,
+            },
+            sourceEntryIdOf(input, index),
+          ),
         )
         break
       }
@@ -377,6 +400,9 @@ const projectHarnessThreadMessagesFrom = (
             }),
             ...projectUserContent(m.content),
           ],
+          ...(sourceMetadata(sourceEntryIdOf(input, index))
+            ? { metadata: sourceMetadata(sourceEntryIdOf(input, index)) }
+            : {}),
         })
         break
       }
@@ -385,10 +411,16 @@ const projectHarnessThreadMessagesFrom = (
         flush(false)
         const m = message as HarnessBranchSummaryMessage
         out.push(
-          standaloneData(index, m, 'pi-branch-summary', {
-            summary: m.summary,
-            fromId: m.fromId,
-          }),
+          standaloneData(
+            index,
+            m,
+            'pi-branch-summary',
+            {
+              summary: m.summary,
+              fromId: m.fromId,
+            },
+            sourceEntryIdOf(input, index),
+          ),
         )
         break
       }
@@ -397,10 +429,16 @@ const projectHarnessThreadMessagesFrom = (
         flush(false)
         const m = message as HarnessCompactionSummaryMessage
         out.push(
-          standaloneData(index, m, 'pi-compaction-summary', {
-            summary: m.summary,
-            tokensBefore: m.tokensBefore,
-          }),
+          standaloneData(
+            index,
+            m,
+            'pi-compaction-summary',
+            {
+              summary: m.summary,
+              tokensBefore: m.tokensBefore,
+            },
+            sourceEntryIdOf(input, index),
+          ),
         )
         break
       }
@@ -408,10 +446,16 @@ const projectHarnessThreadMessagesFrom = (
       default:
         flush(false)
         out.push(
-          standaloneData(index, message, 'pi-unsupported-message', {
-            role: message.role,
+          standaloneData(
+            index,
             message,
-          }),
+            'pi-unsupported-message',
+            {
+              role: message.role,
+              message,
+            },
+            sourceEntryIdOf(input, index),
+          ),
         )
         break
     }
@@ -432,11 +476,13 @@ const standaloneData = (
   message: { timestamp?: number },
   name: string,
   data: Record<string, unknown>,
+  sourceEntryId?: string,
 ): ThreadMessageLike => ({
   id: messageId(index),
   role: 'assistant',
   createdAt: createdAtOf(message),
   content: [dataPart(name, data)],
+  ...(sourceMetadata(sourceEntryId) ? { metadata: sourceMetadata(sourceEntryId) } : {}),
 })
 
 const isDateEqual = (a: unknown, b: unknown) =>

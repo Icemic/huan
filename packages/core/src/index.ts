@@ -13,11 +13,10 @@ export { deriveContextUsage } from './context-usage.js'
 export type { MappedSessionEventResult, MapSessionEventContext } from './event-mapping.js'
 export { mapSessionEvent } from './event-mapping.js'
 export type { HarnessDefaultModel, HarnessHost, HarnessHostOptions } from './host.js'
-export { createHarnessHost, ProjectTrustRequiredError } from './host.js'
+export { createHarnessHost, ProjectTrustRequiredError, ThreadStructureBusyError } from './host.js'
 export type { HostUiBridge, HostUiBridgeDeps } from './host-ui.js'
 export { HarnessUnsupportedHostUiError } from './host-ui.js'
 export type { SessionCatalogInfo } from './metadata.js'
-
 export {
   baseName,
   deriveReadiness,
@@ -36,6 +35,8 @@ export {
   refreshModelCatalog,
   resolveDefaultModel,
 } from './model-catalog.js'
+export { IMPORT_HOST_FILE_MAX_BYTES, IMPORT_UPLOAD_MAX_BYTES } from './session-import.js'
+export { applyStoredSessionLeaf, buildSessionTree, sessionTreeRevision } from './session-tree.js'
 export {
   isInside,
   owningRoot,
@@ -53,6 +54,7 @@ export {
   WorkspaceConflictError,
   type WorkspaceMutationInput,
   WorkspaceNotFoundError,
+  type WorkspaceSessionLeaf,
   type WorkspaceSessionMetadata,
   WorkspaceStateUnavailableError,
   WorkspaceStore,

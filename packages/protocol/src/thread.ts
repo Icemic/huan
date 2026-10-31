@@ -11,6 +11,7 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessImageContent,
 } from './messages.js'
+import type { HarnessThreadTreeOperation } from './tree.js'
 
 /** 上下文用量。 */
 export interface HarnessContextUsage {
@@ -93,6 +94,12 @@ export type HarnessThreadMetadata = {
   messageCount?: number
   createdAt?: string
   updatedAt?: string
+  /** 当前活动落点（Pi entryId；空会话为 null）。 */
+  leafId?: string | null
+  /** 结构 revision 指纹：条目或活动落点变化后不同。 */
+  treeRevision?: string
+  /** 进行中的结构操作；空闲时缺失。 */
+  treeOperation?: HarnessThreadTreeOperation
 }
 
 /** 图片附件透传（对照 Pi ImageContent）。 */
@@ -263,6 +270,11 @@ export type HarnessThreadDetails = {
 export type HarnessThreadSnapshot = {
   metadata: HarnessThreadMetadata
   messages: HarnessAgentMessage[]
+  /**
+   * 与 `messages` 等长的来源 entryId（缺失表示尚未落盘/无法定位）。
+   * 消息投影据此保留 sourceEntryId，供树定位与后续 fork 复用。
+   */
+  messageEntryIds?: (string | null)[]
   /** 待处理的阻断式 Host UI 请求（存活于宿主 record，重连后仍可见）。 */
   hostUiRequests?: readonly HarnessHostUiRequest[]
   readiness?: HarnessRuntimeReadiness

@@ -112,7 +112,7 @@ function TrustBadge({ info }: { info: HarnessProjectInfo | undefined }) {
 }
 
 /** 信任决定面板（内嵌在管理/新建弹层中，避免叠加多个 Dialog）。 */
-function TrustDecisionPanel({
+export function TrustDecisionPanel({
   path,
   onDone,
 }: {

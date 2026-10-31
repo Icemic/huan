@@ -84,7 +84,7 @@ huan/
 
 - 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
-- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 20 条流程，单 worker，不并行运行多套实例。
+- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 29 条流程，单 worker，不并行运行多套实例。
 - 主题验证：顶栏主题选择写入浏览器 localStorage `huan.theme`，只影响当前浏览器；不改 Pi 配置、`settings.json` 或 huan `state.json`。
 - 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与宿主 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意无效，先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
 - 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。

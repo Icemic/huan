@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { ImportThreadButton } from './import-thread-dialog'
 import { harnessHttpClient } from './pi-http-client'
 import { DeleteThreadDialog, ThreadDetailsDialog } from './session-dialogs'
 import { useWorkspace } from './workspace-context'
@@ -548,6 +549,7 @@ export function WorkspaceSidebar() {
           >
             <RefreshCwIcon aria-hidden className="size-4" />
           </Button>
+          <ImportThreadButton />
           <Button
             variant="ghost"
             size="icon"

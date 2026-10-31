@@ -9,7 +9,15 @@
  *   并覆盖 prompt 预检窗口（预检期取消不会发出模型请求）；
  *   取消不算失败（不置 lastError、不广播 error 事件）。
  */
+
+import type { HarnessThreadForkInput, HarnessThreadForkResult } from './fork.js'
 import type { HarnessHostInfo } from './host.js'
+import type {
+  HarnessThreadImportInput,
+  HarnessThreadImportPreview,
+  HarnessThreadImportPreviewInput,
+  HarnessThreadImportResult,
+} from './import.js'
 import type {
   HarnessProjectInfo,
   HarnessProjectPathCheck,
@@ -27,6 +35,14 @@ import type {
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from './thread.js'
+import type {
+  HarnessThreadTree,
+  HarnessTreeCancelResult,
+  HarnessTreeLabelInput,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateInput,
+  HarnessTreeNavigateResult,
+} from './tree.js'
 import type {
   HarnessAssignThreadInput,
   HarnessAssignThreadResult,
@@ -97,6 +113,35 @@ export interface HarnessClient {
   setModel(threadId: string, input: { provider: string; modelId: string }): Promise<void>
   setThinkingLevel(threadId: string, level: HarnessThinkingLevel): Promise<void>
   renameThread(threadId: string, title: string): Promise<void>
+  /**
+   * 按需读取会话树（真实 entryId、活动路径、标签与结构 revision）。
+   * 冷会话只读 JSONL 与 sidecar，不装配项目扩展、不联网。
+   */
+  getThreadTree(threadId: string): Promise<HarnessThreadTree>
+  /**
+   * 导航到树节点。校验 expectedRevision；运行中要求显式 stopRunning，
+   * 先停止并取回队列。`editorText` 只返回给调用方窗口。
+   */
+  navigateThreadTree(
+    threadId: string,
+    input: HarnessTreeNavigateInput,
+  ): Promise<HarnessTreeNavigateResult>
+  /** 设置/清除节点标签（写入 Pi label entry，不改变活动落点）。 */
+  setThreadEntryLabel(
+    threadId: string,
+    input: HarnessTreeLabelInput,
+  ): Promise<HarnessTreeLabelResult>
+  /** 取消进行中的分支摘要导航；其他结构操作不在此中止。 */
+  cancelThreadTreeNavigation(threadId: string): Promise<HarnessTreeCancelResult>
+  /**
+   * 独立 fork/clone：使用公开 `session_before_fork` 与独立 SessionManager，
+   * 创建子 ID/文件/血缘；父会话保留。扩展取消不创建文件或元数据。
+   */
+  forkThread(threadId: string, input: HarnessThreadForkInput): Promise<HarnessThreadForkResult>
+  /** 预览 JSONL 导入：只解析/校验/检查目录与冲突，不装配项目代码。 */
+  previewThreadImport(input: HarnessThreadImportPreviewInput): Promise<HarnessThreadImportPreview>
+  /** 确认导入：重新读取并校验源，写入目标作用域后才保存归属。 */
+  importThread(input: HarnessThreadImportInput): Promise<HarnessThreadImportResult>
   archiveThread(threadId: string): Promise<void>
   unarchiveThread(threadId: string): Promise<void>
   /** 完成时该线程已不存在（包括原本就不存在的情况）。 */

@@ -1,15 +1,45 @@
 import {
+  IMPORT_UPLOAD_MAX_BYTES,
   ProjectTrustRequiredError,
+  ThreadStructureBusyError,
   WorkspaceConflictError,
   WorkspaceNotFoundError,
   WorkspaceStateUnavailableError,
   WorkspaceValidationError,
 } from '@huan/core'
-import type { HarnessClient } from '@huan/protocol'
+import type { HarnessClient, HarnessThreadImportSource } from '@huan/protocol'
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import type { ServerConfig } from './config.js'
 import { registerHostRoutes } from './host-routes.js'
 import { createEventsRoute } from './sse.js'
+
+/**
+ * 上传请求体的宽松上限：文本本身按 20MiB 限制，JSON 转义/包装需要少量余量。
+ * 超过该 Content-Length 的请求在读取正文前直接拒绝。
+ */
+const IMPORT_BODY_LIMIT_BYTES = IMPORT_UPLOAD_MAX_BYTES + 4 * 1024 * 1024
+
+/** 解析导入源（路径或上传文本）；无效输入返回 undefined。 */
+function parseImportSource(value: unknown): HarnessThreadImportSource | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const source = value as { kind?: unknown; path?: unknown; filename?: unknown; content?: unknown }
+  if (source.kind === 'path' && typeof source.path === 'string') {
+    return { kind: 'path', path: source.path }
+  }
+  if (
+    source.kind === 'upload' &&
+    typeof source.filename === 'string' &&
+    typeof source.content === 'string'
+  ) {
+    return { kind: 'upload', filename: source.filename, content: source.content }
+  }
+  return undefined
+}
+
+/** 上传文本超过限制时返回统一的 413。 */
+const importTooLarge = (content: string | undefined): boolean =>
+  content !== undefined && new TextEncoder().encode(content).byteLength > IMPORT_UPLOAD_MAX_BYTES
 
 /**
  * 组装宿主 HTTP 路由。
@@ -36,6 +66,9 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     }
     if (error instanceof WorkspaceValidationError) {
       return c.json({ error: 'workspace-invalid', reason: error.reason }, 400)
+    }
+    if (error instanceof ThreadStructureBusyError) {
+      return c.json({ error: 'thread-structure-busy', message: error.message }, 409)
     }
     return c.json({ error: 'internal-error' }, 500)
   })
@@ -166,6 +199,167 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
   // 只读详情：受同一 Host/Origin/凭证中间件保护，不订阅、不隐式激活冷会话。
   app.get('/api/pi/threads/:id/details', async (c) => {
     return c.json(await piClient.getThreadDetails(c.req.param('id')))
+  })
+
+  // 会话树：按需读取；冷树不装配项目扩展。
+  app.get('/api/pi/threads/:id/tree', async (c) => {
+    return c.json(await piClient.getThreadTree(c.req.param('id')))
+  })
+
+  app.post('/api/pi/threads/:id/tree/navigate', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      targetId?: unknown
+      expectedRevision?: unknown
+      summarize?: unknown
+      customInstructions?: unknown
+      replaceInstructions?: unknown
+      stopRunning?: unknown
+    }
+    if (typeof body.targetId !== 'string' || typeof body.expectedRevision !== 'string') {
+      return c.json({ error: 'invalid-tree-input' }, 400)
+    }
+    return c.json(
+      await piClient.navigateThreadTree(c.req.param('id'), {
+        targetId: body.targetId,
+        expectedRevision: body.expectedRevision,
+        ...(body.summarize === true ? { summarize: true } : {}),
+        ...(typeof body.customInstructions === 'string'
+          ? { customInstructions: body.customInstructions }
+          : {}),
+        ...(body.replaceInstructions === true ? { replaceInstructions: true } : {}),
+        ...(body.stopRunning === true ? { stopRunning: true } : {}),
+      }),
+    )
+  })
+
+  app.post('/api/pi/threads/:id/tree/label', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      entryId?: unknown
+      label?: unknown
+      expectedRevision?: unknown
+    }
+    if (typeof body.entryId !== 'string') {
+      return c.json({ error: 'invalid-tree-input' }, 400)
+    }
+    return c.json(
+      await piClient.setThreadEntryLabel(c.req.param('id'), {
+        entryId: body.entryId,
+        ...(typeof body.label === 'string' ? { label: body.label } : {}),
+        ...(typeof body.expectedRevision === 'string'
+          ? { expectedRevision: body.expectedRevision }
+          : {}),
+      }),
+    )
+  })
+
+  app.post('/api/pi/threads/:id/tree/cancel', async (c) => {
+    return c.json(await piClient.cancelThreadTreeNavigation(c.req.param('id')))
+  })
+
+  // fork/clone：扩展取消/父会话繁忙都返回可识别的 result.status，不抛通用错误。
+  app.post('/api/pi/threads/:id/fork', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      entryId?: unknown
+      position?: unknown
+      expectedRevision?: unknown
+    }
+    if (body.position !== undefined && body.position !== 'before' && body.position !== 'at') {
+      return c.json({ error: 'invalid-fork-input' }, 400)
+    }
+    if (body.entryId !== undefined && typeof body.entryId !== 'string') {
+      return c.json({ error: 'invalid-fork-input' }, 400)
+    }
+    if (body.expectedRevision !== undefined && typeof body.expectedRevision !== 'string') {
+      return c.json({ error: 'invalid-fork-input' }, 400)
+    }
+    return c.json(
+      await piClient.forkThread(c.req.param('id'), {
+        ...(typeof body.entryId === 'string' ? { entryId: body.entryId } : {}),
+        ...(body.position === 'before' || body.position === 'at'
+          ? { position: body.position }
+          : {}),
+        ...(typeof body.expectedRevision === 'string'
+          ? { expectedRevision: body.expectedRevision }
+          : {}),
+      }),
+    )
+  })
+
+  app.use(
+    '/api/pi/threads/import/*',
+    bodyLimit({
+      maxSize: IMPORT_BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: 'import-too-large' }, 413),
+    }),
+  )
+  app.use(
+    '/api/pi/threads/import',
+    bodyLimit({
+      maxSize: IMPORT_BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: 'import-too-large' }, 413),
+    }),
+  )
+
+  // 导入预览：只读文件/目录/冲突，不装配项目；上传文本按 20MiB 上限拒绝。
+  app.post('/api/pi/threads/import/preview', async (c) => {
+    const declared = Number(c.req.header('content-length') ?? '0')
+    if (Number.isFinite(declared) && declared > IMPORT_BODY_LIMIT_BYTES) {
+      return c.json({ error: 'import-too-large' }, 413)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      source?: unknown
+      workspaceId?: unknown
+      cwdOverride?: unknown
+    }
+    const source = parseImportSource(body.source)
+    if (!source) return c.json({ error: 'invalid-import-input' }, 400)
+    if (source.kind === 'upload' && importTooLarge(source.content)) {
+      return c.json({ error: 'import-too-large' }, 413)
+    }
+    return c.json(
+      await piClient.previewThreadImport({
+        source,
+        ...(typeof body.workspaceId === 'string' ? { workspaceId: body.workspaceId } : {}),
+        ...(typeof body.cwdOverride === 'string' ? { cwdOverride: body.cwdOverride } : {}),
+      }),
+    )
+  })
+
+  // 确认导入：必须带目标工作区；源会重新读取并校验，预览不是授权令牌。
+  app.post('/api/pi/threads/import', async (c) => {
+    const declared = Number(c.req.header('content-length') ?? '0')
+    if (Number.isFinite(declared) && declared > IMPORT_BODY_LIMIT_BYTES) {
+      return c.json({ error: 'import-too-large' }, 413)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      source?: unknown
+      workspaceId?: unknown
+      cwdOverride?: unknown
+      asCopy?: unknown
+      expectedSourceId?: unknown
+      expectedSourceFingerprint?: unknown
+    }
+    const source = parseImportSource(body.source)
+    if (!source || typeof body.workspaceId !== 'string' || !body.workspaceId) {
+      return c.json({ error: 'invalid-import-input' }, 400)
+    }
+    if (source.kind === 'upload' && importTooLarge(source.content)) {
+      return c.json({ error: 'import-too-large' }, 413)
+    }
+    return c.json(
+      await piClient.importThread({
+        source,
+        workspaceId: body.workspaceId,
+        ...(typeof body.cwdOverride === 'string' ? { cwdOverride: body.cwdOverride } : {}),
+        ...(body.asCopy === true ? { asCopy: true } : {}),
+        ...(typeof body.expectedSourceId === 'string'
+          ? { expectedSourceId: body.expectedSourceId }
+          : {}),
+        ...(typeof body.expectedSourceFingerprint === 'string'
+          ? { expectedSourceFingerprint: body.expectedSourceFingerprint }
+          : {}),
+      }),
+    )
   })
 
   app.patch('/api/pi/threads/:id', async (c) => {

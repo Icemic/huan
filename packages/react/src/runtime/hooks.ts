@@ -15,6 +15,7 @@ import type { HarnessThreadMetadata } from '@huan/protocol'
 import { useMemo } from 'react'
 import { harnessExtras } from './extras.js'
 import type { HarnessRuntimeExtras } from './runtime-types.js'
+import type { HarnessThreadControllerLike } from './thread-controller.js'
 import type { HarnessThreadState } from './thread-state.js'
 import {
   EMPTY_RUNTIME_EXTRAS,
@@ -25,6 +26,10 @@ import {
 /** 当前会话的完整运行时扩展（含状态、元数据与动作）。 */
 export const useHarnessExtras = (): HarnessRuntimeExtras =>
   harnessExtras.use((e) => e, EMPTY_RUNTIME_EXTRAS)
+
+/** 当前会话 Controller（树导航等需要稳定动作引用的消费方使用）。 */
+export const useHarnessController = (): HarnessThreadControllerLike =>
+  harnessExtras.use((e) => e.controller, NOOP_CONTROLLER)
 
 /** 当前会话的元数据；未关联会话时为 `null`。 */
 export const useHarnessSession = (): HarnessThreadMetadata | null =>

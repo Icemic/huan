@@ -1655,7 +1655,7 @@ export default function (pi) {
       const unsubscribe = isolated.subscribe(
         id,
         (event) => {
-          if (event.type !== 'snapshot') return
+          if (event.type !== 'snapshot' || subscribedAssistant !== undefined) return
           subscribedAssistant = event.snapshot.messages.find(
             (message) => message.role === 'assistant',
           )

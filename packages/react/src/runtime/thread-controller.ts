@@ -28,7 +28,15 @@ import type {
   HarnessImageContent,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
+  HarnessThreadForkInput,
+  HarnessThreadForkResult,
   HarnessThreadSnapshot,
+  HarnessThreadTree,
+  HarnessTreeCancelResult,
+  HarnessTreeLabelInput,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateInput,
+  HarnessTreeNavigateResult,
 } from '@huan/protocol'
 import { errorText } from '../error-text.js'
 import { isKnownHarnessClientEventType } from '../event-types.js'
@@ -84,6 +92,22 @@ export interface HarnessThreadControllerLike {
   cancel(): Promise<void>
   /** 清除 Pi 服务端的 queue；返回被清除的文本，以便 UI 将其恢复到输入框。 */
   clearQueue(): Promise<{ steering: string[]; followUp: string[] }>
+  /** 按需读取会话树（真实 entryId、标签与结构 revision）。 */
+  getThreadTree(): Promise<HarnessThreadTree>
+  /**
+   * 导航会话树；运行中需显式 stopRunning。返回的 recoveredQueue 合并
+   * 本地未派发队列，`editorText` 仅供发起窗口恢复草稿。
+   */
+  navigateThreadTree(input: HarnessTreeNavigateInput): Promise<HarnessTreeNavigateResult>
+  /** 设置/清除节点标签；快照到达前不自行猜测标签生效。 */
+  setThreadEntryLabel(input: HarnessTreeLabelInput): Promise<HarnessTreeLabelResult>
+  /** 取消进行中的分支摘要导航。 */
+  cancelThreadTreeNavigation(): Promise<HarnessTreeCancelResult>
+  /**
+   * fork/clone：创建独立子会话；本 Controller 属于父会话，不应用子快照，
+   * 只把失败原因记入本地状态。调用窗口据 `threadId` 自行切换。
+   */
+  forkThread(input: HarnessThreadForkInput): Promise<HarnessThreadForkResult>
   setModel(input: { provider: string; modelId: string }): Promise<void>
   setThinkingLevel(level: HarnessThinkingLevel): Promise<void>
   /** 仅通过决定来答复指定 id 的请求：`confirm` 会原样接受；拒绝会关闭其他类型的请求；
@@ -861,6 +885,103 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     }
   }
 
+  public async getThreadTree() {
+    try {
+      return await this.client.getThreadTree(this.threadId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async navigateThreadTree(
+    input: HarnessTreeNavigateInput,
+  ): Promise<HarnessTreeNavigateResult> {
+    // 运行中「停止并跳转」与服务端停止语义一致：先取消本地未派发发送，
+    // 已进入服务端队列的部分由服务端取回；两者合并返回给发起窗口。
+    const locallyCleared = input.stopRunning
+      ? this.recoverPendingQueuedSends()
+      : { steering: [], followUp: [] }
+    if (input.stopRunning) this.abortPendingSendsBeforeDispatch()
+    let result: HarnessTreeNavigateResult
+    try {
+      result = await this.client.navigateThreadTree(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      // 本地发送已取消时，即使 HTTP 失败也必须把文本交还发起窗口。
+      return {
+        status: 'failed',
+        message: errorText(error),
+        recoveredQueue: locallyCleared,
+      }
+    }
+    // 发起窗口直接应用权威快照；其他窗口由广播获得同一状态。
+    if (result.snapshot) {
+      this.dispatch({
+        type: 'snapshot',
+        snapshot: result.snapshot,
+        threadId: this.threadId,
+        seq: result.snapshot.seq ?? this.state.lastSeq,
+      })
+    }
+    if (locallyCleared.steering.length > 0 || locallyCleared.followUp.length > 0) {
+      result = {
+        ...result,
+        recoveredQueue: this.mergeRecoveredQueue(result.recoveredQueue, locallyCleared),
+      }
+    }
+    if (result.status === 'failed' || result.status === 'persistence-failed') {
+      this.setState({ ...this.state, lastError: result.message ?? '会话树导航失败' })
+    }
+    return result
+  }
+
+  public async setThreadEntryLabel(input: HarnessTreeLabelInput) {
+    let result: HarnessTreeLabelResult
+    try {
+      result = await this.client.setThreadEntryLabel(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+    if (result.snapshot) {
+      this.dispatch({
+        type: 'snapshot',
+        snapshot: result.snapshot,
+        threadId: this.threadId,
+        seq: result.snapshot.seq ?? this.state.lastSeq,
+      })
+    }
+    if (result.status === 'failed') {
+      this.setState({ ...this.state, lastError: result.message ?? '设置标签失败' })
+    }
+    return result
+  }
+
+  public async cancelThreadTreeNavigation() {
+    try {
+      return await this.client.cancelThreadTreeNavigation(this.threadId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async forkThread(input: HarnessThreadForkInput): Promise<HarnessThreadForkResult> {
+    let result: HarnessThreadForkResult
+    try {
+      result = await this.client.forkThread(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+    // 子会话有自己的快照与订阅；父 Controller 不应用它，只在失败时记录原因。
+    if (result.status === 'failed') {
+      this.setState({ ...this.state, lastError: result.message ?? '分叉会话失败' })
+    }
+    return result
+  }
+
   /** @internal */
   public captureCancel(): () => Promise<void> {
     const lease = this.runLeases.current()
@@ -886,6 +1007,48 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
       pending.controller.abort(sendQueueClearedError)
     }
     return cleared
+  }
+
+  /**
+   * 运行中「停止并跳转」前回收本地排队的全部文本。
+   *
+   * 与 clearQueue 不同：这里不能依赖 HTTP 是否已经派出，因为停止会取消
+   * 服务端预检；已派出但尚未被服务端入队的条目也没有权威回执。服务端返回
+   * 的队列与本地记录按文本多重集去重，避免重复或静默丢失。
+   */
+  private recoverPendingQueuedSends(): { steering: string[]; followUp: string[] } {
+    const recovered: { steering: string[]; followUp: string[] } = {
+      steering: [],
+      followUp: [],
+    }
+    for (const pending of this.pendingSends) {
+      pending.queueMirror = undefined
+      if (!pending.queueEntry) continue
+      recovered[pending.queueEntry.mode].push(pending.queueEntry.content)
+      pending.controller.abort(sendQueueClearedError)
+    }
+    return recovered
+  }
+
+  /** 合并服务端取回队列与本地未确认队列（按文本多重集去重）。 */
+  private mergeRecoveredQueue(
+    server: { steering: string[]; followUp: string[] } | undefined,
+    local: { steering: string[]; followUp: string[] },
+  ): { steering: string[]; followUp: string[] } {
+    const result = {
+      steering: [...(server?.steering ?? [])],
+      followUp: [...(server?.followUp ?? [])],
+    }
+    for (const mode of ['steering', 'followUp'] as const) {
+      const counts = new Map<string, number>()
+      for (const content of result[mode]) counts.set(content, (counts.get(content) ?? 0) + 1)
+      for (const content of local[mode]) {
+        const remaining = counts.get(content) ?? 0
+        if (remaining > 0) counts.set(content, remaining - 1)
+        else result[mode].push(content)
+      }
+    }
+    return result
   }
 
   private abortPendingSends() {
@@ -1106,6 +1269,10 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
   private projectMessages() {
     return this.messageProjector.project({
       messages: this.projectedInputMessages(),
+      messageEntryIds: [
+        ...this.state.messageEntryIds,
+        ...this.optimisticUserMessages.map(() => null),
+      ],
       toolExecutions: this.state.toolExecutions,
       runStatus: this.state.runStatus,
       hostUiRequests: this.state.hostUiRequests,

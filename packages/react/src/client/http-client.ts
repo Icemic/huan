@@ -30,6 +30,13 @@
  *   POST   /threads/:id/workspace   → HarnessAssignThreadResult  (body: { workspaceId })
  *   GET    /threads/:id             → HarnessThreadSnapshot
  *   GET    /threads/:id/details     → HarnessThreadDetails       (只读详情与累计统计)
+ *   GET    /threads/:id/tree        → HarnessThreadTree          (按需读取会话树)
+ *   POST   /threads/:id/tree/navigate → HarnessTreeNavigateResult
+ *   POST   /threads/:id/tree/label  → HarnessTreeLabelResult
+ *   POST   /threads/:id/tree/cancel → HarnessTreeCancelResult
+ *   POST   /threads/:id/fork       → HarnessThreadForkResult
+ *   POST   /threads/import/preview → HarnessThreadImportPreview
+ *   POST   /threads/import         → HarnessThreadImportResult
  *   PATCH  /threads/:id             → 204                        (body: { title })
  *   POST   /threads/:id/messages    → 204                        (body: { input })
  *   POST   /threads/:id/cancel      → 204
@@ -61,15 +68,37 @@ import type {
   HarnessRecentProject,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
+  HarnessThreadForkInput,
+  HarnessThreadForkResult,
+  HarnessThreadImportInput,
+  HarnessThreadImportPreview,
+  HarnessThreadImportPreviewInput,
+  HarnessThreadImportResult,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessThreadTree,
+  HarnessTreeLabelInput,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateInput,
+  HarnessTreeNavigateResult,
   HarnessWorkspace,
   HarnessWorkspaceCatalog,
   HarnessWorkspaceMutationResult,
 } from '@huan/protocol'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import { createHarnessEventStreamConnection, isTerminalStreamError } from './event-source.js'
-import { isThreadDetails, isThreadMetadata, isThreadSnapshot } from './validation.js'
+import {
+  isThreadDetails,
+  isThreadForkResult,
+  isThreadImportPreview,
+  isThreadImportResult,
+  isThreadMetadata,
+  isThreadSnapshot,
+  isThreadTree,
+  isTreeCancelResult,
+  isTreeLabelResult,
+  isTreeNavigateResult,
+} from './validation.js'
 
 /** HTTP 客户端选项。 */
 export interface HarnessHttpClientOptions {
@@ -516,6 +545,92 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         )
       }
       return value
+    },
+
+    getThreadTree: async (threadId) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/tree`, 'GET'),
+        'fetching a thread tree',
+      )
+      if (!isThreadTree(value)) {
+        throw invalidResponse(
+          'fetching a thread tree',
+          'expected a valid tree revision, leaf and nodes.',
+        )
+      }
+      return value as HarnessThreadTree
+    },
+
+    navigateThreadTree: async (threadId, input: HarnessTreeNavigateInput) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/tree/navigate`, 'POST', input),
+        'navigating a thread tree',
+      )
+      if (!isTreeNavigateResult(value)) {
+        throw invalidResponse(
+          'navigating a thread tree',
+          'expected a valid navigation status and optional snapshot.',
+        )
+      }
+      return value as HarnessTreeNavigateResult
+    },
+
+    setThreadEntryLabel: async (threadId, input: HarnessTreeLabelInput) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/tree/label`, 'POST', input),
+        'setting a thread entry label',
+      )
+      if (!isTreeLabelResult(value)) {
+        throw invalidResponse('setting a thread entry label', 'expected a valid label result.')
+      }
+      return value as HarnessTreeLabelResult
+    },
+
+    cancelThreadTreeNavigation: async (threadId) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/tree/cancel`, 'POST'),
+        'cancelling tree navigation',
+      )
+      if (!isTreeCancelResult(value)) {
+        throw invalidResponse('cancelling tree navigation', 'expected a valid cancel status.')
+      }
+      return value
+    },
+
+    forkThread: async (threadId, input: HarnessThreadForkInput) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/fork`, 'POST', input),
+        'forking a thread',
+      )
+      if (!isThreadForkResult(value)) {
+        throw invalidResponse(
+          'forking a thread',
+          'expected a valid fork status and optional child snapshot.',
+        )
+      }
+      return value as HarnessThreadForkResult
+    },
+
+    previewThreadImport: async (input: HarnessThreadImportPreviewInput) => {
+      const value = await readJson(
+        await send(`${base}/threads/import/preview`, 'POST', input),
+        'previewing a thread import',
+      )
+      if (!isThreadImportPreview(value)) {
+        throw invalidResponse('previewing a thread import', 'expected a valid import preview.')
+      }
+      return value as HarnessThreadImportPreview
+    },
+
+    importThread: async (input: HarnessThreadImportInput) => {
+      const value = await readJson(
+        await send(`${base}/threads/import`, 'POST', input),
+        'importing a thread',
+      )
+      if (!isThreadImportResult(value)) {
+        throw invalidResponse('importing a thread', 'expected a valid import result.')
+      }
+      return value as HarnessThreadImportResult
     },
 
     sendMessage: async (threadId, input: HarnessSendMessageInput) => {

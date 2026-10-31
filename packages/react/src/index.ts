@@ -38,6 +38,10 @@ export {
   isThreadDetails,
   isThreadMetadata,
   isThreadSnapshot,
+  isThreadTree,
+  isTreeCancelResult,
+  isTreeLabelResult,
+  isTreeNavigateResult,
 } from './client/validation.js'
 // 事件类型判据
 export { isKnownHarnessClientEventType } from './event-types.js'
@@ -45,6 +49,7 @@ export type { HarnessQueueMode } from './queue-ids.js'
 // 队列条目 ID 方案
 export { harnessQueueItemId, isHarnessSteerQueueItemId } from './queue-ids.js'
 export {
+  useHarnessController,
   useHarnessExtras,
   useHarnessHostUiRequests,
   useHarnessSession,

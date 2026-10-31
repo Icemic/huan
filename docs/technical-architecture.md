@@ -87,15 +87,25 @@ apps/harness
 
 ### 3.2.1 多项目工作区（已实现）
 
-工作区定义、会话归属与归档标记由 `<agentDir>/huan/state.json` 管理，Pi 继续管理 cwd、消息和会话树。元数据按会话存储作用域与 sessionId 定位，单宿主串行写入并原子替换文件，持久化成功后才提交内存；具体格式、权威来源和失败规则见[工作区设计 §4](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#4-存储与协议)。workspaceId 为稳定身份，session cwd 为固定运行锚点，成员项目 path 为跨目录工具目标；workspacePath 在宿主启动选项、会话元数据和模型目录查询中仍表示 cwd；创建输入使用 startProjectPath，工作区归属与列表过滤使用 workspaceId。按工作区查询会话跨越物理 cwd 存储分组，仍遵守既有 sessionDir 与用户空间作用域。
+工作区定义、会话归属、归档标记与未发送树落点由 `<agentDir>/huan/state.json` 管理，Pi 继续管理 cwd、消息和会话树。树落点只在结构操作边界写入 `{ leafId, entryCount }`；冷树、冷快照、冷详情与 `ensureOpen` 统一校验节点存在且条目水位未变后应用，否则以 Pi JSONL 为准。元数据按会话存储作用域与 sessionId 定位，单宿主串行写入并原子替换文件，持久化成功后才提交内存；具体格式、权威来源和失败规则见[工作区设计 §4](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#4-存储与协议)。workspaceId 为稳定身份，session cwd 为固定运行锚点，成员项目 path 为跨目录工具目标；workspacePath 在宿主启动选项、会话元数据和模型目录查询中仍表示 cwd；创建输入使用 startProjectPath，工作区归属与列表过滤使用 workspaceId。按工作区查询会话跨越物理 cwd 存储分组，仍遵守既有 sessionDir 与用户空间作用域。
 
 每个运行在 `before_agent_start` 取得已提交的工作区 revision 与成员快照，直到 agent_settled 结算保持稳定；变更在下一轮前应用。仅起始 cwd 装配项目代码与设置，其他成员不自动合并扩展/MCP。工具、指令与事件状态按会话隔离，不修改进程 cwd。选择性复用 pi-workspaces 的根路径解析和工具委托，作为 huan 内嵌扩展装配；不加载整个插件，不使用其定义存储或自动激活，不要求用户安装。复用保留许可来源，禁止与用户插件重复注册同名工具。具体设计见[工作区迭代](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。当前实现已接入 `workspace-store.ts`、协议工作区类型、宿主 CRUD/归属接口与两级工作区侧栏；实施与验证记录见该迭代 §8，完成状态见 roadmap。
 
 ### 3.2.2 会话管理与只读统计
 
-协议 5 的 `getThreadDetails` 按需返回累计统计与活动分支上下文，累计覆盖全文件（含其他分支、已压缩历史和摘要计费）。热会话使用 SDK `getSessionStats`，冷会话通过公开 SessionManager 读取并按 SDK 口径聚合，与真实 SDK 对照测试；冷查询不装配项目资源或请求模型。详情与 token 事件分离，避免流式期间重复聚合。
+协议 7 的 `getThreadDetails` 按需返回累计统计与活动分支上下文，累计覆盖全文件（含其他分支、已压缩历史和摘要计费）。热会话使用 SDK `getSessionStats`，冷会话通过公开 SessionManager 读取并按 SDK 口径聚合，与真实 SDK 对照测试；冷查询不装配项目资源或请求模型。详情与 token 事件分离，避免流式期间重复聚合。
+
+### 3.2.3 会话树与结构导航
+
+树由公开 `SessionManager.getTree/getEntries/getLeafId` 按需读取，节点使用真实 entryId；快照只携带 `leafId`、`treeRevision`（条目数 + 活动落点指纹）与 `treeOperation`，不随 token 附带整棵树。导航、标签、模型/Thinking、重命名共享每会话结构闸门：占用在 SDK await 前同步完成，发送预检看到闸门时明确拒绝 busy，结构操作与 run admission 不互相等待。运行中导航必须显式 `stopRunning`，先按停止语义失效预检、取回整体队列并排空运行；标签写 Pi label entry 后恢复原落点并刷新 sidecar 水位。导航返回的 `editorText` 只交给发起窗口，成功后广播权威快照；sidecar 保存失败时恢复可恢复的落点并如实报告，摘要已追加则标明不可逆。路径与失败边界见[会话树迭代](iteration/2026-10/2026-10-31-feat-session-tree.md)。
 
 归档标记与归属共用原子串行存储，允许未归属会话单独保存 archived；更新归属保留归档，不改工作区 revision。删除文件后清理元数据，跨文件失败报告并支持重试；已知状态损坏时提前拒绝删除。显式刷新重扫当前会话存储作用域，宿主缓存与浏览器响应均防止旧扫描覆盖新结果。设计与验证见[会话管理迭代](iteration/2026-10/2026-10-31-feat-session-management-stats.md)。
+
+### 3.2.4 独立分支与 JSONL 导入
+
+fork/clone 使用独立 `SessionManager` 句柄调用公开 `createBranchedSession(targetLeafId)`，只复制根到目标路径；live 父 manager 不被切换或停止。`before` 目标为用户消息父节点并返回原文供发起窗口编辑，`at` 缺省当前 leaf；无对话路径使用 `SessionManager.create({ parentSession })` 建立空独立会话并继承父会话模型/Thinking。父会话空闲与 expectedRevision 在结构闸门内校验，`session_before_fork` 取消时不创建文件或元数据，子会话独立装配、继承工作区归属但不继承归档。
+
+JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧版经公开 `migrateSessionEntries` 迁移，未知扩展条目透传；预览只读文件、目录与冲突，不装配项目。确认时重读源、重算冲突、经既有项目信任入口，再按宿主范围串行独占写入；默认保留源 ID 与完整树，冲突副本只改 header ID/cwd/血缘与文件名。上传按 20MiB 限制，路径不使用上传文件名拼接，源文件永不改写；归属保存失败保留可发现的未归属文件并如实报告。协议 7 的 fork/导入路由沿用既有鉴权、Host/Origin 与会话作用域校验。设计与验证见[独立分支与导入迭代](iteration/2026-10/2026-10-31-feat-session-fork-import.md)。
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 
@@ -107,7 +117,7 @@ apps/harness
 
 **内部子路径依赖已切断**：此前 react-pi 经 `@assistant-ui/core/internal` 等子路径引用上游内部工具（实证脆弱：`RunLeases` 在 core@0.3.21 中不存在，0.3.27 才加入）。`@huan/react` 以 `src/vendor/` 下的本地副本替代（11 个工具）。
 
-react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐）：无 fork/树导航、队列不可逐条编辑、附件仅图片、不暴露 skills/extensions、恢复仅快照无重放。
+react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐）：无 fork/树导航（已由公共 Controller 与应用功能补齐）、队列不可逐条编辑、附件仅图片、不暴露 skills/extensions、恢复仅快照无重放。
 
 ---
 

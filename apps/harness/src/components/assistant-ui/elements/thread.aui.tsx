@@ -26,6 +26,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  GitForkIcon,
   MicIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -73,6 +74,8 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { requestForkThread } from '@/components/session-fork-bridge'
+import { LocateTreeEntryButton, useSourceEntryId } from '@/components/session-tree-dialog'
 import { cn } from '@/lib/utils'
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart
@@ -840,12 +843,29 @@ const UserActionBar: FC = () => {
       autohide="not-last"
       className="aui-user-action-bar-root flex flex-col items-end"
     >
+      <LocateTreeEntryButton />
+      <ForkMessageButton />
       <ActionBarPrimitive.Edit asChild>
         <TooltipIconButton tooltip="Edit" className="aui-user-action-edit">
           <PencilIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Edit>
     </ActionBarPrimitive.Root>
+  )
+}
+
+/** 历史用户消息的 fork 入口：仅已落盘的消息提供真实 entryId。 */
+const ForkMessageButton: FC = () => {
+  const sourceEntryId = useSourceEntryId()
+  if (!sourceEntryId) return null
+  return (
+    <TooltipIconButton
+      tooltip="从这条消息分叉"
+      className="aui-user-action-fork"
+      onClick={() => requestForkThread({ entryId: sourceEntryId, position: 'before' })}
+    >
+      <GitForkIcon />
+    </TooltipIconButton>
   )
 }
 

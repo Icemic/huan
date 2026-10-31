@@ -13,6 +13,12 @@ import type {
   HarnessThinkingLevel,
   HarnessThreadMetadata,
   HarnessThreadStatus,
+  HarnessThreadTree,
+  HarnessTreeCancelResult,
+  HarnessTreeLabelInput,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateInput,
+  HarnessTreeNavigateResult,
 } from '@huan/protocol'
 import type { HarnessInterruptAnswer } from './host-ui.js'
 import type { HarnessThreadControllerLike } from './thread-controller.js'
@@ -70,6 +76,14 @@ export interface HarnessRuntimeExtras {
    * 清空 Pi 服务端队列（steering + follow-up）并返回文本，便于 UI 恢复到输入框。
    */
   clearQueue: () => Promise<{ steering: string[]; followUp: string[] }>
+  /** 按需读取会话树。 */
+  getThreadTree: () => Promise<HarnessThreadTree>
+  /** 导航会话树；运行中需显式 stopRunning。 */
+  navigateThreadTree: (input: HarnessTreeNavigateInput) => Promise<HarnessTreeNavigateResult>
+  /** 设置/清除节点标签。 */
+  setThreadEntryLabel: (input: HarnessTreeLabelInput) => Promise<HarnessTreeLabelResult>
+  /** 取消进行中的分支摘要导航。 */
+  cancelThreadTreeNavigation: () => Promise<HarnessTreeCancelResult>
   setModel: (input: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: HarnessThinkingLevel) => Promise<void>
   respondToHostUiRequest: (response: HarnessHostUiResponse) => Promise<void>

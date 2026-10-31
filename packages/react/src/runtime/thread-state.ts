@@ -55,6 +55,8 @@ export interface HarnessThreadState {
   metadata: HarnessThreadMetadata
   /** 权威记录——投影的真相来源。 */
   messages: readonly HarnessAgentMessage[]
+  /** 与 `messages` 等长的来源 entryId；未落盘/未知为 null。 */
+  messageEntryIds: readonly (string | null)[]
   /** 当前流式的助手消息在 `messages` 中的下标；未流式时为 undefined。 */
   streamingMessageIndex: number | undefined
   /** 实时流式工具输出，按 `toolCallId` 索引。 */
@@ -85,6 +87,7 @@ export const createHarnessThreadState = (threadId: string): HarnessThreadState =
   threadId,
   metadata: EMPTY_METADATA(threadId),
   messages: [],
+  messageEntryIds: [],
   streamingMessageIndex: undefined,
   toolExecutions: {},
   runStatus: 'idle',
@@ -149,6 +152,8 @@ const applySnapshot = (
     ...state,
     metadata: withMetadataActivity(snapshot.metadata, compaction, retry),
     messages: snapshot.messages,
+    // 来源 entryId 随权威快照整体替换，不从下标/时间戳推导。
+    messageEntryIds: snapshot.messageEntryIds ?? snapshot.messages.map(() => null),
     // 快照权威：丢弃瞬态流式指针/缓冲，使任何分歧自愈。
     streamingMessageIndex: undefined,
     toolExecutions: {},
@@ -260,9 +265,11 @@ export const reduceHarnessThreadState = (
 
     case 'message_start': {
       const messages = [...state.messages, event.message]
+      const messageEntryIds = [...state.messageEntryIds, null]
       return stamped({
         ...state,
         messages,
+        messageEntryIds,
         streamingMessageIndex: isAssistantMessage(event.message)
           ? messages.length - 1
           : state.streamingMessageIndex,
@@ -285,6 +292,7 @@ export const reduceHarnessThreadState = (
       return stamped({
         ...state,
         messages,
+        messageEntryIds: [...state.messageEntryIds, null],
         streamingMessageIndex: messages.length - 1,
       })
     }
@@ -310,6 +318,10 @@ export const reduceHarnessThreadState = (
           index !== undefined && index < state.messages.length
             ? replaceAt(state.messages, index, event.message)
             : [...state.messages, event.message],
+        messageEntryIds:
+          index !== undefined && index < state.messages.length
+            ? state.messageEntryIds
+            : [...state.messageEntryIds, null],
         streamingMessageIndex: undefined,
       })
     }

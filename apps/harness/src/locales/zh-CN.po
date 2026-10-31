@@ -7,14 +7,26 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
+#: src/components/import-thread-dialog.tsx:415
+msgid "（空）"
+msgstr "（空）"
+
 #. placeholder {0}: workspace.projects.length
-#: src/components/session-context-bar.tsx:56
+#: src/components/session-context-bar.tsx:101
 msgid "{0} 个项目"
 msgstr "{0} 个项目"
 
 #: src/components/theme-selector.tsx:13
 msgid "One Dark"
 msgstr "One Dark"
+
+#: src/components/session-tree-dialog.tsx:834
+msgid "Pi 设置当前默认跳过摘要；这里仍可显式选择。"
+msgstr "Pi 设置当前默认跳过摘要；这里仍可显式选择。"
+
+#: src/components/session-tree-dialog.tsx:836
+msgid "Pi 设置默认询问摘要；这里默认不摘要，避免意外计费。"
+msgstr "Pi 设置默认询问摘要；这里默认不摘要，避免意外计费。"
 
 #: src/app.tsx:21
 msgid "Pi 运行时没有可用模型。"
@@ -36,11 +48,27 @@ msgstr "Thinking"
 msgid "Token"
 msgstr "Token"
 
+#: src/components/import-thread-dialog.tsx:303
+msgid "上传 JSONL"
+msgstr "上传 JSONL"
+
+#: src/components/import-thread-dialog.tsx:136
+msgid "上传内容超过 20MiB 上限。"
+msgstr "上传内容超过 20MiB 上限。"
+
+#: src/components/session-tree-dialog.tsx:247
+msgid "不会自动发送；可复制或恢复到输入框。"
+msgstr "不会自动发送；可复制或恢复到输入框。"
+
+#: src/components/session-tree-dialog.tsx:814
+msgid "不摘要（只切换上下文）"
+msgstr "不摘要（只切换上下文）"
+
 #: src/components/theme-selector.tsx:24
 msgid "主题"
 msgstr "主题"
 
-#: src/components/workspace-sidebar.tsx:627
+#: src/components/workspace-sidebar.tsx:629
 msgid "仅命名"
 msgstr "仅命名"
 
@@ -48,13 +76,44 @@ msgstr "仅命名"
 msgid "仅用户资源"
 msgstr "仅用户资源"
 
+#: src/components/import-thread-dialog.tsx:236
+msgid "从宿主路径或浏览器上传导入 Pi 会话。默认保留源会话 ID 与完整树；预览不会装配项目代码。"
+msgstr "从宿主路径或浏览器上传导入 Pi 会话。默认保留源会话 ID 与完整树；预览不会装配项目代码。"
+
+#: src/components/session-fork-dialog.tsx:128
+msgid "从这条消息分叉"
+msgstr "从这条消息分叉"
+
 #: src/components/session-dialogs.tsx:123
 msgid "会话 ID"
 msgstr "会话 ID"
 
+#: src/components/import-thread-dialog.tsx:201
+msgid "会话已导入并打开。"
+msgstr "会话已导入并打开。"
+
 #: src/components/session-dialogs.tsx:124
 msgid "会话文件"
 msgstr "会话文件"
+
+#: src/components/session-tree-dialog.tsx:594
+#: src/components/session-tree-dialog.tsx:598
+#: src/components/session-tree-dialog.tsx:617
+#: src/components/session-tree-dialog.tsx:620
+msgid "会话树"
+msgstr "会话树"
+
+#: src/components/session-tree-dialog.tsx:460
+msgid "会话树已变化，已刷新，请重新选择。"
+msgstr "会话树已变化，已刷新，请重新选择。"
+
+#: src/components/session-fork-dialog.tsx:110
+msgid "会话树已变化，请关闭后重新打开树面板再试。"
+msgstr "会话树已变化，请关闭后重新打开树面板再试。"
+
+#: src/components/session-fork-dialog.tsx:151
+msgid "会话正在运行；需先停止当前响应才能分叉。"
+msgstr "会话正在运行；需先停止当前响应才能分叉。"
 
 #: src/components/pi-host-status.tsx:128
 msgid "会话目录"
@@ -64,16 +123,66 @@ msgstr "会话目录"
 msgid "会话详情"
 msgstr "会话详情"
 
+#: src/components/import-thread-dialog.tsx:453
+msgid "作为独立副本导入（新会话 ID，保留完整树与父会话血缘）"
+msgstr "作为独立副本导入（新会话 ID，保留完整树与父会话血缘）"
+
+#: src/components/import-thread-dialog.tsx:361
+#: src/components/import-thread-dialog.tsx:381
+msgid "使用源会话起始目录"
+msgstr "使用源会话起始目录"
+
+#: src/components/session-tree-dialog.tsx:845
+msgid "例如：重点保留文件改动与失败命令"
+msgstr "例如：重点保留文件改动与失败命令"
+
 #: src/components/workspace-manager.tsx:495
 msgid "保存"
 msgstr "保存"
+
+#: src/components/session-tree-dialog.tsx:769
+msgid "保存标签"
+msgstr "保存标签"
+
+#: src/components/session-tree-dialog.tsx:495
+msgid "保存标签失败。"
+msgstr "保存标签失败。"
 
 #: src/components/workspace-manager.tsx:177
 msgid "信任查询或保存失败，请查看宿主终端后重试。"
 msgstr "信任查询或保存失败，请查看宿主终端后重试。"
 
-#: src/components/workspace-sidebar.tsx:569
-#: src/components/workspace-sidebar.tsx:583
+#: src/components/session-tree-dialog.tsx:909
+msgid "停止并跳转"
+msgstr "停止并跳转"
+
+#: src/components/session-fork-dialog.tsx:165
+msgid "停止运行"
+msgstr "停止运行"
+
+#. placeholder {0}: items.length
+#: src/components/session-tree-dialog.tsx:244
+msgid "停止运行后取回 {0} 条未发送消息"
+msgstr "停止运行后取回 {0} 条未发送消息"
+
+#: src/components/session-fork-dialog.tsx:69
+msgid "克隆为独立会话"
+msgstr "克隆为独立会话"
+
+#: src/components/session-context-bar.tsx:51
+msgid "克隆到新会话"
+msgstr "克隆到新会话"
+
+#: src/components/session-fork-dialog.tsx:128
+msgid "克隆当前会话"
+msgstr "克隆当前会话"
+
+#: src/components/session-tree-dialog.tsx:570
+msgid "全部"
+msgstr "全部"
+
+#: src/components/workspace-sidebar.tsx:571
+#: src/components/workspace-sidebar.tsx:585
 msgid "全部工作区（含未归属）"
 msgstr "全部工作区（含未归属）"
 
@@ -83,28 +192,49 @@ msgid "共 {0} 条"
 msgstr "共 {0} 条"
 
 #: src/components/session-dialogs.tsx:217
+#: src/components/session-tree-dialog.tsx:929
 #: src/components/ui/dialog.tsx:74
 #: src/components/ui/dialog.tsx:109
 msgid "关闭"
 msgstr "关闭"
 
 #: src/components/session-dialogs.tsx:134
-#: src/components/workspace-sidebar.tsx:593
-#: src/components/workspace-sidebar.tsx:608
+#: src/components/workspace-sidebar.tsx:595
+#: src/components/workspace-sidebar.tsx:610
 msgid "最近活动"
 msgstr "最近活动"
+
+#: src/components/import-thread-dialog.tsx:431
+msgid "冲突"
+msgstr "冲突"
 
 #: src/components/workspace-manager.tsx:450
 msgid "决定信任"
 msgstr "决定信任"
 
+#: src/components/session-fork-dialog.tsx:114
+msgid "分叉失败，未创建子会话。"
+msgstr "分叉失败，未创建子会话。"
+
+#: src/components/session-tree-dialog.tsx:810
+msgid "分支摘要"
+msgstr "分支摘要"
+
+#: src/components/session-tree-dialog.tsx:463
+msgid "分支摘要已取消，活动落点未改变。"
+msgstr "分支摘要已取消，活动落点未改变。"
+
 #: src/components/session-dialogs.tsx:133
-#: src/components/workspace-sidebar.tsx:594
-#: src/components/workspace-sidebar.tsx:611
+#: src/components/workspace-sidebar.tsx:596
+#: src/components/workspace-sidebar.tsx:613
 msgid "创建时间"
 msgstr "创建时间"
 
-#: src/components/workspace-sidebar.tsx:292
+#: src/components/session-fork-dialog.tsx:69
+msgid "创建独立分支"
+msgstr "创建独立分支"
+
+#: src/components/workspace-sidebar.tsx:293
 msgid "删除"
 msgstr "删除"
 
@@ -112,6 +242,14 @@ msgstr "删除"
 #: src/components/session-dialogs.tsx:305
 msgid "删除会话"
 msgstr "删除会话"
+
+#: src/components/session-tree-dialog.tsx:926
+msgid "刷新"
+msgstr "刷新"
+
+#: src/components/session-tree-dialog.tsx:705
+msgid "刷新会话树"
+msgstr "刷新会话树"
 
 #: src/components/session-dialogs.tsx:214
 msgid "刷新详情"
@@ -138,22 +276,41 @@ msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型
 msgid "压缩后上下文未知，等待下一次响应"
 msgstr "压缩后上下文未知，等待下一次响应"
 
+#: src/components/import-thread-dialog.tsx:513
 #: src/components/session-dialogs.tsx:297
+#: src/components/session-fork-dialog.tsx:183
+#: src/components/session-tree-dialog.tsx:897
 #: src/components/workspace-manager.tsx:488
 #: src/components/workspace-manager.tsx:630
 #: src/components/workspace-manager.tsx:731
 msgid "取消"
 msgstr "取消"
 
+#: src/components/session-tree-dialog.tsx:648
+msgid "取消摘要"
+msgstr "取消摘要"
+
+#: src/components/session-tree-dialog.tsx:778
+msgid "取消编辑标签"
+msgstr "取消编辑标签"
+
 #: src/components/session-dialogs.tsx:113
 msgid "只读信息。累计统计覆盖整个会话文件（含已压缩历史与其他分支）；当前上下文只按活动分支估算。"
 msgstr "只读信息。累计统计覆盖整个会话文件（含已压缩历史与其他分支）；当前上下文只按活动分支估算。"
 
+#: src/components/import-thread-dialog.tsx:437
+msgid "同 ID 内容不同"
+msgstr "同 ID 内容不同"
+
 #: src/components/session-dialogs.tsx:120
-#: src/components/workspace-sidebar.tsx:595
-#: src/components/workspace-sidebar.tsx:614
+#: src/components/workspace-sidebar.tsx:597
+#: src/components/workspace-sidebar.tsx:616
 msgid "名称"
 msgstr "名称"
+
+#: src/components/session-tree-dialog.tsx:263
+msgid "后续"
+msgstr "后续"
 
 #: src/components/pi-host-status.tsx:144
 msgid "启动默认模型"
@@ -167,13 +324,26 @@ msgstr "启动默认模型未配置或不可用。可在此选择模型开始新
 msgid "启动默认模型缺少凭据。可在此选择已配置的模型；认证配置修改后需重启宿主。"
 msgstr "启动默认模型缺少凭据。可在此选择已配置的模型；认证配置修改后需重启宿主。"
 
+#: src/components/session-tree-dialog.tsx:959
+#: src/components/session-tree-dialog.tsx:960
+msgid "在会话树中定位"
+msgstr "在会话树中定位"
+
 #: src/components/pi-host-status.tsx:189
 msgid "复制失败，请手工选择信息复制。"
 msgstr "复制失败，请手工选择信息复制。"
 
+#: src/components/session-fork-dialog.tsx:136
+msgid "复制当前活动路径到独立会话。父会话与其他窗口保持不变；废弃分支不会进入新会话。"
+msgstr "复制当前活动路径到独立会话。父会话与其他窗口保持不变；废弃分支不会进入新会话。"
+
 #: src/components/pi-host-status.tsx:182
 msgid "复制诊断摘要"
 msgstr "复制诊断摘要"
+
+#: src/components/session-fork-dialog.tsx:132
+msgid "复制该用户消息之前的活动路径到独立会话，消息原文会恢复到本窗口编辑器；父会话与其他窗口保持不变。"
+msgstr "复制该用户消息之前的活动路径到独立会话，消息原文会恢复到本窗口编辑器；父会话与其他窗口保持不变。"
 
 #: src/app.tsx:109
 msgid "多项目工作区"
@@ -184,13 +354,57 @@ msgid "存储方式"
 msgstr "存储方式"
 
 #. placeholder {0}: metadata.workspaceAppliedRevision
-#: src/components/session-context-bar.tsx:66
+#: src/components/session-context-bar.tsx:111
 msgid "实际生效 v{0}"
 msgstr "实际生效 v{0}"
 
 #: src/components/pi-host-status.tsx:114
 msgid "宿主信息与诊断"
 msgstr "宿主信息与诊断"
+
+#: src/components/import-thread-dialog.tsx:313
+msgid "宿主机器上的 JSONL 绝对路径（不是浏览器本地文件）"
+msgstr "宿主机器上的 JSONL 绝对路径（不是浏览器本地文件）"
+
+#: src/components/import-thread-dialog.tsx:290
+msgid "宿主路径"
+msgstr "宿主路径"
+
+#: src/components/session-tree-dialog.tsx:568
+msgid "对话"
+msgstr "对话"
+
+#: src/components/import-thread-dialog.tsx:542
+msgid "导入 JSONL"
+msgstr "导入 JSONL"
+
+#: src/components/import-thread-dialog.tsx:233
+msgid "导入 JSONL 会话"
+msgstr "导入 JSONL 会话"
+
+#: src/components/import-thread-dialog.tsx:393
+msgid "导入内容只保存在本机宿主，不会上传到第三方；请确认 JSONL 中没有不希望持久化的敏感信息。原文件不会被修改。"
+msgstr "导入内容只保存在本机宿主，不会上传到第三方；请确认 JSONL 中没有不希望持久化的敏感信息。原文件不会被修改。"
+
+#: src/components/import-thread-dialog.tsx:209
+msgid "导入未完成。"
+msgstr "导入未完成。"
+
+#: src/components/import-thread-dialog.tsx:276
+msgid "导入来源"
+msgstr "导入来源"
+
+#: src/components/import-thread-dialog.tsx:492
+msgid "导入目标项目需要信任决定；拒绝后仍会使用用户级资源导入。"
+msgstr "导入目标项目需要信任决定；拒绝后仍会使用用户级资源导入。"
+
+#: src/components/import-thread-dialog.tsx:151
+msgid "导入预览失败。"
+msgstr "导入预览失败。"
+
+#: src/components/session-tree-dialog.tsx:465
+msgid "导航未完成。"
+msgstr "导航未完成。"
 
 #: src/components/session-dialogs.tsx:125
 msgid "尚未创建会话文件"
@@ -204,7 +418,7 @@ msgstr "尚未创建会话文件；删除后当前会话记录不会保留。"
 msgid "工作区"
 msgstr "工作区"
 
-#: src/components/session-context-bar.tsx:51
+#: src/components/session-context-bar.tsx:96
 #: src/components/session-dialogs.tsx:130
 msgid "工作区不可用"
 msgstr "工作区不可用"
@@ -233,6 +447,10 @@ msgstr "工作区名称"
 msgid "工作目录"
 msgstr "工作目录"
 
+#: src/components/session-tree-dialog.tsx:569
+msgid "工具"
+msgstr "工具"
+
 #. placeholder {0}: stats.toolResults
 #: src/components/session-dialogs.tsx:156
 msgid "工具结果 {0}"
@@ -243,25 +461,61 @@ msgstr "工具结果 {0}"
 msgid "工具调用 {0}"
 msgstr "工具调用 {0}"
 
+#: src/components/session-fork-dialog.tsx:104
+msgid "已从所选用户消息创建独立分支。"
+msgstr "已从所选用户消息创建独立分支。"
+
 #: src/components/workspace-manager.tsx:102
 msgid "已信任"
 msgstr "已信任"
+
+#: src/components/session-fork-dialog.tsx:105
+msgid "已克隆为独立会话。"
+msgstr "已克隆为独立会话。"
 
 #: src/components/pi-host-status.tsx:187
 msgid "已复制"
 msgstr "已复制"
 
-#: src/components/workspace-sidebar.tsx:636
+#: src/components/workspace-sidebar.tsx:638
 msgid "已归档会话"
 msgstr "已归档会话"
+
+#: src/components/import-thread-dialog.tsx:460
+msgid "已有会话 ID：{existingId}"
+msgstr "已有会话 ID：{existingId}"
+
+#: src/components/import-thread-dialog.tsx:435
+msgid "已有完全相同的会话"
+msgstr "已有完全相同的会话"
+
+#: src/components/session-tree-dialog.tsx:571
+msgid "已标记"
+msgstr "已标记"
+
+#: src/components/session-tree-dialog.tsx:455
+msgid "已跳转，并已写入分支摘要。"
+msgstr "已跳转，并已写入分支摘要。"
+
+#: src/components/session-tree-dialog.tsx:456
+msgid "已跳转到所选节点。"
+msgstr "已跳转到所选节点。"
 
 #: src/components/workspace-manager.tsx:634
 msgid "开始新会话"
 msgstr "开始新会话"
 
-#: src/components/workspace-sidebar.tsx:280
+#: src/components/session-tree-dialog.tsx:263
+msgid "引导"
+msgstr "引导"
+
+#: src/components/workspace-sidebar.tsx:281
 msgid "归档"
 msgstr "归档"
+
+#: src/components/session-tree-dialog.tsx:162
+msgid "当前"
+msgstr "当前"
 
 #: src/components/session-dialogs.tsx:180
 msgid "当前上下文"
@@ -272,31 +526,43 @@ msgstr "当前上下文"
 msgid "当前分支 {0} 条记录"
 msgstr "当前分支 {0} 条记录"
 
-#: src/components/workspace-sidebar.tsx:570
-#: src/components/workspace-sidebar.tsx:586
+#: src/components/session-tree-dialog.tsx:803
+msgid "当前响应仍在运行。确认后将停止响应、取回未发送队列，再切换上下文；该操作不会自动发送任何消息。"
+msgstr "当前响应仍在运行。确认后将停止响应、取回未发送队列，再切换上下文；该操作不会自动发送任何消息。"
+
+#: src/components/workspace-sidebar.tsx:572
+#: src/components/workspace-sidebar.tsx:588
 msgid "当前工作区"
 msgstr "当前工作区"
+
+#: src/components/session-tree-dialog.tsx:514
+msgid "当前没有可取消的分支摘要。"
+msgstr "当前没有可取消的分支摘要。"
 
 #: src/components/workspace-manager.tsx:170
 msgid "当前状态"
 msgstr "当前状态"
+
+#: src/components/session-fork-dialog.tsx:171
+msgid "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
+msgstr "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
 
 #. placeholder {0}: formatTokens(stats.tokens.total)
 #: src/components/session-dialogs.tsx:174
 msgid "总计 {0}"
 msgstr "总计 {0}"
 
-#: src/components/workspace-sidebar.tsx:280
+#: src/components/workspace-sidebar.tsx:281
 msgid "恢复"
 msgstr "恢复"
 
 #. placeholder {0}: metadata.workspaceRevision
 #. placeholder {1}: metadata.workspaceAppliedRevision
-#: src/components/session-context-bar.tsx:61
+#: src/components/session-context-bar.tsx:106
 msgid "成员 v{0}，本轮仍使用 v{1}（下次运行生效）"
 msgstr "成员 v{0}，本轮仍使用 v{1}（下次运行生效）"
 
-#: src/components/session-context-bar.tsx:68
+#: src/components/session-context-bar.tsx:113
 msgid "成员变更将在下一次运行生效"
 msgstr "成员变更将在下一次运行生效"
 
@@ -304,26 +570,51 @@ msgstr "成员变更将在下一次运行生效"
 msgid "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 msgstr "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 
+#: src/components/import-thread-dialog.tsx:468
+msgid "打开已有会话"
+msgstr "打开已有会话"
+
+#: src/components/session-fork-dialog.tsx:112
+msgid "扩展取消了本次分叉，未创建子会话。"
+msgstr "扩展取消了本次分叉，未创建子会话。"
+
 #: src/components/pi-host-status.tsx:138
 msgid "按工作目录分组"
 msgstr "按工作目录分组"
+
+#: src/components/session-tree-dialog.tsx:684
+msgid "搜索会话树"
+msgstr "搜索会话树"
+
+#: src/components/session-tree-dialog.tsx:683
+msgid "搜索摘要、标签或 ID"
+msgstr "搜索摘要、标签或 ID"
 
 #: src/components/assistant-ui/elements/model-selector.tsx:243
 msgid "搜索模型"
 msgstr "搜索模型"
 
-#: src/components/workspace-sidebar.tsx:563
+#: src/components/workspace-sidebar.tsx:565
 msgid "搜索范围：会话名称与首条消息"
 msgstr "搜索范围：会话名称与首条消息"
+
+#: src/components/import-thread-dialog.tsx:121
+#: src/components/import-thread-dialog.tsx:127
+msgid "文件超过 20MiB 上限，无法导入。"
+msgstr "文件超过 20MiB 上限，无法导入。"
 
 #: src/components/workspace-manager.tsx:563
 msgid "新建会话"
 msgstr "新建会话"
 
 #: src/components/workspace-manager.tsx:319
-#: src/components/workspace-sidebar.tsx:650
+#: src/components/workspace-sidebar.tsx:652
 msgid "新建工作区"
 msgstr "新建工作区"
+
+#: src/components/import-thread-dialog.tsx:439
+msgid "无"
+msgstr "无"
 
 #: src/components/pi-host-status.tsx:84
 msgid "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
@@ -341,9 +632,13 @@ msgstr "显式共享的平铺目录"
 msgid "显式参数"
 msgstr "显式参数"
 
-#: src/components/workspace-sidebar.tsx:409
+#: src/components/workspace-sidebar.tsx:410
 msgid "暂无会话"
 msgstr "暂无会话"
+
+#: src/components/import-thread-dialog.tsx:356
+msgid "替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）"
+msgstr "替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）"
 
 #: src/components/session-dialogs.tsx:121
 #: src/components/session-dialogs.tsx:282
@@ -355,11 +650,11 @@ msgstr "未命名会话"
 msgid "未归属"
 msgstr "未归属"
 
-#: src/components/workspace-sidebar.tsx:675
+#: src/components/workspace-sidebar.tsx:677
 msgid "未归属会话"
 msgstr "未归属会话"
 
-#: src/components/session-context-bar.tsx:39
+#: src/components/session-context-bar.tsx:81
 msgid "未归属会话；可在左侧明确加入工作区。"
 msgstr "未归属会话；可在左侧明确加入工作区。"
 
@@ -370,6 +665,18 @@ msgstr "本次允许"
 #: src/components/workspace-manager.tsx:194
 msgid "本次拒绝"
 msgstr "本次拒绝"
+
+#: src/components/import-thread-dialog.tsx:417
+msgid "条目 / 版本"
+msgstr "条目 / 版本"
+
+#: src/components/session-tree-dialog.tsx:490
+msgid "标签已保存。"
+msgstr "标签已保存。"
+
+#: src/components/session-tree-dialog.tsx:492
+msgid "标签已写入，但落点水位更新失败。"
+msgstr "标签已写入，但落点水位更新失败。"
 
 #: src/components/workspace-manager.tsx:424
 msgid "检查路径与信任…"
@@ -391,9 +698,29 @@ msgstr "模型目录刷新失败，当前目录可能来自缓存。"
 msgid "模型窗口未知，无法估算"
 msgstr "模型窗口未知，无法估算"
 
+#: src/components/session-tree-dialog.tsx:656
+msgid "正在保存标签…"
+msgstr "正在保存标签…"
+
+#: src/components/session-tree-dialog.tsx:658
+msgid "正在切换会话上下文…"
+msgstr "正在切换会话上下文…"
+
+#: src/components/session-tree-dialog.tsx:513
+msgid "正在取消分支摘要…"
+msgstr "正在取消分支摘要…"
+
 #: src/components/pi-host-status.tsx:92
 msgid "正在查询宿主配置…"
 msgstr "正在查询宿主配置…"
+
+#: src/components/session-tree-dialog.tsx:639
+msgid "正在生成分支摘要（可能计费）…"
+msgstr "正在生成分支摘要（可能计费）…"
+
+#: src/components/session-tree-dialog.tsx:725
+msgid "正在读取会话树…"
+msgstr "正在读取会话树…"
 
 #: src/components/session-dialogs.tsx:143
 msgid "正在读取会话统计…"
@@ -403,13 +730,17 @@ msgstr "正在读取会话统计…"
 msgid "正在连接宿主…"
 msgstr "正在连接宿主…"
 
-#: src/components/workspace-sidebar.tsx:645
+#: src/components/workspace-sidebar.tsx:647
 msgid "没有匹配的会话。"
 msgstr "没有匹配的会话。"
 
 #: src/components/assistant-ui/elements/model-selector.tsx:274
 msgid "没有匹配的模型。"
 msgstr "没有匹配的模型。"
+
+#: src/components/session-tree-dialog.tsx:732
+msgid "没有匹配的节点。"
+msgstr "没有匹配的节点。"
 
 #: src/components/theme-selector.tsx:11
 msgid "浅色"
@@ -427,6 +758,14 @@ msgstr "深色"
 msgid "添加成员"
 msgstr "添加成员"
 
+#: src/components/import-thread-dialog.tsx:413
+msgid "源 cwd"
+msgstr "源 cwd"
+
+#: src/components/import-thread-dialog.tsx:406
+msgid "源会话"
+msgstr "源会话"
+
 #: src/components/session-dialogs.tsx:132
 msgid "父会话"
 msgstr "父会话"
@@ -434,6 +773,10 @@ msgstr "父会话"
 #: src/components/pi-host-status.tsx:14
 msgid "环境变量"
 msgstr "环境变量"
+
+#: src/components/session-tree-dialog.tsx:815
+msgid "生成摘要（调用模型，可能计费）"
+msgstr "生成摘要（调用模型，可能计费）"
 
 #. placeholder {0}: stats.userMessages
 #: src/components/session-dialogs.tsx:152
@@ -443,6 +786,38 @@ msgstr "用户 {0}"
 #: src/components/pi-host-status.tsx:122
 msgid "用户空间"
 msgstr "用户空间"
+
+#: src/components/session-tree-dialog.tsx:866
+msgid "用自定义指令替换默认摘要提示"
+msgstr "用自定义指令替换默认摘要提示"
+
+#: src/components/session-tree-dialog.tsx:756
+msgid "留空即清除标签"
+msgstr "留空即清除标签"
+
+#: src/components/import-thread-dialog.tsx:245
+msgid "目标工作区"
+msgstr "目标工作区"
+
+#: src/components/import-thread-dialog.tsx:427
+msgid "目标目录"
+msgstr "目标目录"
+
+#: src/components/import-thread-dialog.tsx:182
+msgid "目标项目装配失败，请检查路径与宿主诊断。"
+msgstr "目标项目装配失败，请检查路径与宿主诊断。"
+
+#: src/components/import-thread-dialog.tsx:524
+msgid "确认导入"
+msgstr "确认导入"
+
+#: src/components/session-tree-dialog.tsx:886
+msgid "确认替换当前输入框草稿；所选节点没有原文时清空"
+msgstr "确认替换当前输入框草稿；所选节点没有原文时清空"
+
+#: src/components/session-tree-dialog.tsx:911
+msgid "确认跳转"
+msgstr "确认跳转"
 
 #: src/components/workspace-manager.tsx:415
 msgid "移除成员"
@@ -460,7 +835,7 @@ msgstr "窗口"
 msgid "管理工作区"
 msgstr "管理工作区"
 
-#: src/components/session-context-bar.tsx:78
+#: src/components/session-context-bar.tsx:126
 msgid "管理项目"
 msgstr "管理项目"
 
@@ -478,6 +853,15 @@ msgstr "缓存写 {0}"
 msgid "缓存读 {0}"
 msgstr "缓存读 {0}"
 
+#: src/components/session-tree-dialog.tsx:816
+#: src/components/session-tree-dialog.tsx:844
+msgid "自定义摘要指令"
+msgstr "自定义摘要指令"
+
+#: src/components/session-tree-dialog.tsx:755
+msgid "节点标签"
+msgstr "节点标签"
+
 #: src/components/workspace-manager.tsx:86
 msgid "装配失败"
 msgstr "装配失败"
@@ -490,6 +874,10 @@ msgstr "记住此决定（写入当前路径的 trust.json）"
 msgid "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
 msgstr "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
 
+#: src/components/session-tree-dialog.tsx:730
+msgid "该会话还没有条目。"
+msgstr "该会话还没有条目。"
+
 #: src/components/session-dialogs.tsx:274
 msgid "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
 msgstr "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
@@ -498,9 +886,13 @@ msgstr "该操作会永久删除会话文件，无法撤销。若该会话正在
 msgid "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 msgstr "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 
-#: src/components/workspace-sidebar.tsx:249
+#: src/components/workspace-sidebar.tsx:250
 msgid "详情"
 msgstr "详情"
+
+#: src/components/import-thread-dialog.tsx:169
+msgid "请先勾选“作为独立副本导入”。"
+msgstr "请先勾选“作为独立副本导入”。"
 
 #: src/components/session-dialogs.tsx:147
 msgid "读取会话详情失败，请检查宿主连接后重试。"
@@ -510,6 +902,7 @@ msgstr "读取会话详情失败，请检查宿主连接后重试。"
 msgid "资源装配存在警告，详细原因请查看宿主终端。"
 msgstr "资源装配存在警告，详细原因请查看宿主终端。"
 
+#: src/components/import-thread-dialog.tsx:423
 #: src/components/session-dialogs.tsx:127
 msgid "起始目录"
 msgstr "起始目录"
@@ -534,6 +927,14 @@ msgstr "路径缺失"
 msgid "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 msgstr "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 
+#: src/components/session-tree-dialog.tsx:797
+msgid "跳转到"
+msgstr "跳转到"
+
+#: src/components/session-tree-dialog.tsx:623
+msgid "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
+msgstr "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
+
 #. placeholder {0}: formatTokens(stats.tokens.input)
 #: src/components/session-dialogs.tsx:164
 msgid "输入 {0}"
@@ -544,9 +945,13 @@ msgstr "输入 {0}"
 msgid "输出 {0}"
 msgstr "输出 {0}"
 
-#: src/components/workspace-sidebar.tsx:645
+#: src/components/workspace-sidebar.tsx:647
 msgid "还没有工作区。"
 msgstr "还没有工作区。"
+
+#: src/components/import-thread-dialog.tsx:333
+msgid "选择浏览器本地 .jsonl 文件（文本发送给受保护的宿主接口）"
+msgstr "选择浏览器本地 .jsonl 文件（文本发送给受保护的宿主接口）"
 
 #: src/components/workspace-manager.tsx:566
 msgid "选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名 读写与执行命令。"
@@ -556,7 +961,7 @@ msgstr "选择起始项目。会话创建后 cwd 固定，可在同一工作区�
 msgid "配置文件"
 msgstr "配置文件"
 
-#: src/components/workspace-sidebar.tsx:261
+#: src/components/workspace-sidebar.tsx:262
 msgid "重命名"
 msgstr "重命名"
 
@@ -580,6 +985,10 @@ msgstr "项目成员"
 #: src/components/workspace-manager.tsx:439
 msgid "项目装配检查失败"
 msgstr "项目装配检查失败"
+
+#: src/components/import-thread-dialog.tsx:517
+msgid "预览导入"
+msgstr "预览导入"
 
 #: src/components/pi-host-status.tsx:18
 msgid "默认规则"

@@ -17,8 +17,16 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessHostUiRequest,
   HarnessThreadDetails,
+  HarnessThreadForkResult,
+  HarnessThreadImportPreview,
+  HarnessThreadImportResult,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessThreadTree,
+  HarnessThreadTreeOperation,
+  HarnessTreeCancelResult,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateResult,
 } from '@huan/protocol'
 import { isRecord } from '../vendor/anti-corruption.js'
 
@@ -233,6 +241,196 @@ const isThreadConfig = (value: unknown): boolean =>
     isOptionalString(value.modelId) &&
     isOptionalString(value.thinkingLevel))
 
+/** 结构操作状态守卫。 */
+const isTreeOperation = (value: unknown): value is HarnessThreadTreeOperation =>
+  isRecord(value) &&
+  (value.kind === 'navigate' || value.kind === 'label') &&
+  (value.status === 'running' || value.status === 'summarizing') &&
+  typeof value.startedAt === 'string' &&
+  isOptionalString(value.targetId)
+
+/** 会话树节点守卫。 */
+const isTreeNode = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.entryId === 'string' &&
+  (value.parentId === null || typeof value.parentId === 'string') &&
+  typeof value.depth === 'number' &&
+  (value.kind === 'user' ||
+    value.kind === 'assistant' ||
+    value.kind === 'tool' ||
+    value.kind === 'summary' ||
+    value.kind === 'custom' ||
+    value.kind === 'state') &&
+  typeof value.entryType === 'string' &&
+  isOptionalString(value.role) &&
+  typeof value.summary === 'string' &&
+  isOptionalString(value.timestamp) &&
+  isOptionalString(value.label) &&
+  typeof value.active === 'boolean' &&
+  typeof value.isLeaf === 'boolean' &&
+  typeof value.childCount === 'number' &&
+  isOptionalBoolean(value.hasToolCalls)
+
+/** 会话树守卫。 */
+export const isThreadTree = (value: unknown): value is HarnessThreadTree =>
+  isRecord(value) &&
+  typeof value.threadId === 'string' &&
+  (value.leafId === null || typeof value.leafId === 'string') &&
+  typeof value.revision === 'string' &&
+  Array.isArray(value.nodes) &&
+  value.nodes.every(isTreeNode) &&
+  typeof value.branchSummarySkipPrompt === 'boolean' &&
+  (value.operation === undefined || isTreeOperation(value.operation))
+
+/** 树导航结果守卫（只校验 UI 会读取的字段）。 */
+export const isTreeNavigateResult = (value: unknown): value is HarnessTreeNavigateResult => {
+  if (!isRecord(value) || typeof value.status !== 'string') return false
+  if (
+    value.status !== 'applied' &&
+    value.status !== 'cancelled' &&
+    value.status !== 'aborted' &&
+    value.status !== 'conflict' &&
+    value.status !== 'busy' &&
+    value.status !== 'persistence-failed' &&
+    value.status !== 'failed'
+  ) {
+    return false
+  }
+  if (!(value.leafId === undefined || value.leafId === null || typeof value.leafId === 'string')) {
+    return false
+  }
+  if (!isOptionalString(value.treeRevision) || !isOptionalString(value.editorText)) return false
+  if (!isOptionalString(value.message)) return false
+  if (!isOptionalBoolean(value.recovered) || !isOptionalBoolean(value.summaryCommitted)) {
+    return false
+  }
+  if (
+    value.persistence !== undefined &&
+    value.persistence !== 'saved' &&
+    value.persistence !== 'failed' &&
+    value.persistence !== 'skipped'
+  ) {
+    return false
+  }
+  const queue = value.recoveredQueue
+  if (
+    queue !== undefined &&
+    (!isRecord(queue) || !isStringArray(queue.steering) || !isStringArray(queue.followUp))
+  ) {
+    return false
+  }
+  return value.snapshot === undefined || isThreadSnapshot(value.snapshot)
+}
+
+/** 标签结果守卫。 */
+export const isTreeLabelResult = (value: unknown): value is HarnessTreeLabelResult =>
+  isRecord(value) &&
+  (value.status === 'applied' ||
+    value.status === 'conflict' ||
+    value.status === 'busy' ||
+    value.status === 'failed') &&
+  isOptionalString(value.label) &&
+  isOptionalString(value.treeRevision) &&
+  isOptionalString(value.message) &&
+  (value.persistence === undefined ||
+    value.persistence === 'saved' ||
+    value.persistence === 'failed' ||
+    value.persistence === 'skipped') &&
+  (value.snapshot === undefined || isThreadSnapshot(value.snapshot))
+
+/** 取消摘要结果守卫。 */
+export const isTreeCancelResult = (value: unknown): value is HarnessTreeCancelResult =>
+  isRecord(value) && (value.status === 'cancelled' || value.status === 'idle')
+
+/** fork/clone 结果守卫（只校验 GUI 会读取的字段）。 */
+export const isThreadForkResult = (value: unknown): value is HarnessThreadForkResult => {
+  if (!isRecord(value)) return false
+  if (
+    value.status !== 'created' &&
+    value.status !== 'cancelled' &&
+    value.status !== 'busy' &&
+    value.status !== 'conflict' &&
+    value.status !== 'failed'
+  ) {
+    return false
+  }
+  if (!isOptionalString(value.threadId) || !isOptionalString(value.parentThreadId)) return false
+  if (!isOptionalString(value.selectedText) || !isOptionalString(value.message)) return false
+  return value.snapshot === undefined || isThreadSnapshot(value.snapshot)
+}
+
+/** 导入源摘要守卫。 */
+const isImportSourceInfo = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.kind === 'path' || value.kind === 'upload') &&
+  isOptionalString(value.id) &&
+  isOptionalString(value.cwd) &&
+  isOptionalString(value.name) &&
+  isOptionalNumber(value.entries) &&
+  isOptionalNumber(value.version) &&
+  isOptionalNumber(value.size) &&
+  isOptionalString(value.fingerprint)
+
+const isImportCwd = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  typeof value.available === 'boolean' &&
+  typeof value.workspaceMember === 'boolean'
+
+/** 导入预览结果守卫。 */
+export const isThreadImportPreview = (value: unknown): value is HarnessThreadImportPreview => {
+  if (!isRecord(value)) return false
+  if (value.status !== 'ok' && value.status !== 'invalid' && value.status !== 'failed') {
+    return false
+  }
+  if (value.source !== undefined && !isImportSourceInfo(value.source)) return false
+  if (
+    !isOptionalString(value.workspaceId) ||
+    !isOptionalString(value.cwd) ||
+    !isOptionalString(value.sessionDir) ||
+    !isOptionalString(value.existingThreadId) ||
+    !isOptionalString(value.message) ||
+    !isOptionalString(value.error)
+  ) {
+    return false
+  }
+  if (
+    value.conflict !== undefined &&
+    value.conflict !== 'none' &&
+    value.conflict !== 'already-exists' &&
+    value.conflict !== 'conflict'
+  ) {
+    return false
+  }
+  if (!isOptionalBoolean(value.canCopy)) return false
+  if (value.sourceCwd !== undefined && !isImportCwd(value.sourceCwd)) return false
+  return value.warnings === undefined || isStringArray(value.warnings)
+}
+
+/** 确认导入结果守卫。 */
+export const isThreadImportResult = (value: unknown): value is HarnessThreadImportResult => {
+  if (!isRecord(value)) return false
+  if (
+    value.status !== 'imported' &&
+    value.status !== 'already-exists' &&
+    value.status !== 'conflict' &&
+    value.status !== 'invalid' &&
+    value.status !== 'metadata-failed' &&
+    value.status !== 'failed'
+  ) {
+    return false
+  }
+  if (
+    !isOptionalString(value.threadId) ||
+    !isOptionalString(value.existingThreadId) ||
+    !isOptionalString(value.error) ||
+    !isOptionalString(value.message)
+  ) {
+    return false
+  }
+  return value.preview === undefined || isThreadImportPreview(value.preview)
+}
+
 /** 会话元数据守卫。 */
 export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata =>
   isRecord(value) &&
@@ -257,7 +455,10 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   isOptionalString(value.parentSessionPath) &&
   isOptionalNumber(value.messageCount) &&
   isOptionalString(value.createdAt) &&
-  isOptionalString(value.updatedAt)
+  isOptionalString(value.updatedAt) &&
+  (value.leafId === undefined || value.leafId === null || typeof value.leafId === 'string') &&
+  isOptionalString(value.treeRevision) &&
+  (value.treeOperation === undefined || isTreeOperation(value.treeOperation))
 
 /** 累计统计守卫：详情面板会直接读取这些数值。 */
 const isThreadStats = (value: unknown): boolean =>
@@ -310,11 +511,22 @@ const isRenderableTranscriptMessage = (value: unknown): value is HarnessAgentMes
 }
 
 /** 会话快照守卫。 */
-export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot =>
-  isRecord(value) &&
-  isThreadMetadata(value.metadata) &&
-  isOptionalNumber(value.seq) &&
-  Array.isArray(value.messages) &&
-  value.messages.every(isRenderableTranscriptMessage) &&
-  (value.hostUiRequests === undefined ||
-    (Array.isArray(value.hostUiRequests) && value.hostUiRequests.every(isHostUiRequest)))
+export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot => {
+  if (
+    !isRecord(value) ||
+    !isThreadMetadata(value.metadata) ||
+    !isOptionalNumber(value.seq) ||
+    !Array.isArray(value.messages) ||
+    !value.messages.every(isRenderableTranscriptMessage) ||
+    (value.hostUiRequests !== undefined &&
+      (!Array.isArray(value.hostUiRequests) || !value.hostUiRequests.every(isHostUiRequest)))
+  ) {
+    return false
+  }
+  if (value.messageEntryIds === undefined) return true
+  return (
+    Array.isArray(value.messageEntryIds) &&
+    value.messageEntryIds.length === value.messages.length &&
+    value.messageEntryIds.every((entry) => entry === null || typeof entry === 'string')
+  )
+}

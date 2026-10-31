@@ -302,4 +302,90 @@ describe('工作区元数据存储', () => {
     expect(workspace.id).toBe(id)
     expect(store.listWorkspaces()[0]?.id).toBe(id)
   })
+
+  it('树落点与归属/归档互相保留，null 落点与水位重启可读', async () => {
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    const workspace = await store.createWorkspace({
+      name: '树落点',
+      projects: [{ alias: 'a', path: join(root, 'a') }],
+    })
+    const storeId = sessionStoreId(join(root, 'sessions'))
+    await store.assignSession({ storeId, sessionId: 's1', workspaceId: workspace.id })
+    await store.setSessionArchived({ storeId, sessionId: 's1', archived: true })
+    await store.setSessionLeaf({
+      storeId,
+      sessionId: 's1',
+      leaf: { leafId: null, entryCount: 0 },
+    })
+
+    const reloaded = new WorkspaceStore(agentDir)
+    await reloaded.load()
+    expect(reloaded.sessionLeaf(storeId, 's1')).toEqual({ leafId: null, entryCount: 0 })
+    expect(reloaded.sessionWorkspace(storeId, 's1')).toBe(workspace.id)
+    expect(reloaded.sessionArchived(storeId, 's1')).toBe(true)
+
+    // 归属与归档更新不得丢掉树落点。
+    await reloaded.assignSession({ storeId, sessionId: 's1', workspaceId: workspace.id })
+    await reloaded.setSessionArchived({ storeId, sessionId: 's1', archived: false })
+    expect(reloaded.sessionLeaf(storeId, 's1')).toEqual({ leafId: null, entryCount: 0 })
+
+    await reloaded.setSessionLeaf({
+      storeId,
+      sessionId: 's1',
+      leaf: { leafId: 'entry-1', entryCount: 4 },
+    })
+    const afterLeaf = new WorkspaceStore(agentDir)
+    await afterLeaf.load()
+    expect(afterLeaf.sessionLeaf(storeId, 's1')).toEqual({
+      leafId: 'entry-1',
+      entryCount: 4,
+    })
+
+    // 清除落点后保留归属，不留下空条目。
+    await afterLeaf.setSessionLeaf({ storeId, sessionId: 's1', leaf: undefined })
+    expect(afterLeaf.sessionLeaf(storeId, 's1')).toBeUndefined()
+    expect(afterLeaf.sessionWorkspace(storeId, 's1')).toBe(workspace.id)
+  })
+
+  it('仅树落点的未归属会话元数据可保存，不要求归属或归档', async () => {
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    const storeId = sessionStoreId(join(root, 'sessions'))
+    await store.setSessionLeaf({
+      storeId,
+      sessionId: 'unassigned',
+      leaf: { leafId: null, entryCount: 2 },
+    })
+    const reloaded = new WorkspaceStore(agentDir)
+    await reloaded.load()
+    expect(reloaded.integrity).toBe('ok')
+    expect(reloaded.sessionLeaf(storeId, 'unassigned')).toEqual({
+      leafId: null,
+      entryCount: 2,
+    })
+    expect(reloaded.sessionWorkspace(storeId, 'unassigned')).toBeUndefined()
+  })
+
+  it('非法树落点（水位/leafId）视为损坏且不覆盖文件', async () => {
+    const storeId = sessionStoreId(join(root, 'sessions'))
+    for (const leaf of [
+      { leafId: 'e', entryCount: -1 },
+      { leafId: '', entryCount: 1 },
+      { leafId: 1, entryCount: 1 },
+      { entryCount: 1 },
+    ]) {
+      await mkdir(join(agentDir, 'huan'), { recursive: true })
+      const content = JSON.stringify({
+        version: 1,
+        workspaces: {},
+        sessionMetadata: { [storeId]: { s: { leaf } } },
+      })
+      await writeFile(workspaceStateFile(agentDir), content)
+      const store = new WorkspaceStore(agentDir)
+      await store.load()
+      expect(store.integrity).toBe('corrupted')
+      expect(await readFile(workspaceStateFile(agentDir), 'utf8')).toBe(content)
+    }
+  })
 })

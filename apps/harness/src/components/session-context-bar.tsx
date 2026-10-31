@@ -5,13 +5,55 @@
  */
 import { useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { FolderCogIcon } from 'lucide-react'
+import { FolderCogIcon, GitForkIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { clearForkThreadRequest, useForkThreadRequest } from './session-fork-bridge'
+import { ForkThreadDialog } from './session-fork-dialog'
+import { SessionTreeDialog } from './session-tree-dialog'
 import { useWorkspace } from './workspace-context'
 import { WorkspaceManagerDialog } from './workspace-manager'
 
 const PENDING_ID = '__pending__'
+
+/** 历史消息/上下文栏共用的 fork 弹层（挂在常驻组件，避免消息动作卸载时丢失）。 */
+function ForkDialogHost() {
+  const request = useForkThreadRequest()
+  if (!request) return null
+  return (
+    <ForkThreadDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) clearForkThreadRequest()
+      }}
+      position={request.position}
+      {...(request.entryId ? { entryId: request.entryId } : {})}
+      onCompleted={() => clearForkThreadRequest()}
+    />
+  )
+}
+
+/** 当前落点 clone 的紧凑入口（未归属会话也可用）。 */
+function CloneSessionButton() {
+  const metadata = useHarnessThreadState((state) => state.metadata)
+  const [open, setOpen] = useState(false)
+  if (!metadata.id || metadata.id === PENDING_ID) return null
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs"
+        aria-label="克隆到新会话"
+        onClick={() => setOpen(true)}
+      >
+        <GitForkIcon aria-hidden className="size-3.5" />
+        <Trans>克隆到新会话</Trans>
+      </Button>
+      <ForkThreadDialog open={open} onOpenChange={setOpen} position="at" />
+    </>
+  )
+}
 
 export function SessionContextBar() {
   const metadata = useHarnessThreadState((state) => state.metadata)
@@ -34,9 +76,12 @@ export function SessionContextBar() {
     return (
       <div
         data-slot="huan-session-context"
-        className="text-muted-foreground flex items-center gap-2 border-b px-4 py-1.5 text-xs"
+        className="text-muted-foreground flex flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs"
       >
         <Trans>未归属会话；可在左侧明确加入工作区。</Trans>
+        <SessionTreeDialog />
+        <CloneSessionButton />
+        <ForkDialogHost />
       </div>
     )
   }
@@ -68,6 +113,9 @@ export function SessionContextBar() {
               <Trans>成员变更将在下一次运行生效</Trans>
             )}
           </span>
+          <SessionTreeDialog />
+          <CloneSessionButton />
+          <ForkDialogHost />
           <Button
             variant="ghost"
             size="sm"

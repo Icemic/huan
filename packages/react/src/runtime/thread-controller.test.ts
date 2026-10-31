@@ -7,7 +7,11 @@ import type {
   HarnessClientEventBody,
   HarnessHostUiRequest,
   HarnessSendMessageInput,
+  HarnessThreadForkResult,
   HarnessThreadSnapshot,
+  HarnessThreadTree,
+  HarnessTreeLabelResult,
+  HarnessTreeNavigateResult,
 } from '@huan/protocol'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createHarnessHttpClient } from '../client/http-client.js'
@@ -35,6 +39,15 @@ type FakeClient = HarnessClient & {
   modelChanges: Array<{ threadId: string; provider: string; modelId: string }>
   thinkingChanges: Array<{ threadId: string; level: string }>
   hostUiResponses: Array<{ threadId: string; response: unknown }>
+  treeRequests: string[]
+  navigations: Array<{ threadId: string; input: unknown }>
+  labels: Array<{ threadId: string; input: unknown }>
+  treeCancelled: string[]
+  forks: Array<{ threadId: string; input: unknown }>
+  forkResult: HarnessThreadForkResult
+  treeResult: HarnessThreadTree
+  navigateResult: HarnessTreeNavigateResult
+  labelResult: HarnessTreeLabelResult
   getThreadSnapshot: HarnessThreadSnapshot
   /** 模拟真实宿主：带快照的订阅在首帧投递当前线程快照。默认关闭，避免影响
    * 不关心订阅首帧的既有用例。 */
@@ -55,6 +68,21 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     modelChanges: [],
     thinkingChanges: [],
     hostUiResponses: [],
+    treeRequests: [],
+    navigations: [],
+    labels: [],
+    treeCancelled: [],
+    forks: [],
+    forkResult: { status: 'created', threadId: 'child' },
+    treeResult: {
+      threadId: THREAD,
+      leafId: null,
+      revision: 'v1:0:null',
+      nodes: [],
+      branchSummarySkipPrompt: false,
+    },
+    navigateResult: { status: 'applied' },
+    labelResult: { status: 'applied' },
     getThreadSnapshot: initial,
     snapshotOnSubscribe: false,
     emit(event) {
@@ -98,6 +126,32 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
         },
         branchEntryCount: 0,
       }
+    },
+    async getThreadTree(threadId) {
+      client.treeRequests.push(threadId)
+      return client.treeResult
+    },
+    async navigateThreadTree(threadId, input) {
+      client.navigations.push({ threadId, input })
+      return client.navigateResult
+    },
+    async setThreadEntryLabel(threadId, input) {
+      client.labels.push({ threadId, input })
+      return client.labelResult
+    },
+    async cancelThreadTreeNavigation(threadId) {
+      client.treeCancelled.push(threadId)
+      return { status: 'cancelled' }
+    },
+    async forkThread(threadId, input) {
+      client.forks.push({ threadId, input })
+      return client.forkResult
+    },
+    async previewThreadImport() {
+      throw new Error('Controller 不预览导入')
+    },
+    async importThread() {
+      throw new Error('Controller 不导入会话')
     },
     async sendMessage(threadId, input) {
       client.sent.push({ threadId, input })
@@ -2646,5 +2700,232 @@ describe('HarnessThreadController state snapshot', () => {
 
     expect(controller.getMessageRepository()).not.toBe(repositoryBeforeFrame)
     expect(controller.getStateSnapshot()).toBe(controller.getState())
+  })
+
+  it('projects snapshot messageEntryIds onto user messages for tree lookup', async () => {
+    const client = createFakeClient(
+      snapshot({
+        metadata: { id: THREAD, status: 'idle' },
+        messages: [{ role: 'user', content: 'hello', timestamp: 1 }],
+        messageEntryIds: ['entry-user-1'],
+      }),
+    )
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+
+    const projected = controller.getProjectedMessages()
+    expect(projected).toHaveLength(1)
+    expect(projected[0]?.metadata?.custom).toMatchObject({
+      pi: { sourceEntryId: 'entry-user-1' },
+    })
+  })
+
+  it('navigates with stopRunning, merges locally queued text and applies snapshot', async () => {
+    const client = createFakeClient(
+      snapshot({
+        metadata: { id: THREAD, status: 'running' },
+        messages: [],
+      }),
+    )
+    let releaseSend: (() => void) | undefined
+    client.sendMessage = async () => {
+      await new Promise<void>((resolve) => {
+        releaseSend = resolve
+      })
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+    const sending = controller
+      .sendMessage(userMessage('本地排队'), { streamingBehavior: 'followUp' })
+      .catch(() => {})
+    await flushMicrotasks()
+    expect(controller.getState().queue.followUp).toContain('本地排队')
+
+    client.navigateResult = {
+      status: 'applied',
+      leafId: 'e0',
+      treeRevision: 'v1:2:e0',
+      recoveredQueue: { steering: [], followUp: ['服务端排队'] },
+      snapshot: snapshot({
+        metadata: { id: THREAD, status: 'idle', leafId: 'e0', treeRevision: 'v1:2:e0' },
+        messages: [],
+        messageEntryIds: [],
+      }),
+      persistence: 'saved',
+    }
+    const result = await controller.navigateThreadTree({
+      targetId: 'e0',
+      expectedRevision: 'v1:3:e1',
+      stopRunning: true,
+    })
+
+    expect(result.recoveredQueue?.followUp).toEqual(['服务端排队', '本地排队'])
+    expect(client.navigations.at(-1)?.input).toMatchObject({
+      targetId: 'e0',
+      stopRunning: true,
+    })
+    expect(controller.getState().metadata.leafId).toBe('e0')
+    expect(controller.getState().metadata.treeRevision).toBe('v1:2:e0')
+    expect(controller.getState().queue.followUp).toEqual([])
+    releaseSend?.()
+    await sending
+  })
+
+  it('导航 HTTP 失败仍返回已取消的本地排队文本', async () => {
+    const client = createFakeClient(
+      snapshot({ metadata: { id: THREAD, status: 'running' }, messages: [] }),
+    )
+    let release: (() => void) | undefined
+    client.sendMessage = async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    }
+    client.navigateThreadTree = async () => {
+      throw new Error('offline')
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+    const sending = controller
+      .sendMessage(userMessage('离线前排队'), { streamingBehavior: 'followUp' })
+      .catch(() => {})
+    await flushMicrotasks()
+    const result = await controller.navigateThreadTree({
+      targetId: 'e0',
+      expectedRevision: 'v1:1:e1',
+      stopRunning: true,
+    })
+    expect(result.status).toBe('failed')
+    expect(result.recoveredQueue?.followUp).toEqual(['离线前排队'])
+    release?.()
+    await sending
+  })
+
+  it('labels an entry and applies the authoritative snapshot', async () => {
+    const client = createFakeClient()
+    client.labelResult = {
+      status: 'applied',
+      label: '起点',
+      treeRevision: 'v1:3:e2',
+      persistence: 'saved',
+      snapshot: snapshot({
+        metadata: { id: THREAD, status: 'idle', leafId: 'e2', treeRevision: 'v1:3:e2' },
+        messages: [],
+      }),
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+
+    const result = await controller.setThreadEntryLabel({
+      entryId: 'e1',
+      label: '起点',
+      expectedRevision: 'v1:2:e2',
+    })
+    expect(result.status).toBe('applied')
+    expect(client.labels.at(-1)?.input).toMatchObject({ entryId: 'e1', label: '起点' })
+    expect(controller.getState().metadata.treeRevision).toBe('v1:3:e2')
+    expect(controller.getState().metadata.leafId).toBe('e2')
+  })
+
+  it('reads and cancels tree operations through the client', async () => {
+    const client = createFakeClient()
+    client.treeResult = {
+      threadId: THREAD,
+      leafId: 'e1',
+      revision: 'v1:1:e1',
+      branchSummarySkipPrompt: true,
+      nodes: [],
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    expect((await controller.getThreadTree()).branchSummarySkipPrompt).toBe(true)
+    expect(await controller.cancelThreadTreeNavigation()).toEqual({ status: 'cancelled' })
+    expect(client.treeRequests).toEqual([THREAD])
+    expect(client.treeCancelled).toEqual([THREAD])
+  })
+  it('navigate snapshot clears stale stream, tools and queue state', async () => {
+    const client = createFakeClient(
+      snapshot({ metadata: { id: THREAD, status: 'running' }, messages: [] }),
+    )
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+    controller.connect()
+    client.emit(ev({ type: 'message_start', message: assistantMessage('partial', 1) }, 1))
+    client.emit(
+      ev(
+        {
+          type: 'tool_execution_start',
+          toolCallId: 'call-1',
+          toolName: 'read',
+          args: { path: 'a' },
+        },
+        2,
+      ),
+    )
+    client.emit(ev({ type: 'queue_update', steering: ['排队'], followUp: [] }, 3))
+    expect(controller.getState().toolExecutions['call-1']).toBeDefined()
+    expect(controller.getState().queue.steering).toContain('排队')
+
+    client.navigateResult = {
+      status: 'applied',
+      snapshot: snapshot({
+        metadata: { id: THREAD, status: 'idle', leafId: 'e0', treeRevision: 'v1:2:e0' },
+        messages: [],
+        messageEntryIds: [],
+      }),
+    }
+    await controller.navigateThreadTree({
+      targetId: 'e0',
+      expectedRevision: 'v1:3:e1',
+    })
+    expect(controller.getState().toolExecutions).toEqual({})
+    expect(controller.getState().queue).toEqual({ steering: [], followUp: [] })
+    expect(controller.getState().streamingMessageIndex).toBeUndefined()
+    expect(controller.getState().metadata.leafId).toBe('e0')
+  })
+})
+
+describe('fork / clone', () => {
+  it('通过 client 发起分叉，父 Controller 不应用子会话快照', async () => {
+    const client = createFakeClient(
+      snapshot({ metadata: { id: THREAD, status: 'idle', leafId: 'e2' }, messages: [] }),
+    )
+    client.forkResult = {
+      status: 'created',
+      threadId: 'child',
+      parentThreadId: THREAD,
+      selectedText: '第一问',
+      snapshot: snapshot({ metadata: { id: 'child', status: 'idle' }, messages: [] }),
+    }
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+    const result = await controller.forkThread({
+      entryId: 'e1',
+      position: 'before',
+      expectedRevision: 'v1:2:e2',
+    })
+    expect(result.status).toBe('created')
+    expect(result.threadId).toBe('child')
+    expect(client.forks).toEqual([
+      {
+        threadId: THREAD,
+        input: { entryId: 'e1', position: 'before', expectedRevision: 'v1:2:e2' },
+      },
+    ])
+    // 父状态保持不变（子会话有自己的 Controller 与订阅）。
+    expect(controller.getState().metadata.id).toBe(THREAD)
+    expect(controller.getState().lastError).toBeUndefined()
+  })
+
+  it('失败结果写入 lastError，busy 不当作失败', async () => {
+    const client = createFakeClient()
+    const controller = new HarnessThreadController(client, THREAD)
+    await controller.load()
+    client.forkResult = { status: 'busy', message: '会话正在运行' }
+    expect((await controller.forkThread({ position: 'at' })).status).toBe('busy')
+    expect(controller.getState().lastError).toBeUndefined()
+
+    client.forkResult = { status: 'failed', message: '创建分叉会话文件失败' }
+    expect((await controller.forkThread({ position: 'at' })).status).toBe('failed')
+    expect(controller.getState().lastError).toContain('创建分叉会话文件失败')
   })
 })
