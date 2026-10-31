@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p server/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p e2e/tsconfig.json",
     "lingui:extract": "lingui extract --clean",
     "lingui:compile": "lingui compile"
   },
@@ -38,6 +40,8 @@
     "@lingui/babel-plugin-lingui-macro": "^6.8.0",
     "@lingui/cli": "^6.8.0",
     "@lingui/vite-plugin": "^6.8.0",
+    "@playwright/mcp": "0.0.83",
+    "@playwright/test": "1.64.1",
     "@rolldown/plugin-babel": "0.2.4",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.20.4",

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "node",
+      "args": ["apps/harness/e2e/mcp.mjs"],
+      "exposure": "direct",
+      "description": "Inspect and interact with the huan browser UI using isolated Chromium. Start the isolated app with pnpm dev:e2e at http://127.0.0.1:8899."
+    }
+  }
+}

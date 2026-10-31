@@ -14,6 +14,9 @@
     "lint:fix": "biome check --write .",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "test": "vitest run",
+    "dev:e2e": "pnpm --filter @huan/harness exec tsx e2e/server.ts",
+    "test:e2e": "pnpm --filter @huan/harness test:e2e",
+    "test:e2e:ui": "pnpm --filter @huan/harness test:e2e:ui",
     "lingui:extract": "pnpm --filter @huan/harness lingui:extract",
     "lingui:compile": "pnpm --filter @huan/harness lingui:compile"
   },

@@ -5,8 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// 应用开发服务器：/api/pi 代理到本地 Node 宿主（8788）。
+// 应用开发服务器：/api/pi 代理到本地 Node 宿主（默认 8788）。
+// 代理目标可用 HUAN_API_TARGET 覆盖，供浏览器验收在隔离端口启动。
 // Vite 8 使用 rolldown 与 oxc，Lingui 宏经 @rolldown/plugin-babel 的 preset 接入。
+const apiTarget = process.env.HUAN_API_TARGET ?? 'http://127.0.0.1:8788'
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), lingui(), babel({ presets: [linguiTransformerBabelPreset()] })],
   // 访问凭证：宿主与前端读取同一环境变量；留空表示宿主不校验。
@@ -23,7 +26,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api/pi': {
-        target: 'http://127.0.0.1:8788',
+        target: apiTarget,
         changeOrigin: false,
       },
     },

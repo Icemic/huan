@@ -79,10 +79,14 @@ function testModelsConfig() {
  * 创建隔离的用户空间与工作区。
  *
  * 写入合成 models.json 与最少 settings.json（默认模型指向测试 provider），
- * 不复制、不读取任何个人配置。
+ * 不复制、不读取任何个人配置。`parentDir` 用于把临时根放进可整体清理的
+ * 目录（浏览器验收的 Playwright 输出目录），默认仍使用系统临时目录。
  */
-export async function createIsolatedPiEnv(prefix = 'huan-core-test-'): Promise<IsolatedPiEnv> {
-  const root = await mkdtemp(join(tmpdir(), prefix))
+export async function createIsolatedPiEnv(
+  prefix = 'huan-core-test-',
+  options: { parentDir?: string } = {},
+): Promise<IsolatedPiEnv> {
+  const root = await mkdtemp(join(options.parentDir ?? tmpdir(), prefix))
   const agentDir = join(root, 'agent')
   const workspace = join(root, 'workspace')
   try {
