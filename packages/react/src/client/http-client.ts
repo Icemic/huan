@@ -29,6 +29,10 @@
  *   POST   /threads/:id/messages    → 204                        (body: { input })
  *   POST   /threads/:id/cancel      → 204
  *   POST   /threads/:id/queue/clear → { steering, followUp }      (被清空的文本)
+ *   GET    /projects                → HarnessRecentProject[]
+ *   POST   /projects/check          → HarnessProjectPathCheck     (body: { path })
+ *   GET    /projects/info?path=     → HarnessProjectInfo
+ *   POST   /projects/trust          → HarnessProjectInfo          (body: { path, trusted, remember? })
  *   GET    /models                  → HarnessModelInfo[]
  *   POST   /threads/:id/model       → 204                        (body: { provider, modelId })
  *   POST   /threads/:id/thinking    → 204                        (body: { level })
@@ -45,6 +49,10 @@ import type {
   HarnessHostInfo,
   HarnessHostUiResponse,
   HarnessModelInfo,
+  HarnessProjectInfo,
+  HarnessProjectPathCheck,
+  HarnessProjectTrustInput,
+  HarnessRecentProject,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
   HarnessThreadMetadata,
@@ -145,6 +153,71 @@ const parseClearQueueResponse = (value: unknown): { steering: string[]; followUp
     )
   }
   return value as { steering: string[]; followUp: string[] }
+}
+
+/** 项目摘要守卫：只接受页面会读取的受控字段。 */
+const isProjectTrust = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.decision === 'trusted' ||
+    value.decision === 'untrusted' ||
+    value.decision === 'unknown') &&
+  typeof value.origin === 'string' &&
+  typeof value.requiresTrust === 'boolean' &&
+  (value.defaultPolicy === 'ask' ||
+    value.defaultPolicy === 'always' ||
+    value.defaultPolicy === 'never') &&
+  (value.savedPath === undefined || typeof value.savedPath === 'string') &&
+  typeof value.extensionErrorCount === 'number'
+
+const isProjectInfo = (value: unknown): value is HarnessProjectInfo =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  typeof value.name === 'string' &&
+  (value.status === 'ready' ||
+    value.status === 'needs-trust' ||
+    value.status === 'loading' ||
+    value.status === 'failed') &&
+  isProjectTrust(value.trust) &&
+  (value.failure === undefined ||
+    (isRecord(value.failure) && typeof value.failure.code === 'string'))
+
+const isProjectPathCheck = (value: unknown): value is HarnessProjectPathCheck =>
+  isRecord(value) &&
+  typeof value.input === 'string' &&
+  typeof value.path === 'string' &&
+  typeof value.exists === 'boolean' &&
+  typeof value.isDirectory === 'boolean' &&
+  (value.error === undefined ||
+    (isRecord(value.error) &&
+      (value.error.code === 'invalid-path' ||
+        value.error.code === 'not-found' ||
+        value.error.code === 'not-directory')))
+
+const isRecentProject = (value: unknown): value is HarnessRecentProject =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  typeof value.name === 'string' &&
+  (value.lastActiveAt === undefined || typeof value.lastActiveAt === 'string')
+
+const parseProjectInfo = (value: unknown): HarnessProjectInfo => {
+  if (!isProjectInfo(value)) {
+    throw invalidResponse('fetching a project', 'expected a valid project summary.')
+  }
+  return value
+}
+
+const parseProjectPathCheck = (value: unknown): HarnessProjectPathCheck => {
+  if (!isProjectPathCheck(value)) {
+    throw invalidResponse('checking a project path', 'expected a valid path check result.')
+  }
+  return value
+}
+
+const parseRecentProjects = (value: unknown): HarnessRecentProject[] => {
+  if (!Array.isArray(value) || !value.every(isRecentProject)) {
+    throw invalidResponse('listing recent projects', 'expected an array of recent projects.')
+  }
+  return value
 }
 
 const isModelInfo = (value: unknown): value is HarnessModelInfo =>
@@ -333,6 +406,37 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
           await send(`${threadUrl(threadId)}/queue/clear`, 'POST'),
           'clearing a thread queue',
         ),
+      ),
+
+    checkProjectPath: async (path) =>
+      parseProjectPathCheck(
+        await readJson(
+          await send(`${base}/projects/check`, 'POST', { path }),
+          'checking a project path',
+        ),
+      ),
+
+    getProject: async (input) => {
+      const params = new URLSearchParams({ path: input.path })
+      return parseProjectInfo(
+        await readJson(
+          await send(`${base}/projects/info?${params.toString()}`, 'GET'),
+          'fetching a project',
+        ),
+      )
+    },
+
+    decideProjectTrust: async (input: HarnessProjectTrustInput) =>
+      parseProjectInfo(
+        await readJson(
+          await send(`${base}/projects/trust`, 'POST', input),
+          'deciding project trust',
+        ),
+      ),
+
+    listRecentProjects: async () =>
+      parseRecentProjects(
+        await readJson(await send(`${base}/projects`, 'GET'), 'listing recent projects'),
       ),
 
     getAvailableModels: async (input) => {

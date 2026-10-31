@@ -82,6 +82,18 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
       client.queueCleared.push(threadId)
       return client.clearQueueResult
     },
+    async checkProjectPath() {
+      return { input: '', path: '', exists: false, isDirectory: false }
+    },
+    async getProject() {
+      throw new Error('Controller 不查询项目')
+    },
+    async decideProjectTrust() {
+      throw new Error('Controller 不修改信任')
+    },
+    async listRecentProjects() {
+      return []
+    },
     async getAvailableModels() {
       return []
     },

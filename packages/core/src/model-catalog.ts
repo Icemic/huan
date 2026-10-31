@@ -103,7 +103,7 @@ export async function createHostServices(options: {
   extensionFactories?: InlineExtension[]
 }) {
   const resourceLoaderOptions = {
-    ...mapResourceLoaderOptions(options.resourceLoaderOptions),
+    ...toResourceLoaderOptions(options.resourceLoaderOptions),
     ...(options.extensionFactories?.length
       ? { extensionFactories: options.extensionFactories }
       : {}),
@@ -131,8 +131,12 @@ export async function createHostServices(options: {
   return services
 }
 
-/** 把受约束选项映射为 SDK 选项（数组复制为可变数组，避免调用者后续改动）。 */
-function mapResourceLoaderOptions(options: HarnessResourceLoaderOptions | undefined) {
+/**
+ * 把受约束选项映射为 SDK 选项（数组复制为可变数组，避免调用者后续改动）。
+ *
+ * 供信任预装配复用：`prepareProjectTrust` 直接接收 SDK 选项，两条路径必须同口径。
+ */
+export function toResourceLoaderOptions(options: HarnessResourceLoaderOptions | undefined) {
   if (!options) return {}
   return {
     ...(options.noExtensions !== undefined ? { noExtensions: options.noExtensions } : {}),
@@ -199,11 +203,15 @@ export function resolveDefaultModel(options: {
   cwd: string
   agentDir: string
   model?: ReturnType<ModelRuntime['getModel']>
+  /** 已按项目信任结论创建的设置管理器；缺省按未信任新建（不读取项目设置）。 */
+  settingsManager?: SettingsManager
 }): {
   model: ReturnType<ModelRuntime['getModel']>
   info: HarnessHostInfo['defaultModel']
 } {
-  const settings = SettingsManager.create(options.cwd, options.agentDir)
+  const settings =
+    options.settingsManager ??
+    SettingsManager.create(options.cwd, options.agentDir, { projectTrusted: false })
   const envProvider = process.env.PI_PROVIDER?.trim()
   const envModel = process.env.PI_MODEL_ID?.trim()
   const provider = options.model?.provider ?? (envProvider || settings.getDefaultProvider())

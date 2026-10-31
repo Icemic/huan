@@ -152,6 +152,42 @@ app.get('/__e2e__/info', (c) =>
     agentDir: env.agentDir,
   }),
 )
+// 创建隔离项目（可选写入项目扩展探针）；路径与会话都在临时根内。
+app.post('/__e2e__/projects', async (c) => {
+  const body = (await c.req.json()) as {
+    name?: unknown
+    extension?: unknown
+    settings?: unknown
+  }
+  const rawName = typeof body.name === 'string' ? body.name : `project-${Date.now()}`
+  const name = rawName.replace(/[^a-zA-Z0-9_-]/g, '-')
+  const projectPath = join(env.root, 'projects', name)
+  await mkdir(projectPath, { recursive: true })
+  let marker: string | undefined
+  if (body.extension === true) {
+    const extensionDir = join(projectPath, '.pi', 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    marker = join(env.root, `project-${name}.marker`)
+    await writeFile(
+      join(extensionDir, 'probe.js'),
+      `import { appendFileSync } from 'node:fs'
+
+export default function () {
+  appendFileSync(${JSON.stringify(marker)}, 'project\\n')
+}
+`,
+    )
+  }
+  if (body.settings && typeof body.settings === 'object') {
+    await mkdir(join(projectPath, '.pi'), { recursive: true })
+    await writeFile(
+      join(projectPath, '.pi', 'settings.json'),
+      `${JSON.stringify(body.settings, null, 2)}
+`,
+    )
+  }
+  return c.json({ path: projectPath, name, marker })
+})
 app.get('/__e2e__/subscriptions', (c) => c.json({ totalSubscriptions, activeSubscriptions }))
 app.get('/__e2e__/stream', (c) => c.json(modelControl.state()))
 app.post('/__e2e__/stream', async (c) => {

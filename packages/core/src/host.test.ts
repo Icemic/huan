@@ -65,6 +65,15 @@ function createTestHost(
   })
 }
 
+/** 测试显式允许项目扩展：信任是真实决定，不是生产旁路。 */
+async function allowProjectExtensions(
+  target: HarnessHost,
+  projectPath: string = workspace,
+): Promise<void> {
+  const info = await target.decideProjectTrust({ path: projectPath, trusted: true })
+  if (info.status !== 'ready') throw new Error(`测试信任装配失败：${info.status}`)
+}
+
 /**
  * 测试 fixture 的完整生命周期。
  *
@@ -202,6 +211,7 @@ export default function (pi) {
     let extensionHost: HarnessHost | undefined
     try {
       extensionHost = await createTestHost({}, extensionEnv)
+      await allowProjectExtensions(extensionHost, extensionEnv.workspace)
       const ids = (await extensionHost.getAvailableModels()).map(
         (model) => `${model.provider}/${model.modelId}`,
       )
@@ -591,6 +601,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'pause-input.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     // 模型请求计数：断言取消后**零请求**（比「无产出文本」更强，
     // 能捕获「已发出但尚未返回」的请求）。
     const realFetch = globalThis.fetch
@@ -681,6 +692,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'isolate-input.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
 
     try {
@@ -756,6 +768,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'guard-input.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -837,6 +850,7 @@ export default function (pi) {
     // 整次运行结束后才送达，破坏排队语义（迭代③ §3.3 契约）。
     // 断言：B 在 A 仍流式时即被接受并入队，且 clearQueue 能取回其文本。
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
 
     try {
@@ -945,6 +959,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'trigger-turn.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1020,6 +1035,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'shutdown-trigger.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1099,6 +1115,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'splice-batch.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1167,6 +1184,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'pause-settled.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
 
     try {
@@ -1253,6 +1271,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'pause-deferred.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1360,6 +1379,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'pause-start.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
 
     // 提前挂载结果处理，避免取消后的未处理 rejection。
     let createOutcome: { ok: true } | { ok: false; error: unknown } | undefined
@@ -1424,6 +1444,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'pause-before-start.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
     let fetchCalls = 0
 
@@ -1499,6 +1520,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'ab-marker.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
 
     try {
       const a = await isolated.createThread()
@@ -1582,6 +1604,7 @@ export default function (pi) {
     await writeFile(join(extensionDir, 'replace-message.ts'), extensionSource)
 
     const isolated = await createTestHost()
+    await allowProjectExtensions(isolated)
     const realFetch = globalThis.fetch
 
     try {

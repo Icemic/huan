@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 2（新增必需 getHostInfo 方法）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 3（HostInfo 与项目查询/信任接口）。
 
 **运行形态（首期）**：Node 宿主进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与宿主持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 
@@ -202,6 +202,7 @@ apps/harness（页面装配、布局、主题）
 - **Pi 兼容**：SDK 会话与 CLI 默认行为差异（内置扩展不自动加载等）通过启动配置对照测试保证；升级 Pi 版本前跑 §8.2 回归清单并重审能力规范。
 - **用户空间**：默认使用 Pi 空间；显式 agentDir 统一配置与默认会话。sessionDir 按 option → 环境变量 → 启动工作区 setting → 默认 cwd 分组解析，宿主创建时固定；平铺覆盖可主动共享，跨 cwd 查找限当前空间。
 - **测试空间**：默认自动化使用临时用户空间和确定性 provider；`@huan/core/testing` 为显式测试入口，不从生产主入口导出辅助。个人环境兼容验证单独显式运行。
+- **项目与信任**：项目装配先通过公开 ResourceLoader 信任回调，使用所选用户空间 trust.json；未知时仅用户资源、历史只读，GUI 决定后装配项目资源。窗口选中的项目彼此独立，不改变进程 cwd。
 - **宿主诊断**：受保护的 `getHostInfo` 提供只读目录、配置来源及受控诊断代码；不透传任意扩展错误与凭据。无效默认模型不阻断宿主启动或历史读取，可显式选有效模型新建。
 - **react-pi / assistant-ui**：锁定版本；升级前跑 UI 回归；适配层集中封装，避免散落。
 - **协议与历史**：协议显式版本化；应用元数据（快照引用、关联 ID）支持版本迁移；兼容 Pi 原生 JSONL 会话格式，不修改 Pi 内部历史文件作为存储接口。

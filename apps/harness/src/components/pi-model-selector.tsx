@@ -10,6 +10,7 @@ import {
 } from '@/components/assistant-ui/elements/model-selector.aui'
 import { harnessHttpClient } from './pi-http-client'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
+import { useProject } from './project-context'
 
 type CatalogModel = {
   provider: string
@@ -52,6 +53,7 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
  * 保证首条消息就使用选定模型。
  */
 export function PiModelSelector() {
+  const { project } = useProject()
   const session = useHarnessSession()
   const extras = useHarnessExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
@@ -60,9 +62,10 @@ export function PiModelSelector() {
   const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
 
   useEffect(() => {
+    if (project?.status !== 'ready') return
     let active = true
     harnessHttpClient
-      .getAvailableModels()
+      .getAvailableModels({ workspacePath: project?.path })
       .then((infos) => {
         if (active) setModels(toModelOptions(infos as readonly CatalogModel[]))
       })
@@ -72,7 +75,7 @@ export function PiModelSelector() {
     return () => {
       active = false
     }
-  }, [])
+  }, [project?.path, project?.status])
 
   // 会话确认后清除草稿（此后以会话自身的 config 为准）。
   const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID

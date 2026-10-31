@@ -1,3 +1,4 @@
+import { ProjectTrustRequiredError } from '@huan/core'
 import type { HarnessClient } from '@huan/protocol'
 import { Hono } from 'hono'
 import type { ServerConfig } from './config.js'
@@ -13,7 +14,37 @@ import { createEventsRoute } from './sse.js'
 export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
   const app = new Hono()
 
+  // 项目未取得信任时返回可识别的 409，页面先展示信任提示而不是通用错误。
+  app.onError((error, c) => {
+    if (error instanceof ProjectTrustRequiredError) {
+      return c.json({ error: 'project-needs-trust', project: error.project }, 409)
+    }
+    return c.json({ error: 'internal-error' }, 500)
+  })
+
   registerHostRoutes(app, piClient, config)
+
+  app.get('/api/pi/projects', async (c) => c.json(await piClient.listRecentProjects()))
+
+  app.post('/api/pi/projects/check', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { path?: unknown }
+    return c.json(await piClient.checkProjectPath(typeof body.path === 'string' ? body.path : ''))
+  })
+
+  app.get('/api/pi/projects/info', async (c) => {
+    return c.json(await piClient.getProject({ path: c.req.query('path') ?? '' }))
+  })
+
+  app.post('/api/pi/projects/trust', async (c) => {
+    const body = (await c.req.json()) as { path?: unknown; trusted?: unknown; remember?: unknown }
+    return c.json(
+      await piClient.decideProjectTrust({
+        path: typeof body.path === 'string' ? body.path : '',
+        trusted: body.trusted === true,
+        ...(body.remember === true ? { remember: true } : {}),
+      }),
+    )
+  })
 
   app.get('/api/pi/threads', async (c) => {
     const workspacePath = c.req.query('workspacePath') ?? undefined

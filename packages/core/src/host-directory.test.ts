@@ -220,6 +220,8 @@ describe('显式会话目录（平铺覆盖）', () => {
     )
 
     const host = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
+    // 测试显式允许项目 settings（信任是真实决定，不是生产旁路）。
+    await host.decideProjectTrust({ path: env.workspace, trusted: true })
     const created = await host.createThread({ initialMessage: { content: 'setting 目录探针' } })
     expect(dirname(created.metadata.sessionFile ?? '')).toBe(
       join(env.workspace, 'project-sessions'),
@@ -242,12 +244,15 @@ describe('显式会话目录（平铺覆盖）', () => {
       agentDir: env.agentDir,
       sessionDir: optionDir,
     })
+    // 测试显式允许项目 settings（信任是真实决定，不是生产旁路）。
+    await optionHost.decideProjectTrust({ path: env.workspace, trusted: true })
     const optionThread = await optionHost.createThread({
       initialMessage: { content: '显式优先' },
     })
     expect(dirname(optionThread.metadata.sessionFile ?? '')).toBe(optionDir)
 
     const envHost = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
+    await envHost.decideProjectTrust({ path: env.workspace, trusted: true })
     const envThread = await envHost.createThread({ initialMessage: { content: '环境变量' } })
     expect(dirname(envThread.metadata.sessionFile ?? '')).toBe(envDir)
 
@@ -258,6 +263,7 @@ describe('显式会话目录（平铺覆盖）', () => {
 
     delete process.env[SESSION_DIR_ENV]
     const settingHost = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
+    await settingHost.decideProjectTrust({ path: env.workspace, trusted: true })
     const settingThread = await settingHost.createThread({ initialMessage: { content: 'setting' } })
     expect(dirname(settingThread.metadata.sessionFile ?? '')).toBe(
       join(env.workspace, 'setting-sessions'),

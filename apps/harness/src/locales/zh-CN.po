@@ -7,7 +7,7 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
-#: src/app.tsx:16
+#: src/app.tsx:19
 msgid "Pi 运行时没有可用模型。"
 msgstr "Pi 运行时没有可用模型。"
 
@@ -15,13 +15,37 @@ msgstr "Pi 运行时没有可用模型。"
 msgid "Provider 来源"
 msgstr "Provider 来源"
 
+#: src/components/project-switcher.tsx:63
+msgid "仅用户资源"
+msgstr "仅用户资源"
+
 #: src/components/pi-host-status.tsx:128
 msgid "会话目录"
 msgstr "会话目录"
 
+#: src/components/project-switcher.tsx:119
+msgid "保存决定"
+msgstr "保存决定"
+
+#: src/components/project-switcher.tsx:145
+msgid "信任变更只影响下一次装配；已经执行的代码不会卸载。需要完全生效时请重新打开相关会话或重启宿主。"
+msgstr "信任变更只影响下一次装配；已经执行的代码不会卸载。需要完全生效时请重新打开相关会话或重启宿主。"
+
+#: src/components/project-switcher.tsx:277
+msgid "最近项目"
+msgstr "最近项目"
+
+#: src/components/project-switcher.tsx:101
+msgid "决定来源"
+msgstr "决定来源"
+
 #: src/components/pi-host-status.tsx:173
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
+
+#: src/components/project-switcher.tsx:151
+msgid "取消"
+msgstr "取消"
 
 #: src/components/pi-host-status.tsx:144
 msgid "启动默认模型"
@@ -55,21 +79,54 @@ msgstr "宿主信息与诊断"
 msgid "工作目录"
 msgstr "工作目录"
 
+#: src/components/project-switcher.tsx:24
+msgid "已保存决定"
+msgstr "已保存决定"
+
+#: src/components/project-switcher.tsx:55
+msgid "已信任"
+msgstr "已信任"
+
 #: src/components/pi-host-status.tsx:187
 msgid "已复制"
 msgstr "已复制"
+
+#: src/components/project-switcher.tsx:109
+msgid "总是允许"
+msgstr "总是允许"
+
+#: src/components/project-switcher.tsx:111
+msgid "总是拒绝"
+msgstr "总是拒绝"
 
 #: src/components/pi-host-status.tsx:159
 msgid "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 msgstr "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 
+#: src/components/project-switcher.tsx:267
+msgid "打开"
+msgstr "打开"
+
+#: src/components/project-switcher.tsx:242
+msgid "打开项目"
+msgstr "打开项目"
+
 #: src/components/pi-host-status.tsx:138
 msgid "按工作目录分组"
 msgstr "按工作目录分组"
 
+#: src/components/project-switcher.tsx:30
+#: src/components/project-switcher.tsx:55
+msgid "无受保护资源"
+msgstr "无受保护资源"
+
 #: src/components/pi-host-status.tsx:84
 msgid "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
 msgstr "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
+
+#: src/components/project-panel.tsx:16
+msgid "无法连接宿主。请检查服务是否启动、端口和访问凭证是否一致。"
+msgstr "无法连接宿主。请检查服务是否启动、端口和访问凭证是否一致。"
 
 #: src/components/pi-host-status.tsx:140
 msgid "显式共享的平铺目录"
@@ -79,6 +136,30 @@ msgstr "显式共享的平铺目录"
 msgid "显式参数"
 msgstr "显式参数"
 
+#: src/components/project-switcher.tsx:281
+msgid "暂无最近项目。"
+msgstr "暂无最近项目。"
+
+#: src/components/project-switcher.tsx:32
+msgid "未评估"
+msgstr "未评估"
+
+#: src/components/project-switcher.tsx:172
+msgid "本次允许"
+msgstr "本次允许"
+
+#: src/components/project-switcher.tsx:20
+msgid "本次决定"
+msgstr "本次决定"
+
+#: src/components/project-switcher.tsx:162
+msgid "本次拒绝"
+msgstr "本次拒绝"
+
+#: src/components/project-panel.tsx:116
+msgid "查看信任决定"
+msgstr "查看信任决定"
+
 #: src/components/pi-host-status.tsx:154
 msgid "模型来源"
 msgstr "模型来源"
@@ -86,6 +167,10 @@ msgstr "模型来源"
 #: src/components/pi-host-status.tsx:171
 msgid "模型目录刷新失败，当前目录可能来自缓存。"
 msgstr "模型目录刷新失败，当前目录可能来自缓存。"
+
+#: src/components/project-panel.tsx:23
+msgid "正在准备项目…"
+msgstr "正在准备项目…"
 
 #: src/components/pi-host-status.tsx:92
 msgid "正在查询宿主配置…"
@@ -95,13 +180,65 @@ msgstr "正在查询宿主配置…"
 msgid "环境变量"
 msgstr "环境变量"
 
+#: src/components/project-switcher.tsx:22
+msgid "用户扩展决定"
+msgstr "用户扩展决定"
+
+#: src/components/project-switcher.tsx:127
+msgid "用户扩展的信任处理出现错误，已跳过并继续评估；详情见宿主终端。"
+msgstr "用户扩展的信任处理出现错误，已跳过并继续评估；详情见宿主终端。"
+
 #: src/components/pi-host-status.tsx:122
 msgid "用户空间"
 msgstr "用户空间"
 
+#: src/components/project-switcher.tsx:28
+msgid "等待用户回答"
+msgstr "等待用户回答"
+
+#: src/components/project-panel.tsx:89
+msgid "继续最近"
+msgstr "继续最近"
+
+#: src/components/project-switcher.tsx:142
+msgid "记住此决定（写入当前路径的 trust.json）"
+msgstr "记住此决定（写入当前路径的 trust.json）"
+
+#: src/components/project-switcher.tsx:113
+msgid "询问"
+msgstr "询问"
+
+#: src/components/project-switcher.tsx:43
+msgid "该路径不是目录，请选择项目目录。"
+msgstr "该路径不是目录，请选择项目目录。"
+
+#: src/components/project-switcher.tsx:89
+msgid "该项目包含 Pi 扩展、项目设置、技能或模板等本地资源。允许后这些代码会以你的用户权限运行；信任不是沙箱。拒绝仍可对话和查看历史，但不会加载项目资源。"
+msgstr "该项目包含 Pi 扩展、项目设置、技能或模板等本地资源。允许后这些代码会以你的用户权限运行；信任不是沙箱。拒绝仍可对话和查看历史，但不会加载项目资源。"
+
+#: src/components/project-panel.tsx:111
+msgid "该项目包含受保护资源，尚未决定是否信任；当前只读查看历史，项目扩展未加载，发送已禁用。"
+msgstr "该项目包含受保护资源，尚未决定是否信任；当前只读查看历史，项目扩展未加载，发送已禁用。"
+
+#: src/components/project-panel.tsx:93
+msgid "读取最近会话失败，请重试。"
+msgstr "读取最近会话失败，请重试。"
+
 #: src/components/pi-host-status.tsx:169
 msgid "资源装配存在警告，详细原因请查看宿主终端。"
 msgstr "资源装配存在警告，详细原因请查看宿主终端。"
+
+#: src/components/project-switcher.tsx:41
+msgid "路径不存在，请检查后重试。"
+msgstr "路径不存在，请检查后重试。"
+
+#: src/components/project-switcher.tsx:39
+msgid "路径无效，请输入宿主机上的绝对路径。"
+msgstr "路径无效，请输入宿主机上的绝对路径。"
+
+#: src/components/project-switcher.tsx:245
+msgid "输入宿主机器上的项目绝对路径。浏览器目录选择器返回的是浏览器文件，不能作为宿主项目路径。"
+msgstr "输入宿主机器上的项目绝对路径。浏览器目录选择器返回的是浏览器文件，不能作为宿主项目路径。"
 
 #: src/components/pi-host-status.tsx:16
 msgid "配置文件"
@@ -110,6 +247,35 @@ msgstr "配置文件"
 #: src/components/pi-host-status.tsx:66
 msgid "重新查询"
 msgstr "重新查询"
+
+#: src/components/project-panel.tsx:35
+msgid "重试"
+msgstr "重试"
+
+#: src/components/project-switcher.tsx:70
+msgid "需要信任决定"
+msgstr "需要信任决定"
+
+#: src/components/project-panel.tsx:31
+msgid "项目不可用："
+msgstr "项目不可用："
+
+#: src/components/project-switcher.tsx:45
+msgid "项目装配失败，请查看宿主终端后重试。"
+msgstr "项目装配失败，请查看宿主终端后重试。"
+
+#: src/components/project-switcher.tsx:97
+msgid "项目路径"
+msgstr "项目路径"
+
+#: src/components/project-switcher.tsx:86
+msgid "项目需要信任确认"
+msgstr "项目需要信任确认"
+
+#: src/components/project-switcher.tsx:26
+#: src/components/project-switcher.tsx:105
+msgid "默认策略"
+msgstr "默认策略"
 
 #: src/components/pi-host-status.tsx:18
 msgid "默认规则"

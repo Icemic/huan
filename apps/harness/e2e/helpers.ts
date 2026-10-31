@@ -81,3 +81,46 @@ export async function streamState(request: APIRequestContext) {
   await expectOk(response)
   return (await response.json()) as { completed: number; active: boolean }
 }
+
+/** 由宿主临时根创建的隔离项目；marker 仅在写入项目扩展时存在。 */
+export type E2eProject = {
+  path: string
+  name: string
+  marker?: string
+}
+
+/** 创建隔离项目（可选项目扩展探针/项目 settings）。 */
+export async function createProject(
+  request: APIRequestContext,
+  name: string,
+  options: { extension?: boolean; settings?: Record<string, unknown> } = {},
+): Promise<E2eProject> {
+  const response = await request.post(`${E2E_HOST_URL}/__e2e__/projects`, {
+    data: { name, ...options },
+  })
+  await expectOk(response)
+  return (await response.json()) as E2eProject
+}
+
+/** 通过页头“打开项目”输入宿主路径并提交。 */
+export async function openProject(page: Page, path: string): Promise<void> {
+  await page.locator('[data-slot="huan-project-switcher"]').click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', { name: '项目路径' }).fill(path)
+  await dialog.getByRole('button', { name: '打开' }).click()
+}
+
+/** 在信任弹层中作答；remember 写入当前路径 trust.json。 */
+export async function decideTrust(
+  page: Page,
+  decision: 'allow' | 'deny',
+  remember = false,
+): Promise<void> {
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('项目需要信任确认')).toBeVisible()
+  if (remember) await dialog.getByRole('checkbox').check()
+  await dialog.getByRole('button', { name: decision === 'allow' ? '本次允许' : '本次拒绝' }).click()
+}
+
+/** 当前项目入口按钮（含名称与完整路径）。 */
+export const projectSwitcher = (page: Page) => page.locator('[data-slot="huan-project-switcher"]')

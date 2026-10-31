@@ -24,16 +24,22 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { readdir, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { realpathSync } from 'node:fs'
+import { readdir, stat, unlink } from 'node:fs/promises'
+import { basename, join, resolve } from 'node:path'
 import {
   type AgentSession,
+  type AgentSessionServices,
   createAgentSessionFromServices,
   ExtensionRunner,
+  hasTrustRequiringProjectResources,
   type InlineExtension,
+  type LoadExtensionsResult,
   ModelRegistry,
+  ProjectTrustStore,
   type ResourceLoader,
   SessionManager,
+  type SettingsManager,
 } from '@earendil-works/pi-coding-agent'
 import type {
   HarnessAgentMessage,
@@ -44,6 +50,11 @@ import type {
   HarnessCreateThreadInput,
   HarnessHostUiRequest,
   HarnessHostUiResponse,
+  HarnessProjectFailureCode,
+  HarnessProjectInfo,
+  HarnessProjectPathCheck,
+  HarnessProjectTrustInput,
+  HarnessRecentProject,
   HarnessSendMessageInput,
   HarnessThinkingLevel,
   HarnessThreadMetadata,
@@ -61,14 +72,19 @@ import {
   type SessionCatalogInfo,
 } from './metadata.js'
 import {
-  createHostServices,
   createSharedModelRuntime,
   getModelReadiness,
   type HarnessResourceLoaderOptions,
   listModelCatalog,
   refreshModelCatalog,
   resolveDefaultModel,
+  toResourceLoaderOptions,
 } from './model-catalog.js'
+import {
+  type ProjectTrustResult,
+  type ProjectTrustSource,
+  prepareProjectTrust,
+} from './project-trust.js'
 import {
   createSessionDirResolver,
   defaultSessionsRoot,
@@ -122,6 +138,41 @@ export type HarnessHost = HarnessClient & {
   dispose(): Promise<void>
   /** 启动期诊断（模型目录刷新错误、扩展装配诊断等），供应用呈现。 */
   diagnostics(): readonly string[]
+}
+
+/**
+ * 项目尚未取得信任决定：拒绝创建/激活会话。
+ *
+ * HTTP 层据此返回 409 与项目状态，页面先展示信任提示；不能静默按拒绝装配
+ *（那会一信任就执行代码却没有任何提示）。
+ */
+export class ProjectTrustRequiredError extends Error {
+  readonly code = 'project-needs-trust'
+  constructor(readonly project: HarnessProjectInfo) {
+    super(`Project requires a trust decision: ${project.path}`)
+    this.name = 'ProjectTrustRequiredError'
+  }
+}
+
+/** 一次装载的项目信任结果与输入守卫绑定槽（loader 只服务一个 live session）。 */
+type PreparedProject = {
+  trust: ProjectTrustResult
+  guard: { record?: ThreadRecord }
+}
+
+/** 每 cwd 的项目状态缓存与可复用的启动/决定装配。 */
+type ProjectRuntime = {
+  cwd: string
+  info: HarnessProjectInfo
+  settingsManager: SettingsManager
+  defaultModel: ReturnType<typeof resolveDefaultModel>
+  /**
+   * 已装配但尚未被会话消费的 loader。
+   *
+   * 启动引导与信任决定都只需要装配一次；首个会话直接复用它，避免扩展工厂
+   * 在同一轮启动里重复执行。一个 loader 只能绑定一个 live session。
+   */
+  pending?: PreparedProject
 }
 
 type ThreadRecord = {
@@ -355,27 +406,334 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   // ---- 装配层：共享 modelRuntime（全宿主一份），其余每会话独立 ----
   const modelRuntime = await createSharedModelRuntime(agentDir)
-  // 启动引导装配：经官方入口加载扩展并把 provider（含虚拟模型）注册进共享
-  // modelRuntime。默认模型解析与目录查询都依赖这一步（否则扩展 provider 不可见）；
-  // 该次装配的 resourceLoader 仅为注册服务，随用随弃。
-  const bootstrap = await createHostServices({
-    cwd: workspacePath,
-    agentDir,
-    modelRuntime,
-    resourceLoaderOptions,
-  })
-  for (const diagnostic of bootstrap.diagnostics) {
-    if (diagnostic.type !== 'info') {
-      diagnostics.push(`启动装配：${diagnostic.message}`)
-      safeDiagnostics.add('assembly-warning')
-    }
-  }
   const startRefresh = options.refreshCatalogOnStart ?? true
   const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
-  if (startRefresh) {
+
+  const records = new Map<string, ThreadRecord>()
+  /** 进行中的冷打开（并发调用共享同一 promise，避免同文件双开）。 */
+  const pendingOpens = new Map<
+    string,
+    { promise: Promise<ThreadRecord>; controller: AbortController }
+  >()
+  /** 每线程的发送取消令牌（覆盖「冷打开中 → 启动 prompt」窗口）。 */
+  const startingSends = new Map<string, Set<StartingSend>>()
+  const pendingDeletes = new Map<string, Promise<void>>()
+  const recordsBySessionFile = new Map<string, ThreadRecord>()
+  /** 归档标记（内存态；重启丢失为已知限制）。 */
+  const archivedSessionFiles = new Set<string>()
+  /** dispose 后拒绝新操作。 */
+  let disposed = false
+  /** 代数计数：使 dispose 前发起的异步打开失效。 */
+  let generation = 0
+
+  /** 项目状态与可复用装配按规范化 cwd 缓存；live session 仍各自重新装配。 */
+  const projectRuntimes = new Map<string, ProjectRuntime>()
+  const pendingProjects = new Map<string, Promise<ProjectRuntime>>()
+  const trustStore = new ProjectTrustStore(agentDir)
+
+  /** 与 SDK 相同的 realpath 口径；目标不存在时保留绝对路径。 */
+  const canonicalProjectPath = (path: string): string => {
+    const absolute = resolve(path)
     try {
-      // 联网刷新可能因扩展 provider 的远程拉取而长期挂起；超时后放弃等待
-      // （目录保留缓存内容，服务照常启动）。
+      return realpathSync(absolute)
+    } catch {
+      return absolute
+    }
+  }
+
+  const projectNameOf = (path: string): string => basename(path) || path
+
+  /** 路径校验只做文件系统检查，不执行任何项目代码。 */
+  const inspectProjectPath = async (input: string): Promise<HarnessProjectPathCheck> => {
+    const requested = input.trim()
+    if (!requested) {
+      return { input, path: '', exists: false, isDirectory: false, error: { code: 'invalid-path' } }
+    }
+    const path = canonicalProjectPath(requested)
+    try {
+      const info = await stat(path)
+      if (!info.isDirectory()) {
+        return { input, path, exists: true, isDirectory: false, error: { code: 'not-directory' } }
+      }
+      return { input, path, exists: true, isDirectory: true }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      return {
+        input,
+        path,
+        exists: false,
+        isDirectory: false,
+        error: { code: code === 'ENOENT' ? 'not-found' : 'invalid-path' },
+      }
+    }
+  }
+
+  const failedProjectInfo = (
+    path: string,
+    code: HarnessProjectFailureCode,
+  ): HarnessProjectInfo => ({
+    path,
+    name: projectNameOf(path),
+    status: 'failed',
+    failure: { code },
+    trust: {
+      decision: 'unknown',
+      origin: 'none',
+      requiresTrust: false,
+      defaultPolicy: 'ask',
+      extensionErrorCount: 0,
+    },
+  })
+
+  /** 把核心信任结果投影为 JSON-safe 项目摘要（不传扩展错误原文）。 */
+  const projectInfoOf = (prepared: PreparedProject): HarnessProjectInfo => {
+    const state = prepared.trust.state
+    return {
+      path: state.cwd,
+      name: projectNameOf(state.cwd),
+      status: state.status === 'needs-trust' ? 'needs-trust' : 'ready',
+      trust: {
+        decision: state.status === 'needs-trust' ? 'unknown' : state.status,
+        origin: state.source,
+        requiresTrust: state.requiresTrust,
+        defaultPolicy: state.defaultProjectTrust,
+        ...(state.savedPath ? { savedPath: state.savedPath } : {}),
+        extensionErrorCount: state.extensionErrors.length,
+      },
+    }
+  }
+
+  /** 把扩展装配期登记的项目 provider/虚拟模型写入共享 modelRuntime。 */
+  const registerPreparedProviders = (extensions: LoadExtensionsResult): void => {
+    const runtime = extensions.runtime
+    for (const { name, config, extensionPath } of runtime.pendingProviderRegistrations) {
+      try {
+        modelRuntime.registerProvider(name, config)
+      } catch (error) {
+        diagnostics.push(`扩展 provider（${extensionPath}）：${String(error)}`)
+        safeDiagnostics.add('assembly-warning')
+      }
+    }
+    runtime.pendingProviderRegistrations = []
+    for (const { provider, extensionPath } of runtime.pendingNativeProviderRegistrations) {
+      try {
+        modelRuntime.registerNativeProvider(provider)
+      } catch (error) {
+        diagnostics.push(`原生 provider（${extensionPath}）：${String(error)}`)
+        safeDiagnostics.add('assembly-warning')
+      }
+    }
+    runtime.pendingNativeProviderRegistrations = []
+    for (const { definition, extensionPath } of runtime.pendingVirtualModelRegistrations) {
+      try {
+        modelRuntime.registerVirtualModel(definition)
+      } catch (error) {
+        diagnostics.push(`虚拟模型（${extensionPath}）：${String(error)}`)
+        safeDiagnostics.add('assembly-warning')
+      }
+    }
+    runtime.pendingVirtualModelRegistrations = []
+  }
+
+  /**
+   * 经统一信任入口准备一份会话装配。
+   *
+   * 只在这里创建 loader：上一版 `prepareProjectTrust` + `createHostServices`
+   * 会把扩展工厂执行两次，且第二次装配没有信任回调。
+   */
+  const prepareProjectSession = async (
+    cwd: string,
+    override?: boolean,
+  ): Promise<PreparedProject> => {
+    const guard: { record?: ThreadRecord } = {}
+    const trust = await prepareProjectTrust({
+      cwd,
+      agentDir,
+      ...(override !== undefined ? { override } : {}),
+      trustStore,
+      resourceLoaderOptions: {
+        ...toResourceLoaderOptions(resourceLoaderOptions),
+        extensionFactories: [createInputGuardExtension(() => guard.record)],
+      },
+    })
+    for (const message of [...trust.loadErrors, ...trust.state.extensionErrors]) {
+      diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
+      safeDiagnostics.add('assembly-warning')
+    }
+    registerPreparedProviders(trust.resourceLoader.getExtensions())
+    // 与 SDK 服务装配一致：注册完 provider 后物化本地目录，不触发联网。
+    await modelRuntime.refresh({ allowNetwork: false })
+    return { trust, guard }
+  }
+
+  /** 由一次装配结果建立/替换项目缓存。旧 loader 未被消费时直接丢弃。 */
+  const projectRuntimeFrom = (
+    prepared: PreparedProject,
+    originOverride?: ProjectTrustSource,
+  ): ProjectRuntime => {
+    const info = projectInfoOf(prepared)
+    const runtime: ProjectRuntime = {
+      cwd: info.path,
+      info: originOverride ? { ...info, trust: { ...info.trust, origin: originOverride } } : info,
+      settingsManager: prepared.trust.settingsManager,
+      defaultModel: resolveDefaultModel({
+        modelRuntime,
+        cwd: info.path,
+        agentDir,
+        ...(options.model ? { model: options.model } : {}),
+        settingsManager: prepared.trust.settingsManager,
+      }),
+      pending: prepared,
+    }
+    projectRuntimes.set(runtime.cwd, runtime)
+    return runtime
+  }
+
+  /** 装载一个新的项目装配并缓存状态（可能停在 needs-trust）。 */
+  const loadProjectRuntime = (cwd: string): Promise<ProjectRuntime> => {
+    const existing = pendingProjects.get(cwd)
+    if (existing) return existing
+    const pending = prepareProjectSession(cwd)
+      .then(projectRuntimeFrom)
+      .finally(() => {
+        pendingProjects.delete(cwd)
+      })
+    pendingProjects.set(cwd, pending)
+    return pending
+  }
+
+  /** 查询项目：优先缓存；项目资源集合变化时重新评估，不用过期结论。 */
+  const queryProject = async (input: string): Promise<HarnessProjectInfo> => {
+    const check = await inspectProjectPath(input)
+    if (check.error) return failedProjectInfo(check.path || input, check.error.code)
+    const cached = projectRuntimes.get(check.path)
+    if (cached && cached.info.status !== 'failed') {
+      const requiresTrust = hasTrustRequiringProjectResources(check.path)
+      if (requiresTrust === cached.info.trust.requiresTrust) return cached.info
+    }
+    try {
+      return (await loadProjectRuntime(check.path)).info
+    } catch (error) {
+      diagnostics.push(`项目装配（${check.path}）：${String(error)}`)
+      safeDiagnostics.add('assembly-warning')
+      return failedProjectInfo(check.path, 'load-failed')
+    }
+  }
+
+  /** 会话装配：复用未消费的启动/决定 loader，否则按已知结论重新装配。 */
+  const acquireProjectSession = async (
+    input: string,
+  ): Promise<{ runtime: ProjectRuntime; prepared: PreparedProject }> => {
+    const check = await inspectProjectPath(input)
+    if (check.error) {
+      throw new Error(`项目路径不可用：${check.error.code}`)
+    }
+    const takePending = (runtime: ProjectRuntime): PreparedProject | undefined => {
+      const prepared = runtime.pending
+      runtime.pending = undefined
+      return prepared
+    }
+    let runtime = projectRuntimes.get(check.path)
+    if (runtime?.info.status === 'needs-trust') {
+      throw new ProjectTrustRequiredError(runtime.info)
+    }
+    if (runtime?.info.status === 'failed') {
+      // 上次装配失败：本次会话重新尝试，不复用失败结论。
+      runtime.pending = undefined
+      runtime = await loadProjectRuntime(check.path)
+      if (runtime.info.status === 'needs-trust') {
+        throw new ProjectTrustRequiredError(runtime.info)
+      }
+    } else if (runtime) {
+      // 项目资源集合变化：旧结论与旧 loader 都不能再用。
+      const requiresTrust = hasTrustRequiringProjectResources(check.path)
+      if (requiresTrust !== runtime.info.trust.requiresTrust) {
+        runtime.pending = undefined
+        runtime = await loadProjectRuntime(check.path)
+        if (runtime.info.status === 'needs-trust') {
+          throw new ProjectTrustRequiredError(runtime.info)
+        }
+      }
+    } else {
+      runtime = await loadProjectRuntime(check.path)
+      if (runtime.info.status === 'needs-trust') {
+        throw new ProjectTrustRequiredError(runtime.info)
+      }
+    }
+
+    const pending = takePending(runtime)
+    if (pending) return { runtime, prepared: pending }
+
+    // 缓存中的结论仍然有效：按同一结论重新装配，不再次询问用户。
+    const prepared = await prepareProjectSession(
+      runtime.cwd,
+      runtime.info.trust.decision === 'trusted',
+    )
+    runtime.settingsManager = prepared.trust.settingsManager
+    runtime.defaultModel = resolveDefaultModel({
+      modelRuntime,
+      cwd: runtime.cwd,
+      agentDir,
+      ...(options.model ? { model: options.model } : {}),
+      settingsManager: prepared.trust.settingsManager,
+    })
+    return { runtime, prepared }
+  }
+
+  /** 保存决定后立即装配；保留本次显式来源与保存路径供页面展示。 */
+  const decideProject = async (input: HarnessProjectTrustInput): Promise<HarnessProjectInfo> => {
+    const check = await inspectProjectPath(input.path)
+    if (check.error) return failedProjectInfo(check.path || input.path, check.error.code)
+    if (input.remember === true) trustStore.set(check.path, input.trusted)
+    try {
+      const prepared = await prepareProjectSession(check.path, input.trusted)
+      const runtime = projectRuntimeFrom(prepared, 'explicit')
+      if (input.remember === true) {
+        runtime.info = {
+          ...runtime.info,
+          trust: { ...runtime.info.trust, savedPath: check.path },
+        }
+      }
+      if (input.trusted && startRefresh) await refreshCatalog()
+      return runtime.info
+    } catch (error) {
+      diagnostics.push(`信任决定（${check.path}）：${String(error)}`)
+      safeDiagnostics.add('assembly-warning')
+      return failedProjectInfo(check.path, 'load-failed')
+    }
+  }
+
+  /** 最近项目：同一 agentDir 的会话 header + 缓存过的项目；按活动时间排序。 */
+  const listRecentProjects = async (): Promise<HarnessRecentProject[]> => {
+    const projects = new Map<string, { lastActiveAt?: string }>()
+    for (const info of await listScopeInfos()) {
+      if (!info.cwd) continue
+      const path = canonicalProjectPath(info.cwd)
+      const time = info.modified.toISOString()
+      const existing = projects.get(path)
+      if (!existing?.lastActiveAt || time > existing.lastActiveAt) {
+        projects.set(path, { lastActiveAt: time })
+      }
+    }
+    for (const runtime of projectRuntimes.values()) {
+      if (!projects.has(runtime.cwd)) projects.set(runtime.cwd, {})
+    }
+    const startup = canonicalProjectPath(workspacePath)
+    if (!projects.has(startup)) projects.set(startup, {})
+    return [...projects.entries()]
+      .map(([path, activity]) => ({
+        path,
+        name: projectNameOf(path),
+        ...(activity.lastActiveAt ? { lastActiveAt: activity.lastActiveAt } : {}),
+      }))
+      .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+      .slice(0, 20)
+  }
+
+  /** 受控目录刷新：失败只记诊断，不阻断启动或信任决定。 */
+  const refreshCatalog = async (): Promise<void> => {
+    try {
+      // 联网刷新可能因扩展 provider 的远程拉取而长期挂起；超时后放弃等待。
       await withTimeout(
         refreshModelCatalog(modelRuntime, { allowNetwork: true }),
         refreshTimeoutMs,
@@ -396,30 +754,26 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
   }
 
-  // 默认模型：显式 options.model 优先；否则启动时解析（env → settings）。
-  const resolvedDefault = resolveDefaultModel({
-    modelRuntime,
-    cwd: workspacePath,
-    agentDir,
-    model: options.model,
-  })
-
-  const records = new Map<string, ThreadRecord>()
-  /** 进行中的冷打开（并发调用共享同一 promise，避免同文件双开）。 */
-  const pendingOpens = new Map<
-    string,
-    { promise: Promise<ThreadRecord>; controller: AbortController }
-  >()
-  /** 每线程的发送取消令牌（覆盖「冷打开中 → 启动 prompt」窗口）。 */
-  const startingSends = new Map<string, Set<StartingSend>>()
-  const pendingDeletes = new Map<string, Promise<void>>()
-  const recordsBySessionFile = new Map<string, ThreadRecord>()
-  /** 归档标记（内存态；重启丢失为已知限制）。 */
-  const archivedSessionFiles = new Set<string>()
-  /** dispose 后拒绝新操作。 */
-  let disposed = false
-  /** 代数计数：使 dispose 前发起的异步打开失效。 */
-  let generation = 0
+  // 启动引导：先准备启动项目（未知信任时只装配用户资源），再注册 provider。
+  // 该 loader 留给首个会话复用；needs-trust 时跳过联网目录刷新。
+  let startupRuntime: ProjectRuntime | undefined
+  try {
+    startupRuntime = await loadProjectRuntime(workspacePath)
+  } catch (error) {
+    diagnostics.push(`启动项目装配（${workspacePath}）：${String(error)}`)
+    safeDiagnostics.add('assembly-warning')
+  }
+  if (startRefresh && startupRuntime?.info.status !== 'needs-trust') {
+    await refreshCatalog()
+  }
+  const resolvedDefault =
+    startupRuntime?.defaultModel ??
+    resolveDefaultModel({
+      modelRuntime,
+      cwd: workspacePath,
+      agentDir,
+      ...(options.model ? { model: options.model } : {}),
+    })
 
   const catalogCache = new Map<
     string,
@@ -806,36 +1160,35 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     opts: {
       isNew: boolean
       signal?: AbortSignal
-      /** 新会话的显式模型（优先于宿主启动时解析的默认模型）。 */
+      /** 新会话的显式模型（优先于目标项目的默认模型）。 */
       model?: HarnessDefaultModel
       /** 新会话的 Thinking 级别（在模型应用后设置）。 */
       thinkingLevel?: HarnessThinkingLevel
+      /** 已获取的项目装配（createThread 在检查默认模型前已取得）。 */
+      project?: { runtime: ProjectRuntime; prepared: PreparedProject }
     },
   ): Promise<ThreadRecord> => {
     const openedGeneration = generation
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
-    // 每 live session 独立装配（扩展 runtime 隔离）。
-    // 注入宿主输入守卫（合成扩展，排在文件扩展之后）：在 SDK 的 input 提交点
-    // 否决已取消 / 已退休的输入。守卫需要按会话解析 record，用查询函数延迟绑定。
-    let guardRecord: ThreadRecord | undefined
-    const services = await createHostServices({
-      cwd,
+    // 同一份 loader 直接交给会话：不再经 createHostServices 重装扩展，
+    // 避免扩展工厂在一次会话装配中执行两次（第二次也没有信任回调）。
+    // 输入守卫在 prepareProjectSession 中已作为合成扩展追加。
+    const project = opts.project ?? (await acquireProjectSession(cwd))
+    const prepared = project.prepared
+    const projectCwd = project.runtime.cwd
+    const services: AgentSessionServices = {
+      cwd: projectCwd,
       agentDir,
       modelRuntime,
-      resourceLoaderOptions,
-      extensionFactories: [createInputGuardExtension(() => guardRecord)],
-    })
-    for (const diagnostic of services.diagnostics) {
-      if (diagnostic.type !== 'info') {
-        diagnostics.push(`扩展装配（${cwd}）：${diagnostic.message}`)
-        safeDiagnostics.add('assembly-warning')
-      }
+      settingsManager: prepared.trust.settingsManager,
+      resourceLoader: prepared.trust.resourceLoader,
+      diagnostics: [],
     }
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
-    // 新会话：显式模型 > 启动时解析的默认模型；冷打开不传，由 SDK 从会话记录恢复。
-    const newSessionModel = opts.model ?? resolvedDefault.model
+    // 新会话：显式模型 > 目标项目默认模型；冷打开不传，由 SDK 从会话记录恢复。
+    const newSessionModel = opts.model ?? project.runtime.defaultModel.model
     const { session, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
@@ -843,7 +1196,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     })
     // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
     if (modelFallbackMessage) {
-      diagnostics.push(`模型回退（${cwd}）：${modelFallbackMessage}`)
+      diagnostics.push(`模型回退（${projectCwd}）：${modelFallbackMessage}`)
       safeDiagnostics.add('model-fallback')
     }
 
@@ -857,7 +1210,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       try {
         await session.setThinkingLevel(opts.thinkingLevel)
       } catch (error) {
-        diagnostics.push(`Thinking 级别设置（${cwd}）：${String(error)}`)
+        diagnostics.push(`Thinking 级别设置（${projectCwd}）：${String(error)}`)
       }
       throwIfOpenCancelled(opts.signal, openedGeneration)
     }
@@ -872,9 +1225,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       listeners: new Set(),
       seq: 0,
       turnIndex: -1,
-      workspacePath: cwd,
+      workspacePath: projectCwd,
       lastError: undefined,
-      resourceLoader: services.resourceLoader,
+      resourceLoader: prepared.trust.resourceLoader,
       inFlight: new Set(),
       currentRun: undefined,
       admission: undefined,
@@ -968,7 +1321,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     records.set(threadId, record)
     if (session.sessionFile) recordsBySessionFile.set(session.sessionFile, record)
     // record 已发布：绑定守卫的目标会话，后续阻断请求输送到订阅者。
-    guardRecord = record
+    prepared.guard.record = record
     uiBridge.setStartup(false)
     return record
   }
@@ -1372,7 +1725,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         .filter((info) => input?.includeArchived || !archivedSessionFiles.has(info.path))
         .map((info) => {
           const live = records.get(info.id)
-          if (live) return metadataOf(live)
+          if (live) {
+            // live 元数据本身不带时间（事件路径避免逐次 stat）；列表补上目录时间，
+            // 使「继续最近」等排序与冷条目同一口径。
+            return {
+              ...metadataOf(live),
+              createdAt: info.created.toISOString(),
+              updatedAt: info.modified.toISOString(),
+            }
+          }
           // 冷条目也要叠加归档标记（过滤与呈现口径一致）。
           return {
             ...mapSessionInfo(info, { liveStatus: 'idle' }),
@@ -1381,9 +1742,31 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         })
     },
 
+    async checkProjectPath(path: string) {
+      assertActive()
+      return inspectProjectPath(path)
+    },
+
+    async getProject(input) {
+      assertActive()
+      return queryProject(input.path)
+    },
+
+    async decideProjectTrust(input) {
+      assertActive()
+      return decideProject(input)
+    },
+
+    async listRecentProjects() {
+      assertActive()
+      return listRecentProjects()
+    },
+
     async createThread(input?: HarnessCreateThreadInput) {
       assertActive()
-      const cwd = input?.workspacePath ?? workspacePath
+      // 统一信任入口：未决定/未允许时不装配项目资源；needs-trust 直接拒绝。
+      const project = await acquireProjectSession(input?.workspacePath ?? workspacePath)
+      const cwd = project.runtime.cwd
       // 显式模型：按 registry 校验并解析为模型对象（找不到时报错，不静默回退）。
       let explicitModel: HarnessDefaultModel | undefined
       if (input?.model) {
@@ -1395,7 +1778,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         }
         explicitModel = resolved
       }
-      if (!input?.model && resolvedDefault.info.readiness.state === 'unavailable-model') {
+      if (
+        !input?.model &&
+        project.runtime.defaultModel.info.readiness.state === 'unavailable-model'
+      ) {
         throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
       }
       const sessionDir = resolveSessionDirFor(cwd).dir
@@ -1404,6 +1790,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       const sessionManager = SessionManager.create(cwd, sessionDir)
       const record = await openSession(sessionManager, cwd, {
         isNew: true,
+        project,
         ...(explicitModel ? { model: explicitModel } : {}),
         ...(input?.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       })
@@ -1478,8 +1865,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return record.session.clearQueue()
     },
 
-    async getAvailableModels() {
+    async getAvailableModels(input) {
       assertActive()
+      const info = await queryProject(input?.workspacePath ?? workspacePath)
+      if (info.status === 'needs-trust') throw new ProjectTrustRequiredError(info)
+      if (info.status === 'failed') throw new Error('项目装配失败')
       return listModelCatalog(modelRuntime)
     },
 

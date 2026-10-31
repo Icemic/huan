@@ -11,6 +11,12 @@
  */
 import type { HarnessHostInfo } from './host.js'
 import type {
+  HarnessProjectInfo,
+  HarnessProjectPathCheck,
+  HarnessProjectTrustInput,
+  HarnessRecentProject,
+} from './project.js'
+import type {
   HarnessClientEvent,
   HarnessCreateThreadInput,
   HarnessHostUiResponse,
@@ -41,6 +47,18 @@ export interface HarnessClient {
    * Pi 不提供逐项删除或提升，整体清空是唯一的队列修改操作。
    */
   clearQueue(threadId: string): Promise<{ steering: string[]; followUp: string[] }>
+  /**
+   * 校验宿主路径（存在且为目录）。只做文件系统检查，不执行项目代码。
+   */
+  checkProjectPath(path: string): Promise<HarnessProjectPathCheck>
+  /**
+   * 查询项目信任与装配状态。未回答时返回 needs-trust，不执行需要信任的项目资源。
+   */
+  getProject(input: { path: string }): Promise<HarnessProjectInfo>
+  /** 保存本次信任决定（可选写入 trust.json）并立即按结论装配。 */
+  decideProjectTrust(input: HarnessProjectTrustInput): Promise<HarnessProjectInfo>
+  /** 同一用户空间内的最近项目（按会话活动时间排序）。 */
+  listRecentProjects(): Promise<HarnessRecentProject[]>
   getAvailableModels(input?: { workspacePath?: string }): Promise<HarnessModelInfo[]>
   setModel(threadId: string, input: { provider: string; modelId: string }): Promise<void>
   setThinkingLevel(threadId: string, level: HarnessThinkingLevel): Promise<void>
