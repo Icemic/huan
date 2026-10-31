@@ -12,3 +12,6 @@ export const E2E_APP_URL = `http://127.0.0.1:${E2E_APP_PORT}`
 
 /** 未显式配置分段时，合成模型的默认回复。 */
 export const DEFAULT_TEST_REPLY = '这是确定性测试回复。'
+
+/** 启动器预置的未归属会话标题（不写入 huan 工作区元数据）。 */
+export const E2E_UNASSIGNED_TITLE = '预置未归属会话'

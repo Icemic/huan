@@ -84,7 +84,7 @@ huan/
 
 - 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
-- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。首期 Chromium 四条流程，单 worker，不并行运行多套实例。
+- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 12 条流程，单 worker，不并行运行多套实例。
 - 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与宿主 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意无效，先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
 - 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。
 - 浏览器失败产物位于 `apps/harness/test-results`，包括截图和 trace；使用 `pnpm --filter @huan/harness exec playwright show-trace <trace.zip路径>` 查看。产物不入 Git。
@@ -126,7 +126,7 @@ pnpm dev          # → http://localhost:8799/
 
 ### 7.3 认证与模型
 
-页头“打开项目”支持输入宿主路径和最近项目；选择仅影响本窗口。首次遇到受保护项目资源时，允许/拒绝后才继续装配；拒绝仍可使用用户资源对话。“记住此决定”写入所选 agentDir/trust.json 的当前路径条目，不写项目目录。继续最近无历史时回到空白页。
+左侧按工作区一级、会话二级展示；工作区管理弹层支持名称、成员别名/路径、增删与路径健康/信任摘要。新建会话在该工作区选择起始项目，窗口偏好保存在 sessionStorage，创建后 cwd 固定。首次遇到受保护成员项目资源时，信任面板允许/拒绝后才继续装配；拒绝仍可使用用户资源对话。“记住此决定”写入所选 agentDir/trust.json 的当前路径条目，不写项目目录。无归属的既有 Pi 会话在“未归属会话”分组中明确加入工作区，宿主不会按 cwd 猜测。工作区与会话归属存放在 `<agentDir>/huan/state.json`；损坏时冷历史只读可用，相关修改禁用。同一元数据文件由单宿主管理，支持多个浏览器窗口；外部修改或修复文件后需重启宿主。工作区目前支持创建、改名和成员编辑，尚无删除入口。
 
 G1.1 起可在页面“宿主信息与诊断”查看用户目录、会话存储方式及默认模型字段来源；支持复制安全摘要和重新查询。`GET /api/pi/host` 需通过现有访问校验，health 仍只返回 ok。目录与默认配置在宿主启动时固定，重新查询不等于重载。
 

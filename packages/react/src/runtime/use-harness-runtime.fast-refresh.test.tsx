@@ -141,7 +141,7 @@ it('keeps the registry, thread list, and live controller connection through Fast
   const Before = () => {
     useHarnessRuntime({
       client: clientA,
-      workspacePath: '/one',
+      workspaceId: 'one',
       includeArchived: true,
     })
     return null
@@ -149,7 +149,7 @@ it('keeps the registry, thread list, and live controller connection through Fast
   const After = () => {
     useHarnessRuntime({
       client: clientA,
-      workspacePath: '/one',
+      workspaceId: 'one',
       includeArchived: true,
     })
     return null
@@ -179,50 +179,50 @@ it('keeps the registry, thread list, and live controller connection through Fast
 it('replaces only the thread list when its scope changes and replaces the registry for a new client', async () => {
   const App = ({
     client,
-    workspacePath,
+    workspaceId,
     includeArchived,
   }: {
     client: HarnessClient
-    workspacePath: string
+    workspaceId: string
     includeArchived: boolean
   }) => {
-    useHarnessRuntime({ client, workspacePath, includeArchived })
+    useHarnessRuntime({ client, workspaceId, includeArchived })
     return null
   }
-  const view = render(<App client={clientA} workspacePath="/one" includeArchived={false} />)
+  const view = render(<App client={clientA} workspaceId="one" includeArchived={false} />)
   const controller = mocks.controllers[0]!
   const firstAdapter = mocks.adapters.at(-1)
   const list = () => (mocks.adapters.at(-1) as { list: () => Promise<unknown> }).list()
 
   await list()
   expect(listThreadsA).toHaveBeenLastCalledWith({
-    workspacePath: '/one',
+    workspaceId: 'one',
     includeArchived: false,
   })
 
-  view.rerender(<App client={clientA} workspacePath="/two" includeArchived={false} />)
+  view.rerender(<App client={clientA} workspaceId="two" includeArchived={false} />)
   await act(async () => {})
   expect(mocks.adapters.at(-1)).not.toBe(firstAdapter)
   expect(mocks.controllers).toHaveLength(1)
   expect(controller.dispose).not.toHaveBeenCalled()
   await list()
   expect(listThreadsA).toHaveBeenLastCalledWith({
-    workspacePath: '/two',
+    workspaceId: 'two',
     includeArchived: false,
   })
 
   const secondAdapter = mocks.adapters.at(-1)
-  view.rerender(<App client={clientA} workspacePath="/two" includeArchived />)
+  view.rerender(<App client={clientA} workspaceId="two" includeArchived />)
   await act(async () => {})
   expect(mocks.adapters.at(-1)).not.toBe(secondAdapter)
   expect(mocks.controllers).toHaveLength(1)
   await list()
   expect(listThreadsA).toHaveBeenLastCalledWith({
-    workspacePath: '/two',
+    workspaceId: 'two',
     includeArchived: true,
   })
 
-  view.rerender(<App client={clientB} workspacePath="/two" includeArchived />)
+  view.rerender(<App client={clientB} workspaceId="two" includeArchived />)
   await act(async () => {})
   expect(mocks.controllers[1]!.client).toBe(clientB)
   expect(mocks.controllers[1]!.load).toHaveBeenCalledOnce()
@@ -230,7 +230,7 @@ it('replaces only the thread list when its scope changes and replaces the regist
   expect(controller.disconnect).toHaveBeenCalledOnce()
   await list()
   expect(listThreadsB).toHaveBeenLastCalledWith({
-    workspacePath: '/two',
+    workspaceId: 'two',
     includeArchived: true,
   })
 })

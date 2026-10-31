@@ -7,7 +7,12 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
-#: src/app.tsx:19
+#. placeholder {0}: workspace.projects.length
+#: src/components/session-context-bar.tsx:56
+msgid "{0} 个项目"
+msgstr "{0} 个项目"
+
+#: src/app.tsx:20
 msgid "Pi 运行时没有可用模型。"
 msgstr "Pi 运行时没有可用模型。"
 
@@ -15,7 +20,7 @@ msgstr "Pi 运行时没有可用模型。"
 msgid "Provider 来源"
 msgstr "Provider 来源"
 
-#: src/components/project-switcher.tsx:63
+#: src/components/workspace-manager.tsx:107
 msgid "仅用户资源"
 msgstr "仅用户资源"
 
@@ -23,27 +28,37 @@ msgstr "仅用户资源"
 msgid "会话目录"
 msgstr "会话目录"
 
-#: src/components/project-switcher.tsx:119
-msgid "保存决定"
-msgstr "保存决定"
+#: src/components/workspace-manager.tsx:473
+msgid "保存"
+msgstr "保存"
 
-#: src/components/project-switcher.tsx:145
-msgid "信任变更只影响下一次装配；已经执行的代码不会卸载。需要完全生效时请重新打开相关会话或重启宿主。"
-msgstr "信任变更只影响下一次装配；已经执行的代码不会卸载。需要完全生效时请重新打开相关会话或重启宿主。"
+#: src/components/workspace-manager.tsx:175
+msgid "信任查询或保存失败，请查看宿主终端后重试。"
+msgstr "信任查询或保存失败，请查看宿主终端后重试。"
 
-#: src/components/project-switcher.tsx:277
-msgid "最近项目"
-msgstr "最近项目"
+#: src/components/workspace-manager.tsx:428
+msgid "决定信任"
+msgstr "决定信任"
 
-#: src/components/project-switcher.tsx:101
-msgid "决定来源"
-msgstr "决定来源"
+#: src/components/workspace-sidebar.tsx:198
+msgid "删除"
+msgstr "删除"
+
+#: src/components/workspace-manager.tsx:714
+msgid "加入"
+msgstr "加入"
+
+#: src/components/workspace-manager.tsx:673
+msgid "加入工作区"
+msgstr "加入工作区"
 
 #: src/components/pi-host-status.tsx:173
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 
-#: src/components/project-switcher.tsx:151
+#: src/components/workspace-manager.tsx:466
+#: src/components/workspace-manager.tsx:608
+#: src/components/workspace-manager.tsx:709
 msgid "取消"
 msgstr "取消"
 
@@ -67,23 +82,52 @@ msgstr "复制失败，请手工选择信息复制。"
 msgid "复制诊断摘要"
 msgstr "复制诊断摘要"
 
+#: src/app.tsx:105
+msgid "多项目工作区"
+msgstr "多项目工作区"
+
 #: src/components/pi-host-status.tsx:134
 msgid "存储方式"
 msgstr "存储方式"
+
+#. placeholder {0}: metadata.workspaceAppliedRevision
+#: src/components/session-context-bar.tsx:66
+msgid "实际生效 v{0}"
+msgstr "实际生效 v{0}"
 
 #: src/components/pi-host-status.tsx:114
 msgid "宿主信息与诊断"
 msgstr "宿主信息与诊断"
 
+#: src/components/session-context-bar.tsx:51
+msgid "工作区不可用"
+msgstr "工作区不可用"
+
+#: src/components/workspace-manager.tsx:699
+msgid "工作区元数据不可用，会话归属修改已禁用。"
+msgstr "工作区元数据不可用，会话归属修改已禁用。"
+
+#: src/components/workspace-manager.tsx:455
+msgid "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
+msgstr "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
+
+#: src/app.tsx:56
+msgid "工作区元数据不可用（{state}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
+msgstr "工作区元数据不可用（{state}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
+
+#: src/components/workspace-manager.tsx:320
+msgid "工作区包含一个或多个项目目录。会话固定使用起始项目作为 cwd；其他成员通过 @别名 访问，不会装配它们的扩展。"
+msgstr "工作区包含一个或多个项目目录。会话固定使用起始项目作为 cwd；其他成员通过 @别名 访问，不会装配它们的扩展。"
+
+#: src/components/workspace-manager.tsx:329
+msgid "工作区名称"
+msgstr "工作区名称"
+
 #: src/components/pi-host-status.tsx:118
 msgid "工作目录"
 msgstr "工作目录"
 
-#: src/components/project-switcher.tsx:24
-msgid "已保存决定"
-msgstr "已保存决定"
-
-#: src/components/project-switcher.tsx:55
+#: src/components/workspace-manager.tsx:100
 msgid "已信任"
 msgstr "已信任"
 
@@ -91,42 +135,60 @@ msgstr "已信任"
 msgid "已复制"
 msgstr "已复制"
 
-#: src/components/project-switcher.tsx:109
-msgid "总是允许"
-msgstr "总是允许"
+#: src/components/workspace-sidebar.tsx:418
+msgid "已归档会话"
+msgstr "已归档会话"
 
-#: src/components/project-switcher.tsx:111
-msgid "总是拒绝"
-msgstr "总是拒绝"
+#: src/components/workspace-manager.tsx:612
+msgid "开始新会话"
+msgstr "开始新会话"
+
+#: src/components/workspace-sidebar.tsx:184
+msgid "归档"
+msgstr "归档"
+
+#: src/components/workspace-manager.tsx:168
+msgid "当前状态"
+msgstr "当前状态"
+
+#: src/components/workspace-sidebar.tsx:184
+msgid "恢复"
+msgstr "恢复"
+
+#. placeholder {0}: metadata.workspaceRevision
+#. placeholder {1}: metadata.workspaceAppliedRevision
+#: src/components/session-context-bar.tsx:61
+msgid "成员 v{0}，本轮仍使用 v{1}（下次运行生效）"
+msgstr "成员 v{0}，本轮仍使用 v{1}（下次运行生效）"
+
+#: src/components/session-context-bar.tsx:68
+msgid "成员变更将在下一次运行生效"
+msgstr "成员变更将在下一次运行生效"
 
 #: src/components/pi-host-status.tsx:159
 msgid "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 msgstr "手工设置 PI_CODING_AGENT_DIR 指定用户空间；PI_CODING_AGENT_SESSION_DIR 可单独指定会话目录。修改后重启宿主。重新查询只读取当前状态，不会重载配置。"
 
-#: src/components/project-switcher.tsx:267
-msgid "打开"
-msgstr "打开"
-
-#: src/components/project-switcher.tsx:242
-msgid "打开项目"
-msgstr "打开项目"
-
 #: src/components/pi-host-status.tsx:138
 msgid "按工作目录分组"
 msgstr "按工作目录分组"
 
-#: src/components/project-switcher.tsx:30
-#: src/components/project-switcher.tsx:55
-msgid "无受保护资源"
-msgstr "无受保护资源"
+#: src/components/workspace-manager.tsx:541
+msgid "新建会话"
+msgstr "新建会话"
+
+#: src/components/workspace-manager.tsx:317
+#: src/components/workspace-sidebar.tsx:429
+msgid "新建工作区"
+msgstr "新建工作区"
 
 #: src/components/pi-host-status.tsx:84
 msgid "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
 msgstr "无法查询宿主。请检查服务是否启动、端口和访问凭证是否一致；启动失败的详细原因请查看宿主终端。"
 
-#: src/components/project-panel.tsx:16
-msgid "无法连接宿主。请检查服务是否启动、端口和访问凭证是否一致。"
-msgstr "无法连接宿主。请检查服务是否启动、端口和访问凭证是否一致。"
+#: src/app.tsx:36
+msgid "无法读取工作区与会话列表，请检查宿主连接后重试。"
+msgstr "无法读取工作区与会话列表，请检查宿主连接后重试。"
 
 #: src/components/pi-host-status.tsx:140
 msgid "显式共享的平铺目录"
@@ -136,29 +198,33 @@ msgstr "显式共享的平铺目录"
 msgid "显式参数"
 msgstr "显式参数"
 
-#: src/components/project-switcher.tsx:281
-msgid "暂无最近项目。"
-msgstr "暂无最近项目。"
+#: src/components/workspace-sidebar.tsx:303
+msgid "暂无会话"
+msgstr "暂无会话"
 
-#: src/components/project-switcher.tsx:32
-msgid "未评估"
-msgstr "未评估"
+#: src/components/workspace-manager.tsx:681
+msgid "未命名会话"
+msgstr "未命名会话"
 
-#: src/components/project-switcher.tsx:172
+#: src/components/workspace-sidebar.tsx:452
+msgid "未归属会话"
+msgstr "未归属会话"
+
+#: src/components/session-context-bar.tsx:39
+msgid "未归属会话；可在左侧明确加入工作区。"
+msgstr "未归属会话；可在左侧明确加入工作区。"
+
+#: src/components/workspace-manager.tsx:196
 msgid "本次允许"
 msgstr "本次允许"
 
-#: src/components/project-switcher.tsx:20
-msgid "本次决定"
-msgstr "本次决定"
-
-#: src/components/project-switcher.tsx:162
+#: src/components/workspace-manager.tsx:192
 msgid "本次拒绝"
 msgstr "本次拒绝"
 
-#: src/components/project-panel.tsx:116
-msgid "查看信任决定"
-msgstr "查看信任决定"
+#: src/components/workspace-manager.tsx:402
+msgid "检查路径与信任…"
+msgstr "检查路径与信任…"
 
 #: src/components/pi-host-status.tsx:154
 msgid "模型来源"
@@ -168,114 +234,114 @@ msgstr "模型来源"
 msgid "模型目录刷新失败，当前目录可能来自缓存。"
 msgstr "模型目录刷新失败，当前目录可能来自缓存。"
 
-#: src/components/project-panel.tsx:23
-msgid "正在准备项目…"
-msgstr "正在准备项目…"
-
 #: src/components/pi-host-status.tsx:92
 msgid "正在查询宿主配置…"
 msgstr "正在查询宿主配置…"
+
+#: src/app.tsx:89
+msgid "正在连接宿主…"
+msgstr "正在连接宿主…"
+
+#: src/components/workspace-sidebar.tsx:424
+msgid "没有匹配的会话。"
+msgstr "没有匹配的会话。"
+
+#: src/components/workspace-manager.tsx:352
+msgid "添加成员"
+msgstr "添加成员"
 
 #: src/components/pi-host-status.tsx:14
 msgid "环境变量"
 msgstr "环境变量"
 
-#: src/components/project-switcher.tsx:22
-msgid "用户扩展决定"
-msgstr "用户扩展决定"
-
-#: src/components/project-switcher.tsx:127
-msgid "用户扩展的信任处理出现错误，已跳过并继续评估；详情见宿主终端。"
-msgstr "用户扩展的信任处理出现错误，已跳过并继续评估；详情见宿主终端。"
-
 #: src/components/pi-host-status.tsx:122
 msgid "用户空间"
 msgstr "用户空间"
 
-#: src/components/project-switcher.tsx:28
-msgid "等待用户回答"
-msgstr "等待用户回答"
+#: src/components/workspace-manager.tsx:189
+msgid "稍后处理"
+msgstr "稍后处理"
 
-#: src/components/project-panel.tsx:89
-msgid "继续最近"
-msgstr "继续最近"
+#: src/components/workspace-manager.tsx:317
+msgid "管理工作区"
+msgstr "管理工作区"
 
-#: src/components/project-switcher.tsx:142
+#: src/components/session-context-bar.tsx:78
+msgid "管理项目"
+msgstr "管理项目"
+
+#: src/components/workspace-manager.tsx:84
+msgid "装配失败"
+msgstr "装配失败"
+
+#: src/components/workspace-manager.tsx:185
 msgid "记住此决定（写入当前路径的 trust.json）"
 msgstr "记住此决定（写入当前路径的 trust.json）"
 
-#: src/components/project-switcher.tsx:113
-msgid "询问"
-msgstr "询问"
+#: src/components/workspace-manager.tsx:676
+msgid "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
+msgstr "该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。"
 
-#: src/components/project-switcher.tsx:43
-msgid "该路径不是目录，请选择项目目录。"
-msgstr "该路径不是目录，请选择项目目录。"
-
-#: src/components/project-switcher.tsx:89
-msgid "该项目包含 Pi 扩展、项目设置、技能或模板等本地资源。允许后这些代码会以你的用户权限运行；信任不是沙箱。拒绝仍可对话和查看历史，但不会加载项目资源。"
-msgstr "该项目包含 Pi 扩展、项目设置、技能或模板等本地资源。允许后这些代码会以你的用户权限运行；信任不是沙箱。拒绝仍可对话和查看历史，但不会加载项目资源。"
-
-#: src/components/project-panel.tsx:111
-msgid "该项目包含受保护资源，尚未决定是否信任；当前只读查看历史，项目扩展未加载，发送已禁用。"
-msgstr "该项目包含受保护资源，尚未决定是否信任；当前只读查看历史，项目扩展未加载，发送已禁用。"
-
-#: src/components/project-panel.tsx:93
-msgid "读取最近会话失败，请重试。"
-msgstr "读取最近会话失败，请重试。"
+#: src/components/workspace-manager.tsx:160
+msgid "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
+msgstr "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 
 #: src/components/pi-host-status.tsx:169
 msgid "资源装配存在警告，详细原因请查看宿主终端。"
 msgstr "资源装配存在警告，详细原因请查看宿主终端。"
 
-#: src/components/project-switcher.tsx:41
-msgid "路径不存在，请检查后重试。"
-msgstr "路径不存在，请检查后重试。"
+#: src/components/workspace-manager.tsx:552
+msgid "起始项目"
+msgstr "起始项目"
 
-#: src/components/project-switcher.tsx:39
-msgid "路径无效，请输入宿主机上的绝对路径。"
-msgstr "路径无效，请输入宿主机上的绝对路径。"
+#: src/components/workspace-manager.tsx:407
+msgid "路径可用"
+msgstr "路径可用"
 
-#: src/components/project-switcher.tsx:245
-msgid "输入宿主机器上的项目绝对路径。浏览器目录选择器返回的是浏览器文件，不能作为宿主项目路径。"
-msgstr "输入宿主机器上的项目绝对路径。浏览器目录选择器返回的是浏览器文件，不能作为宿主项目路径。"
+#: src/components/workspace-manager.tsx:573
+msgid "路径缺失"
+msgstr "路径缺失"
+
+#: src/components/workspace-manager.tsx:412
+msgid "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
+msgstr "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
+
+#: src/components/workspace-sidebar.tsx:424
+msgid "还没有工作区。"
+msgstr "还没有工作区。"
+
+#: src/components/workspace-manager.tsx:544
+msgid "选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名 读写与执行命令。"
+msgstr "选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名 读写与执行命令。"
 
 #: src/components/pi-host-status.tsx:16
 msgid "配置文件"
 msgstr "配置文件"
 
+#: src/components/workspace-sidebar.tsx:166
+msgid "重命名"
+msgstr "重命名"
+
+#: src/app.tsx:64
 #: src/components/pi-host-status.tsx:66
 msgid "重新查询"
 msgstr "重新查询"
 
-#: src/components/project-panel.tsx:35
+#: src/app.tsx:40
 msgid "重试"
 msgstr "重试"
 
-#: src/components/project-switcher.tsx:70
+#: src/components/workspace-manager.tsx:92
 msgid "需要信任决定"
 msgstr "需要信任决定"
 
-#: src/components/project-panel.tsx:31
-msgid "项目不可用："
-msgstr "项目不可用："
+#: src/components/workspace-manager.tsx:342
+msgid "项目成员"
+msgstr "项目成员"
 
-#: src/components/project-switcher.tsx:45
-msgid "项目装配失败，请查看宿主终端后重试。"
-msgstr "项目装配失败，请查看宿主终端后重试。"
-
-#: src/components/project-switcher.tsx:97
-msgid "项目路径"
-msgstr "项目路径"
-
-#: src/components/project-switcher.tsx:86
-msgid "项目需要信任确认"
-msgstr "项目需要信任确认"
-
-#: src/components/project-switcher.tsx:26
-#: src/components/project-switcher.tsx:105
-msgid "默认策略"
-msgstr "默认策略"
+#: src/components/workspace-manager.tsx:417
+msgid "项目装配检查失败"
+msgstr "项目装配检查失败"
 
 #: src/components/pi-host-status.tsx:18
 msgid "默认规则"

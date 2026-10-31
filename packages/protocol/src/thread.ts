@@ -60,7 +60,14 @@ export type HarnessQueuedMessage = {
 export type HarnessThreadMetadata = {
   id: string
   title?: string
+  /** 会话固定起始目录（cwd）；不是工作区 ID。 */
   workspacePath?: string
+  /** 显式归属的工作区；缺失表示未归属（不按 cwd 推断）。 */
+  workspaceId?: string
+  /** 工作区当前权威 revision（未归属时缺失）。 */
+  workspaceRevision?: number
+  /** 该会话本轮实际应用的工作区 revision；下一轮生效时与权威值不同。 */
+  workspaceAppliedRevision?: number
   archived?: boolean
   status: HarnessThreadStatus
   compactionActive?: boolean
@@ -96,7 +103,10 @@ export type HarnessSendMessageInput = {
 
 /** 创建会话输入。 */
 export type HarnessCreateThreadInput = {
-  workspacePath?: string
+  /** 新会话归属的工作区；缺省时宿主使用启动项目对应的默认工作区。 */
+  workspaceId?: string
+  /** 起始目录必须是工作区成员；缺省使用成员列表首项。 */
+  startProjectPath?: string
   title?: string
   /**
    * 新会话首次使用的模型（可选；缺省时由宿主按环境变量/settings 解析）。

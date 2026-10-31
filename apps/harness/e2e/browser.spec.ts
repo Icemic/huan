@@ -11,6 +11,7 @@ import {
   resetStream,
   selectModel,
   sendMessage,
+  startNewSession,
   streamState,
   subscriptions,
   threadListItem,
@@ -81,12 +82,13 @@ test('新建、发送、切换及刷新后历史可读', async ({ page }) => {
   await sendMessage(page, first)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
 
-  await page.getByRole('button', { name: 'New Thread' }).click()
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible()
+  await startNewSession(page)
   await selectModel(page)
   await sendMessage(page, second)
   await expect(userMessages(page)).toHaveCount(1)
   await expect(userMessages(page).first()).toContainText(second)
+  // 新会话由首条消息创建；先等宿主创建、归属保存和侧栏刷新完成再重载。
+  await expect(threadListItem(page, second)).toBeVisible()
 
   // 列表标题在页面加载时从会话文件推导；刷新后两个会话都有可读标题。
   await page.reload()

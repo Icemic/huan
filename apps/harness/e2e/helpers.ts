@@ -28,9 +28,61 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await page.getByRole('button', { name: 'Send message' }).click()
 }
 
-/** 线程列表项（按标题定位，避免依赖列表顺序）。 */
+/** 会话列表项（按标题定位，避免依赖列表顺序）。 */
 export const threadListItem = (page: Page, title: string) =>
-  page.locator('[data-slot="aui_thread-list-item-trigger"]').filter({ hasText: title })
+  page.locator('[data-slot="huan-session-trigger"]').filter({ hasText: title })
+
+/** 工作区分组（按显示名称定位）。 */
+export const workspaceGroup = (page: Page, name: string) =>
+  page.locator('[data-slot="huan-workspace-group"]').filter({ hasText: name })
+
+/** 在当前展开的工作区（或指定工作区）开始一个空白新会话。 */
+export async function startNewSession(page: Page, workspaceName?: string): Promise<void> {
+  const group = workspaceName
+    ? workspaceGroup(page, workspaceName)
+    : page.locator('[data-slot="huan-workspace-group"]').first()
+  await group.getByRole('button', { name: '新建会话', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '新建会话' })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '开始新会话' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible()
+  // 新会话必须真正切到空白线程，否则首条消息会落到旧会话。
+  await expect(page.locator('[data-slot="aui_user-message-root"]')).toHaveCount(0)
+}
+
+/** 直接经真实 HTTP 路由创建工作区（用于准备多工作区场景）。 */
+export async function createWorkspaceApi(
+  request: APIRequestContext,
+  name: string,
+  projects: Array<{ alias: string; path: string }>,
+) {
+  const response = await request.post(`${E2E_HOST_URL}/api/pi/workspaces`, {
+    data: { name, projects },
+  })
+  await expectOk(response)
+  const result = (await response.json()) as
+    | { ok: true; workspace: { id: string; name: string; revision: number } }
+    | { ok: false; error: string }
+  if (!result.ok) throw new Error(`创建工作区失败：${result.error}`)
+  return result.workspace
+}
+
+/** 读取/恢复工作区 state.json（损坏文件场景使用）。 */
+export async function workspaceState(request: APIRequestContext): Promise<string | null> {
+  const response = await request.get(`${E2E_HOST_URL}/__e2e__/workspace-state`)
+  await expectOk(response)
+  return ((await response.json()) as { content: string | null }).content
+}
+
+export async function writeWorkspaceState(
+  request: APIRequestContext,
+  content: string | null,
+): Promise<void> {
+  await expectOk(
+    await request.put(`${E2E_HOST_URL}/__e2e__/workspace-state`, { data: { content } }),
+  )
+}
 
 async function expectOk(response: Awaited<ReturnType<APIRequestContext['post']>>) {
   expect(response.ok()).toBe(true)
@@ -101,26 +153,3 @@ export async function createProject(
   await expectOk(response)
   return (await response.json()) as E2eProject
 }
-
-/** 通过页头“打开项目”输入宿主路径并提交。 */
-export async function openProject(page: Page, path: string): Promise<void> {
-  await page.locator('[data-slot="huan-project-switcher"]').click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('textbox', { name: '项目路径' }).fill(path)
-  await dialog.getByRole('button', { name: '打开' }).click()
-}
-
-/** 在信任弹层中作答；remember 写入当前路径 trust.json。 */
-export async function decideTrust(
-  page: Page,
-  decision: 'allow' | 'deny',
-  remember = false,
-): Promise<void> {
-  const dialog = page.getByRole('dialog')
-  await expect(dialog.getByText('项目需要信任确认')).toBeVisible()
-  if (remember) await dialog.getByRole('checkbox').check()
-  await dialog.getByRole('button', { name: decision === 'allow' ? '本次允许' : '本次拒绝' }).click()
-}
-
-/** 当前项目入口按钮（含名称与完整路径）。 */
-export const projectSwitcher = (page: Page) => page.locator('[data-slot="huan-project-switcher"]')

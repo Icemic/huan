@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 3（HostInfo 与项目查询/信任接口）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 4（工作区 CRUD/会话归属；HostInfo 与项目查询/信任接口）。
 
 **运行形态（首期）**：Node 宿主进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与宿主持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 
@@ -82,6 +82,12 @@ apps/harness
 - 会话切换后事件订阅必须重新绑定；旧订阅不得污染新会话。
 - 运行结束以 `agent_settled`（Pi 不会再自动继续）为准，不以最后一个 token 或 socket 关闭为准。
 - Prompt 在流式中必须明确 steer 或 followUp（Pi 语义）；输入队列镜像 Pi 的服务端队列，支持整体清空。
+
+### 3.2.1 多项目工作区（已实现）
+
+工作区定义与会话归属由 `<agentDir>/huan/state.json` 管理，Pi 继续管理 cwd、消息和会话树。元数据按会话存储作用域与 sessionId 定位，单宿主串行写入并原子替换文件，持久化成功后才提交内存；具体格式、权威来源和失败规则见[工作区设计 §4](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#4-存储与协议)。workspaceId 为稳定身份，session cwd 为固定运行锚点，成员项目 path 为跨目录工具目标；workspacePath 在宿主启动选项、会话元数据和模型目录查询中仍表示 cwd；创建输入使用 startProjectPath，工作区归属与列表过滤使用 workspaceId。按工作区查询会话跨越物理 cwd 存储分组，仍遵守既有 sessionDir 与用户空间作用域。
+
+每个运行在 `before_agent_start` 取得已提交的工作区 revision 与成员快照，直到 agent_settled 结算保持稳定；变更在下一轮前应用。仅起始 cwd 装配项目代码与设置，其他成员不自动合并扩展/MCP。工具、指令与事件状态按会话隔离，不修改进程 cwd。选择性复用 pi-workspaces 的根路径解析和工具委托，作为 huan 内嵌扩展装配；不加载整个插件，不使用其定义存储或自动激活，不要求用户安装。复用保留许可来源，禁止与用户插件重复注册同名工具。具体设计见[工作区迭代](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。当前实现已接入 `workspace-store.ts`、协议工作区类型、宿主 CRUD/归属接口与两级工作区侧栏；实施与验证记录见该迭代 §8，完成状态见 roadmap。
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 

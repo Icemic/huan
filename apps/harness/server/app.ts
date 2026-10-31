@@ -1,4 +1,10 @@
-import { ProjectTrustRequiredError } from '@huan/core'
+import {
+  ProjectTrustRequiredError,
+  WorkspaceConflictError,
+  WorkspaceNotFoundError,
+  WorkspaceStateUnavailableError,
+  WorkspaceValidationError,
+} from '@huan/core'
 import type { HarnessClient } from '@huan/protocol'
 import { Hono } from 'hono'
 import type { ServerConfig } from './config.js'
@@ -19,10 +25,83 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     if (error instanceof ProjectTrustRequiredError) {
       return c.json({ error: 'project-needs-trust', project: error.project }, 409)
     }
+    if (error instanceof WorkspaceConflictError) {
+      return c.json({ error: 'workspace-conflict' }, 409)
+    }
+    if (error instanceof WorkspaceStateUnavailableError) {
+      return c.json({ error: 'workspace-state-unavailable', state: error.integrity }, 409)
+    }
+    if (error instanceof WorkspaceNotFoundError) {
+      return c.json({ error: 'workspace-not-found' }, 404)
+    }
+    if (error instanceof WorkspaceValidationError) {
+      return c.json({ error: 'workspace-invalid', reason: error.reason }, 400)
+    }
     return c.json({ error: 'internal-error' }, 500)
   })
 
   registerHostRoutes(app, piClient, config)
+
+  app.get('/api/pi/workspaces', async (c) => c.json(await piClient.listWorkspaces()))
+
+  app.post('/api/pi/workspaces', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: unknown
+      projects?: unknown
+    }
+    return c.json(
+      await piClient.createWorkspace({
+        name: typeof body.name === 'string' ? body.name : '',
+        projects: Array.isArray(body.projects)
+          ? body.projects.flatMap((project) =>
+              project !== null &&
+              typeof project === 'object' &&
+              typeof (project as { alias?: unknown }).alias === 'string' &&
+              typeof (project as { path?: unknown }).path === 'string'
+                ? [
+                    {
+                      alias: (project as { alias: string }).alias,
+                      path: (project as { path: string }).path,
+                    },
+                  ]
+                : [],
+            )
+          : [],
+      }),
+    )
+  })
+
+  app.patch('/api/pi/workspaces/:id', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      expectedRevision?: unknown
+      name?: unknown
+      projects?: unknown
+    }
+    return c.json(
+      await piClient.updateWorkspace({
+        workspaceId: c.req.param('id'),
+        expectedRevision: typeof body.expectedRevision === 'number' ? body.expectedRevision : -1,
+        ...(typeof body.name === 'string' ? { name: body.name } : {}),
+        ...(Array.isArray(body.projects)
+          ? {
+              projects: body.projects.flatMap((project) =>
+                project !== null &&
+                typeof project === 'object' &&
+                typeof (project as { alias?: unknown }).alias === 'string' &&
+                typeof (project as { path?: unknown }).path === 'string'
+                  ? [
+                      {
+                        alias: (project as { alias: string }).alias,
+                        path: (project as { path: string }).path,
+                      },
+                    ]
+                  : [],
+              ),
+            }
+          : {}),
+      }),
+    )
+  })
 
   app.get('/api/pi/projects', async (c) => c.json(await piClient.listRecentProjects()))
 
@@ -33,6 +112,10 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   app.get('/api/pi/projects/info', async (c) => {
     return c.json(await piClient.getProject({ path: c.req.query('path') ?? '' }))
+  })
+
+  app.get('/api/pi/projects/trust-summary', async (c) => {
+    return c.json(await piClient.inspectProjectTrust({ path: c.req.query('path') ?? '' }))
   })
 
   app.post('/api/pi/projects/trust', async (c) => {
@@ -47,9 +130,26 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
   })
 
   app.get('/api/pi/threads', async (c) => {
-    const workspacePath = c.req.query('workspacePath') ?? undefined
+    const workspaceId = c.req.query('workspaceId') ?? undefined
+    const unassigned = c.req.query('unassigned') === 'true'
     const includeArchived = c.req.query('includeArchived') === 'true'
-    return c.json(await piClient.listThreads({ workspacePath, includeArchived }))
+    return c.json(
+      await piClient.listThreads({
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(unassigned ? { unassigned } : {}),
+        includeArchived,
+      }),
+    )
+  })
+
+  app.post('/api/pi/threads/:id/workspace', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { workspaceId?: unknown }
+    return c.json(
+      await piClient.assignThreadWorkspace({
+        threadId: c.req.param('id'),
+        workspaceId: typeof body.workspaceId === 'string' ? body.workspaceId : '',
+      }),
+    )
   })
 
   app.post('/api/pi/threads', async (c) => {

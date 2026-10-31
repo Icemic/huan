@@ -16,16 +16,48 @@ const baseClient = createHarnessHttpClient(
   __HUAN_TOKEN__ ? { headers: { 'x-huan-token': __HUAN_TOKEN__ } } : undefined,
 )
 
+const notifyThreadsChanged = (event: 'created' | 'updated') => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(`huan:thread-${event}`))
+}
+
 export const harnessHttpClient: typeof baseClient = {
   ...baseClient,
   async createThread(input) {
     const draft = getDraftModel()
-    if (!draft) return baseClient.createThread(input)
-    // 草稿存在：随创建请求携带显式模型（宿主在创建 session 时即应用）。
-    return baseClient.createThread({
-      ...input,
-      model: { provider: draft.provider, modelId: draft.modelId },
-      ...(draft.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
-    })
+    const result = draft
+      ? // 草稿存在：随创建请求携带显式模型（宿主在创建 session 时即应用）。
+        await baseClient.createThread({
+          ...input,
+          model: { provider: draft.provider, modelId: draft.modelId },
+          ...(draft.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
+        })
+      : await baseClient.createThread(input)
+    // 侧栏分组来自宿主列表；创建成功立刻重查，避免要刷新页面才出现新会话。
+    notifyThreadsChanged('created')
+    return result
+  },
+  async sendMessage(threadId, input) {
+    await baseClient.sendMessage(threadId, input)
+    // 首条消息写入后标题才可读；接受消息后补一次列表重查。
+    notifyThreadsChanged('updated')
+  },
+  subscribe(threadId, listener, options) {
+    return baseClient.subscribe(
+      threadId,
+      (event) => {
+        listener(event)
+        // 快照/结算说明会话文件与标题已经落盘（空会话文件可能尚未创建）；
+        // 通知侧栏重查，避免新会话只在刷新页面后出现。
+        if (
+          event.type === 'snapshot' ||
+          event.type === 'agent_settled' ||
+          event.type === 'session_info_changed'
+        ) {
+          notifyThreadsChanged('updated')
+        }
+      },
+      options,
+    )
   },
 }

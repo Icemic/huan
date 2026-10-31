@@ -22,8 +22,12 @@
  * 且位于服务端的 `@huan/core` 中。
  *
  * 线契约（相对 `baseUrl`，默认 `/api/pi`）：
- *   GET    /threads                 → HarnessThreadMetadata[]
- *   POST   /threads                 → HarnessThreadSnapshot      (body: 创建输入)
+ *   GET    /workspaces              → HarnessWorkspaceCatalog
+ *   POST   /workspaces              → HarnessWorkspaceMutationResult (body: 创建输入)
+ *   PATCH  /workspaces/:id          → HarnessWorkspaceMutationResult (body: 修改输入)
+ *   GET    /threads                 → HarnessThreadMetadata[]   (?workspaceId=&unassigned=&includeArchived=)
+ *   POST   /threads                 → HarnessThreadSnapshot      (body: workspaceId + startProjectPath 等)
+ *   POST   /threads/:id/workspace   → HarnessAssignThreadResult  (body: { workspaceId })
  *   GET    /threads/:id             → HarnessThreadSnapshot
  *   PATCH  /threads/:id             → 204                        (body: { title })
  *   POST   /threads/:id/messages    → 204                        (body: { input })
@@ -32,6 +36,7 @@
  *   GET    /projects                → HarnessRecentProject[]
  *   POST   /projects/check          → HarnessProjectPathCheck     (body: { path })
  *   GET    /projects/info?path=     → HarnessProjectInfo
+ *   GET    /projects/trust-summary?path= → HarnessProjectInfo     (只读信任摘要)
  *   POST   /projects/trust          → HarnessProjectInfo          (body: { path, trusted, remember? })
  *   GET    /models                  → HarnessModelInfo[]
  *   POST   /threads/:id/model       → 204                        (body: { provider, modelId })
@@ -57,6 +62,9 @@ import type {
   HarnessThinkingLevel,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessWorkspace,
+  HarnessWorkspaceCatalog,
+  HarnessWorkspaceMutationResult,
 } from '@huan/protocol'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import { createHarnessEventStreamConnection, isTerminalStreamError } from './event-source.js'
@@ -198,6 +206,56 @@ const isRecentProject = (value: unknown): value is HarnessRecentProject =>
   typeof value.path === 'string' &&
   typeof value.name === 'string' &&
   (value.lastActiveAt === undefined || typeof value.lastActiveAt === 'string')
+
+const isWorkspaceProject = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.alias === 'string' &&
+  typeof value.path === 'string' &&
+  typeof value.available === 'boolean'
+
+const isWorkspace = (value: unknown): value is HarnessWorkspace =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  typeof value.revision === 'number' &&
+  Array.isArray(value.projects) &&
+  value.projects.every(isWorkspaceProject)
+
+const isWorkspaceCatalog = (value: unknown): value is HarnessWorkspaceCatalog =>
+  isRecord(value) &&
+  Array.isArray(value.workspaces) &&
+  value.workspaces.every(isWorkspace) &&
+  (value.state === 'ok' ||
+    value.state === 'corrupted' ||
+    value.state === 'unsupported-version' ||
+    value.state === 'unreadable') &&
+  (value.startupWorkspaceId === undefined || typeof value.startupWorkspaceId === 'string')
+
+const isWorkspaceMutationResult = (value: unknown): value is HarnessWorkspaceMutationResult => {
+  if (!isRecord(value)) return false
+  if (value.ok === true) return isWorkspace(value.workspace)
+  if (value.ok !== false) return false
+  return (
+    (value.error === 'conflict' ||
+      value.error === 'state-unavailable' ||
+      value.error === 'not-found' ||
+      value.error === 'invalid') &&
+    (value.workspace === undefined || isWorkspace(value.workspace)) &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  )
+}
+
+const isAssignThreadResult = (value: unknown): boolean => {
+  if (!isRecord(value)) return false
+  if (value.ok === true) return isThreadMetadata(value.thread)
+  return (
+    value.ok === false &&
+    (value.error === 'state-unavailable' ||
+      value.error === 'not-found' ||
+      value.error === 'invalid') &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  )
+}
 
 const parseProjectInfo = (value: unknown): HarnessProjectInfo => {
   if (!isProjectInfo(value)) {
@@ -367,9 +425,60 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         throw invalidResponse('fetching host information', 'expected valid host information.')
       return value
     },
+    listWorkspaces: async () => {
+      const value = await readJson(await send(`${base}/workspaces`, 'GET'), 'listing workspaces')
+      if (!isWorkspaceCatalog(value)) {
+        throw invalidResponse('listing workspaces', 'expected a valid workspace catalog.')
+      }
+      return value
+    },
+
+    createWorkspace: async (input) => {
+      const value = await readJson(
+        await send(`${base}/workspaces`, 'POST', input),
+        'creating a workspace',
+      )
+      if (!isWorkspaceMutationResult(value)) {
+        throw invalidResponse('creating a workspace', 'expected a workspace mutation result.')
+      }
+      return value
+    },
+
+    updateWorkspace: async (input) => {
+      const value = await readJson(
+        await send(`${base}/workspaces/${encodeURIComponent(input.workspaceId)}`, 'PATCH', {
+          expectedRevision: input.expectedRevision,
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.projects !== undefined ? { projects: input.projects } : {}),
+        }),
+        'updating a workspace',
+      )
+      if (!isWorkspaceMutationResult(value)) {
+        throw invalidResponse('updating a workspace', 'expected a workspace mutation result.')
+      }
+      return value
+    },
+
+    assignThreadWorkspace: async (input) => {
+      const value = await readJson(
+        await send(`${threadUrl(input.threadId)}/workspace`, 'POST', {
+          workspaceId: input.workspaceId,
+        }),
+        'assigning a thread workspace',
+      )
+      if (!isAssignThreadResult(value)) {
+        throw invalidResponse(
+          'assigning a thread workspace',
+          'expected a thread assignment result.',
+        )
+      }
+      return value as Awaited<ReturnType<HarnessClient['assignThreadWorkspace']>>
+    },
+
     listThreads: async (input) => {
       const params = new URLSearchParams()
-      if (input?.workspacePath) params.set('workspacePath', input.workspacePath)
+      if (input?.workspaceId) params.set('workspaceId', input.workspaceId)
+      if (input?.unassigned) params.set('unassigned', 'true')
       if (input?.includeArchived) params.set('includeArchived', 'true')
       const query = params.toString()
       return parseThreadListResponse(
@@ -422,6 +531,16 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         await readJson(
           await send(`${base}/projects/info?${params.toString()}`, 'GET'),
           'fetching a project',
+        ),
+      )
+    },
+
+    inspectProjectTrust: async (input) => {
+      const params = new URLSearchParams({ path: input.path })
+      return parseProjectInfo(
+        await readJson(
+          await send(`${base}/projects/trust-summary?${params.toString()}`, 'GET'),
+          'fetching project trust summary',
         ),
       )
     },

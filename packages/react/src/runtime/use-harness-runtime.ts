@@ -513,11 +513,12 @@ export const useHarnessRuntime = (options: HarnessRuntimeOptions): AssistantRunt
     return () => registry.dispose()
   }, [registry])
 
-  const { workspacePath, includeArchived } = options
+  const { workspaceId, unassigned, includeArchived, createThreadInput } = options
   const createAdapter = () => ({
     list: async () => {
       const threads = await client.listThreads({
-        ...(workspacePath !== undefined ? { workspacePath } : {}),
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+        ...(unassigned === true ? { unassigned } : {}),
         ...(includeArchived !== undefined ? { includeArchived } : {}),
       })
       return { threads: threads.map(mapThreadMetadata) }
@@ -535,9 +536,11 @@ export const useHarnessRuntime = (options: HarnessRuntimeOptions): AssistantRunt
       await client.deleteThread?.(remoteId)
     },
     initialize: async () => {
-      const snapshot = await client.createThread({
-        ...(workspacePath !== undefined ? { workspacePath } : {}),
-      })
+      const snapshot = await client.createThread(
+        createThreadInput
+          ? createThreadInput()
+          : { ...(workspaceId !== undefined ? { workspaceId } : {}) },
+      )
       return {
         remoteId: snapshot.metadata.id,
         externalId: snapshot.metadata.id,
@@ -557,20 +560,26 @@ export const useHarnessRuntime = (options: HarnessRuntimeOptions): AssistantRunt
   })
   const [pinnedAdapter, setPinnedAdapter] = useState(() => ({
     client,
-    workspacePath,
+    workspaceId,
+    unassigned,
     includeArchived,
+    createThreadInput,
     adapter: createAdapter(),
   }))
   let currentAdapter = pinnedAdapter
   if (
     pinnedAdapter.client !== client ||
-    pinnedAdapter.workspacePath !== workspacePath ||
-    pinnedAdapter.includeArchived !== includeArchived
+    pinnedAdapter.workspaceId !== workspaceId ||
+    pinnedAdapter.unassigned !== unassigned ||
+    pinnedAdapter.includeArchived !== includeArchived ||
+    pinnedAdapter.createThreadInput !== createThreadInput
   ) {
     currentAdapter = {
       client,
-      workspacePath,
+      workspaceId,
+      unassigned,
       includeArchived,
+      createThreadInput,
       adapter: createAdapter(),
     }
     setPinnedAdapter(currentAdapter)

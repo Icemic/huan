@@ -24,7 +24,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { realpathSync } from 'node:fs'
+import { realpathSync, statSync } from 'node:fs'
 import { readdir, stat, unlink } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import {
@@ -59,6 +59,10 @@ import type {
   HarnessThinkingLevel,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessWorkspace,
+  HarnessWorkspaceCatalog,
+  HarnessWorkspaceMutationResult,
+  HarnessWorkspaceProject,
 } from '@huan/protocol'
 import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
@@ -94,6 +98,18 @@ import {
   readSessionDirSetting,
   resolveAgentDir,
 } from './session-dir.js'
+import { pathKey, type WorkspaceSnapshot } from './workspace-path.js'
+import {
+  defaultWorkspaceId,
+  sessionStoreId,
+  WorkspaceConflictError,
+  WorkspaceNotFoundError,
+  WorkspaceStateUnavailableError,
+  WorkspaceStore,
+  type WorkspaceStoreWorkspace,
+  WorkspaceValidationError,
+} from './workspace-store.js'
+import { createWorkspaceToolsExtension } from './workspace-tools.js'
 
 /** 宿主动作选项。 */
 export type HarnessHostOptions = {
@@ -158,6 +174,20 @@ export class ProjectTrustRequiredError extends Error {
 type PreparedProject = {
   trust: ProjectTrustResult
   guard: { record?: ThreadRecord }
+  /**
+   * 会话级工作区绑定。
+   *
+   * loader 在信任查询/启动阶段就可能装配，因此这里用可变槽延迟绑定：
+   * 一个 loader 只被一个 live session 消费，消费时写入会话归属；扩展
+   * 每次运行开始读取该槽对应的最新工作区定义。查询阶段未绑定时不注入
+   * 工作区工具提示。
+   */
+  workspaceBinding: {
+    workspaceId?: string
+    /** SDK 实际加载的指令文件（reload 后填充，避免推算）。 */
+    loadedInstructionPaths: readonly string[]
+    onApplied?: (workspace: WorkspaceSnapshot | null) => void
+  }
 }
 
 /** 每 cwd 的项目状态缓存与可复用的启动/决定装配。 */
@@ -185,7 +215,12 @@ type ThreadRecord = {
   listeners: Set<(event: HarnessClientEvent) => void>
   seq: number
   turnIndex: number
+  /** 固定起始 cwd（不是工作区 ID）。 */
   workspacePath: string
+  workspaceId: string | undefined
+  /** 本轮实际应用的工作区 revision；未运行或刚改归属时可能缺失。 */
+  workspaceAppliedRevision: number | undefined
+  workspaceBinding: PreparedProject['workspaceBinding']
   lastError: string | undefined
   /** 该会话的资源加载器（用于 dispose 时补发 session_shutdown）。 */
   resourceLoader: ResourceLoader
@@ -443,6 +478,111 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   const projectNameOf = (path: string): string => basename(path) || path
 
+  // ---- 工作区元数据（单文件、串行原子写） ----
+  // 存储作用域标识按实际会话存储根计算：默认空间是 <agentDir>/sessions，
+  // 显式覆盖是解析后的平铺 sessionDir。它与会话 cwd 无关。
+  const startupScope = resolveSessionDirFor(workspacePath)
+  const sessionStoreRoot = startupScope.grouped ? defaultSessionsRoot(agentDir) : startupScope.dir
+  const storeId = sessionStoreId(sessionStoreRoot)
+  const workspaceStore = new WorkspaceStore(agentDir)
+  await workspaceStore.load()
+
+  const isAvailableDirectory = (path: string): boolean => {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  }
+
+  const workspaceViewOf = (workspace: WorkspaceStoreWorkspace): HarnessWorkspace => ({
+    id: workspace.id,
+    name: workspace.name,
+    revision: workspace.revision,
+    projects: workspace.projects.map(
+      (project): HarnessWorkspaceProject => ({
+        alias: project.alias,
+        path: project.path,
+        available: isAvailableDirectory(project.path),
+      }),
+    ),
+  })
+
+  /** 扩展运行边界读取的权威快照：每次都从已提交的内存状态生成。 */
+  const workspaceSnapshotOf = (workspaceId: string): WorkspaceSnapshot | null => {
+    const workspace = workspaceStore.workspace(workspaceId)
+    if (!workspace) return null
+    return {
+      workspaceId: workspace.id,
+      name: workspace.name,
+      revision: workspace.revision,
+      roots: workspace.projects.map((project) => ({
+        alias: project.alias,
+        path: project.path,
+        available: isAvailableDirectory(project.path),
+      })),
+    }
+  }
+
+  // 单项目也走同一工作区模型：状态健康且没有任何定义时，提供一个仅存于
+  // 内存的启动工作区；首次写入时随状态文件落盘。已有无元数据的 Pi 会话
+  // 不会被自动归入，仍需用户明确接入。
+  let startupWorkspaceId: string | undefined
+  if (workspaceStore.healthy) {
+    const startupPath = canonicalProjectPath(workspacePath)
+    const existing = workspaceStore
+      .listWorkspaces()
+      .find((workspace) =>
+        workspace.projects.some((project) => pathKey(project.path) === pathKey(startupPath)),
+      )
+    if (existing) {
+      startupWorkspaceId = existing.id
+    } else if (workspaceStore.listWorkspaces().length === 0) {
+      const id = defaultWorkspaceId(agentDir, startupPath)
+      try {
+        workspaceStore.seedDefaultWorkspace({
+          id,
+          name: projectNameOf(startupPath),
+          path: startupPath,
+        })
+        startupWorkspaceId = id
+      } catch (error) {
+        diagnostics.push(`默认工作区初始化：${String(error)}`)
+      }
+    }
+    // 启动路径不属于任何已有工作区时保持未选中：不把新会话静默放进第一个
+    // 无关工作区；GUI 会按窗口选择显式传入 workspaceId。
+  }
+
+  /** 工作区修改结果投影：冲突时附带权威定义供页面立即重读。 */
+  const workspaceMutationResult = async (
+    run: () => Promise<WorkspaceStoreWorkspace>,
+  ): Promise<HarnessWorkspaceMutationResult> => {
+    try {
+      return { ok: true, workspace: workspaceViewOf(await run()) }
+    } catch (error) {
+      if (error instanceof WorkspaceConflictError) {
+        return { ok: false, error: 'conflict', workspace: workspaceViewOf(error.current) }
+      }
+      if (error instanceof WorkspaceNotFoundError) return { ok: false, error: 'not-found' }
+      if (error instanceof WorkspaceStateUnavailableError) {
+        return { ok: false, error: 'state-unavailable' }
+      }
+      if (error instanceof WorkspaceValidationError) {
+        return { ok: false, error: 'invalid', reason: error.reason }
+      }
+      throw error
+    }
+  }
+
+  /** 工作区定义变更后，让已订阅该工作区的窗口立即读到最新的待生效 revision。 */
+  const emitWorkspaceSnapshots = (workspaceId: string): void => {
+    for (const record of records.values()) {
+      if (record.workspaceId !== workspaceId) continue
+      emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
+    }
+  }
+
   /** 路径校验只做文件系统检查，不执行任何项目代码。 */
   const inspectProjectPath = async (input: string): Promise<HarnessProjectPathCheck> => {
     const requested = input.trim()
@@ -486,7 +626,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   })
 
   /** 把核心信任结果投影为 JSON-safe 项目摘要（不传扩展错误原文）。 */
-  const projectInfoOf = (prepared: PreparedProject): HarnessProjectInfo => {
+  const projectInfoOf = (prepared: { trust: ProjectTrustResult }): HarnessProjectInfo => {
     const state = prepared.trust.state
     return {
       path: state.cwd,
@@ -546,6 +686,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     override?: boolean,
   ): Promise<PreparedProject> => {
     const guard: { record?: ThreadRecord } = {}
+    const workspaceBinding: PreparedProject['workspaceBinding'] = {
+      loadedInstructionPaths: [],
+    }
     const trust = await prepareProjectTrust({
       cwd,
       agentDir,
@@ -553,17 +696,49 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       trustStore,
       resourceLoaderOptions: {
         ...toResourceLoaderOptions(resourceLoaderOptions),
-        extensionFactories: [createInputGuardExtension(() => guard.record)],
+        extensionFactories: [
+          createInputGuardExtension(() => guard.record),
+          // 工作区扩展按会话实例装配。loader 若先用于查询，绑定槽为空；
+          // 被某个 live session 消费时才写入归属，不会按 cwd 复用给另一个工作区。
+          createWorkspaceToolsExtension({
+            getWorkspace: () =>
+              workspaceBinding.workspaceId
+                ? workspaceSnapshotOf(workspaceBinding.workspaceId)
+                : null,
+            getLoadedInstructionPaths: () => workspaceBinding.loadedInstructionPaths,
+            onWorkspaceApplied: (workspace) => workspaceBinding.onApplied?.(workspace),
+          }),
+        ],
       },
     })
     for (const message of [...trust.loadErrors, ...trust.state.extensionErrors]) {
       diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
       safeDiagnostics.add('assembly-warning')
     }
-    registerPreparedProviders(trust.resourceLoader.getExtensions())
+    const extensions = trust.resourceLoader.getExtensions()
+    // 上游 pi-workspaces 与本宿主的同名工具职责重叠。若用户仍安装该插件，
+    // 明确拒绝装配并给出诊断，避免双重注册/双重权威静默并存。
+    const conflicting = extensions.extensions.find((extension) => {
+      const segments = extension.path.split(/[\\/]/)
+      return segments.some(
+        (segment) => segment === 'pi-workspaces' || segment.startsWith('pi-workspaces.'),
+      )
+    })
+    if (conflicting) {
+      const message =
+        `检测到 pi-workspaces 扩展（${conflicting.path}）；huan 已内置工作区工具，` +
+        '请移除该扩展后重新打开项目，避免同名工具重复注册。'
+      diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
+      safeDiagnostics.add('assembly-warning')
+      throw new Error(message)
+    }
+    registerPreparedProviders(extensions)
     // 与 SDK 服务装配一致：注册完 provider 后物化本地目录，不触发联网。
     await modelRuntime.refresh({ allowNetwork: false })
-    return { trust, guard }
+    workspaceBinding.loadedInstructionPaths = trust.resourceLoader
+      .getAgentsFiles()
+      .agentsFiles.map((file) => file.path)
+    return { trust, guard, workspaceBinding }
   }
 
   /** 由一次装配结果建立/替换项目缓存。旧 loader 未被消费时直接丢弃。 */
@@ -616,6 +791,35 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     } catch (error) {
       diagnostics.push(`项目装配（${check.path}）：${String(error)}`)
       safeDiagnostics.add('assembly-warning')
+      return failedProjectInfo(check.path, 'load-failed')
+    }
+  }
+
+  /**
+   * 只读信任摘要：用于工作区成员管理展示，不加载项目扩展或资源。
+   *
+   * 该路径只读取 trust.json、全局默认策略与项目资源存在性；用户级
+   * project_trust 扩展的实际决定仍会在真正装配/新建会话时执行。
+   */
+  const inspectProjectTrust = async (input: string): Promise<HarnessProjectInfo> => {
+    const check = await inspectProjectPath(input)
+    if (check.error) return failedProjectInfo(check.path || input, check.error.code)
+    try {
+      const trust = await prepareProjectTrust({
+        cwd: check.path,
+        agentDir,
+        trustStore,
+        resourceLoaderOptions: {
+          noExtensions: true,
+          noSkills: true,
+          noPromptTemplates: true,
+          noThemes: true,
+          noContextFiles: true,
+        },
+      })
+      return projectInfoOf({ trust })
+    } catch (error) {
+      diagnostics.push(`项目信任摘要（${check.path}）：${String(error)}`)
       return failedProjectInfo(check.path, 'load-failed')
     }
   }
@@ -775,10 +979,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ...(options.model ? { model: options.model } : {}),
     })
 
-  const catalogCache = new Map<
-    string,
-    { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> }
-  >()
   /** 整个存储作用域（默认空间或平铺覆盖）的跨 cwd 列表缓存，按作用域目录区分。 */
   const scopeCatalogCache = new Map<
     string,
@@ -810,30 +1010,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       throw new Error(`会话文件不在当前存储作用域内：${filePath}`)
     }
     return scope
-  }
-
-  // ---- 目录读取（SessionManager.list 结果由宿主缓存，用于 thread 列表与冷读定位） ----
-  const listSessionInfos = async (cwd: string): Promise<SessionCatalogInfo[]> => {
-    const existing = catalogCache.get(cwd)
-    if (existing?.infos) return existing.infos
-    if (existing?.promise) return existing.promise
-    const entry: { infos?: SessionCatalogInfo[]; promise?: Promise<SessionCatalogInfo[]> } = {}
-    const { dir } = resolveSessionDirFor(cwd)
-    const promise = SessionManager.list(cwd, dir)
-      .then((infos) => {
-        const mapped = infos as unknown as SessionCatalogInfo[]
-        // 空结果不缓存：首条消息落盘发生在创建之后，否则「创建后立即列表」
-        // 会把过期空列表长期缓存住（实测：随后再也看不到新会话）。
-        if (mapped.length === 0) catalogCache.delete(cwd)
-        else entry.infos = mapped
-        return mapped
-      })
-      .finally(() => {
-        entry.promise = undefined
-      })
-    entry.promise = promise
-    catalogCache.set(cwd, entry)
-    return promise
   }
 
   /**
@@ -897,9 +1073,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return promise
   }
 
-  const invalidateCatalog = (cwd: string = workspacePath) => {
-    catalogCache.delete(cwd)
-    // 同时丢弃跨 cwd 作用域缓存，避免删除/更名后仍读到旧值。
+  const invalidateCatalog = (_cwd: string = workspacePath) => {
+    // 列表已统一走跨 cwd 作用域缓存；任何会话文件变化都清整份缓存，
+    // 避免删除/更名/首条消息落盘后仍读到旧值。
     scopeCatalogCache.clear()
   }
 
@@ -938,6 +1114,30 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return record.lastError ? 'failed' : 'idle'
   }
 
+  /** 工作区相关元数据；归属按会话元数据定位，绝不按 cwd 推断。 */
+  const workspaceFields = (
+    workspaceId: string | undefined,
+    appliedRevision?: number,
+  ): Pick<
+    HarnessThreadMetadata,
+    'workspaceId' | 'workspaceRevision' | 'workspaceAppliedRevision'
+  > => {
+    if (!workspaceId) return {}
+    const workspace = workspaceStore.workspace(workspaceId)
+    if (!workspace) return {}
+    return {
+      workspaceId,
+      workspaceRevision: workspace.revision,
+      ...(appliedRevision !== undefined ? { workspaceAppliedRevision: appliedRevision } : {}),
+    }
+  }
+
+  const sessionWorkspaceFields = (
+    threadId: string,
+    appliedRevision?: number,
+  ): ReturnType<typeof workspaceFields> =>
+    workspaceFields(workspaceStore.sessionWorkspace(storeId, threadId), appliedRevision)
+
   const metadataOf = (record: ThreadRecord): HarnessThreadMetadata => {
     const session = record.session
     const model = session.model
@@ -951,6 +1151,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       retryActive: session.isRetrying,
       retryAttempt: session.retryAttempt,
       workspacePath: record.workspacePath,
+      ...workspaceFields(record.workspaceId, record.workspaceAppliedRevision),
       messageCount: session.messages.length,
       // 标题口径与冷读路径一致：显式会话名 > 首条用户消息（截断）> 会话文件名。
       // 注意：仅「显式命名」会持久化；未命名会话重启后由冷路径推导同一标题。
@@ -1069,6 +1270,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   ): void {
     if (event.type === 'turn_start') record.turnIndex += 1
     if (event.type === 'session_info_changed') invalidateCatalog(record.workspacePath)
+    // 新会话的 JSONL 直到首条用户消息才真正落盘；空会话创建后列表缓存可能
+    // 仍是旧结果。首条用户消息开始时清一次目录缓存，让后续列表看到文件与标题。
+    if (event.type === 'message_start' && event.message.role === 'user') {
+      invalidateCatalog(record.workspacePath)
+    }
 
     // 运行激活（activeRun 已建立、模型请求尚未发出）时处理预检期取消。
     // 用 agent_start 而非微任务：这是 SDK 语义内的最早稳定时点，
@@ -1166,6 +1372,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       thinkingLevel?: HarnessThinkingLevel
       /** 已获取的项目装配（createThread 在检查默认模型前已取得）。 */
       project?: { runtime: ProjectRuntime; prepared: PreparedProject }
+      /** 会话显式归属的工作区；未归属时为空。 */
+      workspaceId?: string
     },
   ): Promise<ThreadRecord> => {
     const openedGeneration = generation
@@ -1177,6 +1385,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const project = opts.project ?? (await acquireProjectSession(cwd))
     const prepared = project.prepared
     const projectCwd = project.runtime.cwd
+    // loader 只能服务一个 live session；这里写入本次会话的工作区归属。
+    prepared.workspaceBinding.workspaceId = opts.workspaceId
     const services: AgentSessionServices = {
       cwd: projectCwd,
       agentDir,
@@ -1226,6 +1436,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       seq: 0,
       turnIndex: -1,
       workspacePath: projectCwd,
+      workspaceId: opts.workspaceId,
+      workspaceAppliedRevision: opts.workspaceId
+        ? workspaceStore.workspace(opts.workspaceId)?.revision
+        : undefined,
+      workspaceBinding: prepared.workspaceBinding,
       lastError: undefined,
       resourceLoader: prepared.trust.resourceLoader,
       inFlight: new Set(),
@@ -1255,6 +1470,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       },
     })
     record.uiBridge = uiBridge
+    // 运行边界回调：before_agent_start 固定本轮 revision，供页面显示实际生效版本。
+    prepared.workspaceBinding.onApplied = (workspace) => {
+      if (record.workspaceAppliedRevision === workspace?.revision) return
+      record.workspaceAppliedRevision = workspace?.revision
+      emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
+    }
 
     // 装配期：session_start handler 发起的阻断请求立即结算（record 尚未发布）。
     uiBridge.setStartup(true)
@@ -1339,6 +1560,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   const ensureOpen = async (threadId: string): Promise<ThreadRecord> => {
     assertActive()
+    if (!workspaceStore.healthy) {
+      throw new WorkspaceStateUnavailableError(
+        workspaceStore.integrity === 'ok' ? 'unreadable' : workspaceStore.integrity,
+        workspaceStore.stateFile,
+      )
+    }
     if (pendingDeletes.has(threadId)) throwOpenCancelled()
     const existing = records.get(threadId)
     if (existing) return existing
@@ -1365,7 +1592,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     // 打开也使用同一存储规则：会话文件必须属于当前作用域（含符号链接真实路径）。
     const scope = assertSessionFileInScope(info.path, info.cwd)
     const sessionManager = SessionManager.open(info.path, scope.dir)
-    return openSession(sessionManager, info.cwd || workspacePath, { isNew: false, signal })
+    // 归属只在 huan 元数据中查找；没有记录的旧会话保持未归属，不按 cwd 猜测。
+    const workspaceId = workspaceStore.sessionWorkspace(storeId, info.id)
+    return openSession(sessionManager, info.cwd || workspacePath, {
+      isNew: false,
+      signal,
+      ...(workspaceId ? { workspaceId } : {}),
+    })
   }
 
   // ---- 发送 ----
@@ -1683,6 +1916,26 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
   }
 
+  /**
+   * 收尾一个刚创建但归属保存失败的会话：保留 Pi 文件供「未归属」发现，
+   * 不删除、不伪报创建成功。
+   */
+  const abandonRecord = async (record: ThreadRecord): Promise<void> => {
+    record.retired = true
+    wakeAdmissionWaiters(record)
+    discardDeferredRuns(record.session)
+    for (const pending of record.inFlight) pending.cancelled = true
+    record.uiBridge.dismissAll()
+    await abortForRetire(record.session)
+    await drainInFlight(record)
+    await emitShutdown(record, 'quit')
+    discardDeferredRuns(record.session)
+    record.session.dispose()
+    record.unsubscribe()
+    records.delete(record.threadId)
+    if (record.session.sessionFile) recordsBySessionFile.delete(record.session.sessionFile)
+  }
+
   const client: HarnessClient = {
     async getHostInfo() {
       assertActive()
@@ -1716,29 +1969,145 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         diagnostics: [...safeDiagnostics],
       }
     },
+    async listWorkspaces() {
+      assertActive()
+      const workspaces = workspaceStore.listWorkspaces().map(workspaceViewOf)
+      const startup = startupWorkspaceId
+        ? workspaces.find((workspace) => workspace.id === startupWorkspaceId)
+        : undefined
+      return {
+        workspaces,
+        state: workspaceStore.integrity,
+        ...(startup ? { startupWorkspaceId: startup.id } : {}),
+      } satisfies HarnessWorkspaceCatalog
+    },
+
+    async createWorkspace(input) {
+      assertActive()
+      return workspaceMutationResult(() =>
+        workspaceStore.createWorkspace({
+          ...input,
+          projects: input.projects.map((project) => ({
+            ...project,
+            path: canonicalProjectPath(project.path),
+          })),
+        }),
+      )
+    },
+
+    async updateWorkspace(input) {
+      assertActive()
+      const result = await workspaceMutationResult(() =>
+        workspaceStore.updateWorkspace({
+          ...input,
+          ...(input.projects
+            ? {
+                projects: input.projects.map((project) => ({
+                  ...project,
+                  path: canonicalProjectPath(project.path),
+                })),
+              }
+            : {}),
+        }),
+      )
+      if (result.ok) emitWorkspaceSnapshots(result.workspace.id)
+      else if (result.workspace) emitWorkspaceSnapshots(result.workspace.id)
+      return result
+    },
+
+    async assignThreadWorkspace(input) {
+      assertActive()
+      const info = records.get(input.threadId) ? undefined : await findSessionInfo(input.threadId)
+      const record = records.get(input.threadId)
+      if (!record && !info) return { ok: false, error: 'not-found' as const }
+      try {
+        await workspaceStore.assignSession({
+          storeId,
+          sessionId: input.threadId,
+          workspaceId: input.workspaceId,
+        })
+      } catch (error) {
+        if (error instanceof WorkspaceNotFoundError) {
+          return { ok: false, error: 'not-found' as const }
+        }
+        if (error instanceof WorkspaceStateUnavailableError) {
+          return { ok: false, error: 'state-unavailable' as const }
+        }
+        throw error
+      }
+      if (record) {
+        record.workspaceId = input.workspaceId
+        // 归属变更在下一轮运行开始时应用；当前轮保持原快照。
+        record.workspaceAppliedRevision = undefined
+        record.workspaceBinding.workspaceId = input.workspaceId
+        emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
+        return { ok: true as const, thread: metadataOf(record) }
+      }
+      const workspace = workspaceStore.workspace(input.workspaceId)
+      return {
+        ok: true as const,
+        thread: {
+          ...mapSessionInfo(info as SessionCatalogInfo, { liveStatus: 'idle' }),
+          ...(workspace
+            ? {
+                workspaceId: workspace.id,
+                workspaceRevision: workspace.revision,
+                workspaceAppliedRevision: workspace.revision,
+              }
+            : {}),
+          ...(archivedSessionFiles.has((info as SessionCatalogInfo).path)
+            ? { archived: true }
+            : {}),
+        },
+      }
+    },
+
     async listThreads(input) {
       assertActive()
-      const cwd = input?.workspacePath ?? workspacePath
-      const scopeRoot = scopeRootOf(scopeOf(cwd))
-      return (await listSessionInfos(cwd))
-        .filter((info) => isPathWithinScope(scopeRoot, info.path))
+      // 工作区会话跨 cwd 聚合：使用整个存储作用域列表，而不是只过滤 header.cwd。
+      const infos = await listScopeInfos()
+      return infos
         .filter((info) => input?.includeArchived || !archivedSessionFiles.has(info.path))
-        .map((info) => {
+        .flatMap((info) => {
+          const storedWorkspaceId = workspaceStore.sessionWorkspace(storeId, info.id)
+          const workspace = storedWorkspaceId
+            ? workspaceStore.workspace(storedWorkspaceId)
+            : undefined
+          const workspaceId = workspace?.id
+          if (input?.workspaceId && workspaceId !== input.workspaceId) return []
+          if (input?.unassigned && workspaceId) return []
           const live = records.get(info.id)
           if (live) {
             // live 元数据本身不带时间（事件路径避免逐次 stat）；列表补上目录时间，
             // 使「继续最近」等排序与冷条目同一口径。
-            return {
-              ...metadataOf(live),
-              createdAt: info.created.toISOString(),
-              updatedAt: info.modified.toISOString(),
-            }
+            return [
+              {
+                ...metadataOf(live),
+                ...(workspace
+                  ? {
+                      workspaceId: workspace.id,
+                      workspaceRevision: workspace.revision,
+                    }
+                  : {}),
+                createdAt: info.created.toISOString(),
+                updatedAt: info.modified.toISOString(),
+              },
+            ]
           }
-          // 冷条目也要叠加归档标记（过滤与呈现口径一致）。
-          return {
-            ...mapSessionInfo(info, { liveStatus: 'idle' }),
-            ...(archivedSessionFiles.has(info.path) ? { archived: true } : {}),
-          }
+          // 冷条目也要叠加归档标记与工作区归属（过滤与呈现口径一致）。
+          return [
+            {
+              ...mapSessionInfo(info, { liveStatus: 'idle' }),
+              ...(workspace
+                ? {
+                    workspaceId: workspace.id,
+                    workspaceRevision: workspace.revision,
+                    workspaceAppliedRevision: workspace.revision,
+                  }
+                : {}),
+              ...(archivedSessionFiles.has(info.path) ? { archived: true } : {}),
+            },
+          ]
         })
     },
 
@@ -1750,6 +2119,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     async getProject(input) {
       assertActive()
       return queryProject(input.path)
+    },
+
+    async inspectProjectTrust(input) {
+      assertActive()
+      return inspectProjectTrust(input.path)
     },
 
     async decideProjectTrust(input) {
@@ -1764,8 +2138,25 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
     async createThread(input?: HarnessCreateThreadInput) {
       assertActive()
-      // 统一信任入口：未决定/未允许时不装配项目资源；needs-trust 直接拒绝。
-      const project = await acquireProjectSession(input?.workspacePath ?? workspacePath)
+      if (!workspaceStore.healthy) {
+        throw new WorkspaceStateUnavailableError(
+          workspaceStore.integrity === 'ok' ? 'unreadable' : workspaceStore.integrity,
+          workspaceStore.stateFile,
+        )
+      }
+      const workspaceId = input?.workspaceId ?? startupWorkspaceId
+      if (!workspaceId) throw new Error('没有可用工作区，不能新建会话')
+      const workspace = workspaceStore.workspace(workspaceId)
+      if (!workspace) throw new WorkspaceNotFoundError(workspaceId)
+      const requestedStart = input?.startProjectPath?.trim()
+      const startProject = requestedStart
+        ? workspace.projects.find((project) => pathKey(project.path) === pathKey(requestedStart))
+        : workspace.projects[0]
+      if (!startProject) {
+        throw new WorkspaceValidationError('invalid-path')
+      }
+      // 统一信任入口：只按起始 cwd 装配项目资源；其他成员不装配扩展/MCP。
+      const project = await acquireProjectSession(startProject.path)
       const cwd = project.runtime.cwd
       // 显式模型：按 registry 校验并解析为模型对象（找不到时报错，不静默回退）。
       let explicitModel: HarnessDefaultModel | undefined
@@ -1791,9 +2182,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       const record = await openSession(sessionManager, cwd, {
         isNew: true,
         project,
+        workspaceId,
         ...(explicitModel ? { model: explicitModel } : {}),
         ...(input?.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       })
+      // 先保存归属再返回成功；失败时保留 Pi 文件作为未归属会话，不删除。
+      try {
+        await workspaceStore.assignSession({
+          storeId,
+          sessionId: record.threadId,
+          workspaceId,
+        })
+      } catch (error) {
+        await abandonRecord(record)
+        throw error
+      }
       invalidateCatalog(cwd)
       if (input?.title) record.session.setSessionName(input.title)
       if (input?.initialMessage) await send(record, input.initialMessage, () => false)
@@ -1934,6 +2337,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     },
 
     subscribe(threadId, listener, subOptions) {
+      // 损坏元数据仅允许冷读，订阅也不能隐式装配项目代码。
+      if (!workspaceStore.healthy) {
+        let active = true
+        void client
+          .getThread(threadId)
+          .then((snapshot) => {
+            if (active && subOptions?.includeSnapshot !== false) {
+              listener({ type: 'snapshot', snapshot, threadId, seq: 0 })
+            }
+          })
+          .catch(() => {})
+        return () => {
+          active = false
+        }
+      }
       let active = true
       let record: ThreadRecord | undefined
       ensureOpen(threadId)
@@ -1985,15 +2403,26 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ? (modelRuntime.getModel(context.model.provider, context.model.modelId)?.contextWindow ?? 0)
       : 0
     const contextUsage = deriveContextUsage(contextWindow, branch, context.messages)
-    const metadata = mapColdMetadata(
-      info,
-      {
-        messages: context.messages,
-        thinkingLevel: context.thinkingLevel,
-        model: context.model,
-      },
-      { archived: archivedSessionFiles.has(info.path), ...(contextUsage ? { contextUsage } : {}) },
+    const storedWorkspaceId = workspaceStore.sessionWorkspace(storeId, info.id)
+    const workspaceMetadata = sessionWorkspaceFields(
+      info.id,
+      storedWorkspaceId ? workspaceStore.workspace(storedWorkspaceId)?.revision : undefined,
     )
+    const metadata = {
+      ...mapColdMetadata(
+        info,
+        {
+          messages: context.messages,
+          thinkingLevel: context.thinkingLevel,
+          model: context.model,
+        },
+        {
+          archived: archivedSessionFiles.has(info.path),
+          ...(contextUsage ? { contextUsage } : {}),
+        },
+      ),
+      ...workspaceMetadata,
+    }
     return {
       metadata,
       messages: context.messages as HarnessAgentMessage[],

@@ -135,7 +135,7 @@ describe('默认会话目录', () => {
 })
 
 describe('显式会话目录（平铺覆盖）', () => {
-  it('所有 cwd 共享平铺目录；列表按 header cwd 过滤，跨 cwd 可定位', async () => {
+  it('所有 cwd 共享平铺目录；列表覆盖整个存储作用域，跨 cwd 可定位', async () => {
     const env = await newEnv('huan-dir-flat-')
     const otherWorkspace = join(env.root, 'workspace-b')
     await mkdir(otherWorkspace, { recursive: true })
@@ -157,13 +157,19 @@ describe('显式会话目录（平铺覆盖）', () => {
     expect(dirname(created.metadata.sessionFile ?? '')).toBe(flatDir)
     await waitForFile(created.metadata.sessionFile ?? '')
 
-    // 同目录列表按 cwd 过滤：其它项目看不到；本项目的冷宿主能看到。
+    // 工作区会话不按 header.cwd 过滤：同一存储作用域内的宿主都能列出。
     const coldB = await openHost({
       workspacePath: otherWorkspace,
       agentDir: env.agentDir,
       sessionDir: flatDir,
     })
-    expect((await coldB.listThreads()).map((item) => item.id)).not.toContain(id)
+    expect((await coldB.listThreads()).map((item) => item.id)).toContain(id)
+    // 按工作区过滤时只返回明确归属该工作区的会话。
+    const createdWorkspaceId = created.metadata.workspaceId
+    const listedForA = await coldB.listThreads({
+      workspaceId: createdWorkspaceId as string,
+    })
+    expect(listedForA.map((item) => item.id)).toContain(id)
     const coldA = await openHost({
       workspacePath: env.workspace,
       agentDir: env.agentDir,
@@ -312,8 +318,10 @@ describe('作用域内查找与安全边界', () => {
     )
 
     const host = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
-    // 列表按 cwd 过滤，不包含其它项目。
-    expect((await host.listThreads()).map((item) => item.id)).not.toContain(probe.id)
+    // 无归属的既有会话不按 cwd 猜测，但仍在整个存储作用域列表中可见。
+    const listed = (await host.listThreads()).find((item) => item.id === probe.id)
+    expect(listed).toBeDefined()
+    expect(listed?.workspaceId).toBeUndefined()
     // 按 ID 查找可在当前空间内跨 cwd 命中。
     expect((await host.getThread(probe.id)).metadata.title).toBe('跨项目探针')
     await host.renameThread(probe.id, '跨项目改名')
@@ -388,9 +396,9 @@ describe('作用域内查找与安全边界', () => {
     await writeFile(join(env.agentDir, 'sessions'), 'occupied')
     const host = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
 
-    // 当前 cwd 的本地列表仍可为空（SDK 对不可读目录返回空）。
-    await expect(host.listThreads()).resolves.toEqual([])
-    // 跨 cwd 定位必须把目录故障上报给调用方（带路径与原因），而不是吞成空。
+    // 列表与跨 cwd 定位都必须把目录故障上报给调用方（带路径与原因），
+    // 而不是吞成空列表。
+    await expect(host.listThreads()).rejects.toThrow(/会话目录不可用/)
     await expect(host.getThread('missing-thread')).rejects.toThrow(/会话目录不可用/)
   }, 60_000)
 

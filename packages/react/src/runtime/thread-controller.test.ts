@@ -63,6 +63,18 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async getHostInfo() {
       throw new Error('Controller 不查询宿主信息')
     },
+    async listWorkspaces() {
+      return { workspaces: [], state: 'ok' as const }
+    },
+    async createWorkspace() {
+      throw new Error('Controller 不创建工作区')
+    },
+    async updateWorkspace() {
+      throw new Error('Controller 不修改工作区')
+    },
+    async assignThreadWorkspace() {
+      throw new Error('Controller 不修改会话归属')
+    },
     async listThreads() {
       return []
     },
@@ -87,6 +99,9 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     },
     async getProject() {
       throw new Error('Controller 不查询项目')
+    },
+    async inspectProjectTrust() {
+      throw new Error('Controller 不查询项目信任摘要')
     },
     async decideProjectTrust() {
       throw new Error('Controller 不修改信任')

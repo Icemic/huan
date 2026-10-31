@@ -36,5 +36,37 @@ export {
   refreshModelCatalog,
   resolveDefaultModel,
 } from './model-catalog.js'
+export {
+  isInside,
+  owningRoot,
+  pathKey,
+  resolveWorkspacePath,
+  type WorkspacePathResolution,
+  type WorkspaceRoot,
+  type WorkspaceSnapshot,
+} from './workspace-path.js'
+export {
+  defaultAlias,
+  defaultWorkspaceId,
+  sessionStoreId,
+  WORKSPACE_STATE_VERSION,
+  WorkspaceConflictError,
+  type WorkspaceMutationInput,
+  WorkspaceNotFoundError,
+  type WorkspaceSessionMetadata,
+  WorkspaceStateUnavailableError,
+  WorkspaceStore,
+  type WorkspaceStoreIntegrity,
+  type WorkspaceStoreProject,
+  type WorkspaceStoreState,
+  type WorkspaceStoreWorkspace,
+  WorkspaceValidationError,
+  workspaceStateFile,
+} from './workspace-store.js'
+export {
+  buildWorkspacePromptSection,
+  createWorkspaceToolsExtension,
+  type WorkspaceToolsOptions,
+} from './workspace-tools.js'
 
 // 测试辅助经子路径 `@huan/core/testing` 显式导入；生产入口不导出测试实现。

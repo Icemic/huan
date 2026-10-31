@@ -5,16 +5,23 @@
  * 生产应用。用户空间、工作区与会话目录均由 `@huan/core/testing` 在
  * Playwright 输出目录内创建，结束（或收到信号）时删除。
  */
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { serve } from '@hono/node-server'
-import { createHarnessHost } from '@huan/core'
+import { createHarnessHost, workspaceStateFile } from '@huan/core'
 import { createIsolatedPiEnv, TEST_RESOURCE_ISOLATION } from '@huan/core/testing'
 import type { HarnessClient } from '@huan/protocol'
 import { createServer as createViteServer } from 'vite'
 import { createApp } from '../server/app.js'
 import type { ServerConfig } from '../server/config.js'
-import { E2E_APP_PORT, E2E_APP_URL, E2E_HOST_PORT, E2E_HOST_URL } from './config.js'
+import {
+  E2E_APP_PORT,
+  E2E_APP_URL,
+  E2E_HOST_PORT,
+  E2E_HOST_URL,
+  E2E_UNASSIGNED_TITLE,
+} from './config.js'
 import { installModelControl } from './model-control.js'
 
 // 不继承个人 Pi 配置与默认模型；所有作用域都显式落在临时目录。
@@ -46,6 +53,15 @@ await writeFile(
 )
 
 const modelControl = installModelControl()
+
+// 启动前落盘一个没有 huan 归属的 Pi 会话：用于验证未归属分组与显式接入。
+// 必须在宿主启动前写入，避免绕过宿主目录缓存。
+const unassignedManager = SessionManager.create(env.workspace, env.defaultSessionDir(env.workspace))
+unassignedManager.appendMessage({
+  role: 'user',
+  content: [{ type: 'text', text: E2E_UNASSIGNED_TITLE }],
+  timestamp: Date.now(),
+})
 
 const host = await createHarnessHost({
   workspacePath: env.workspace,
@@ -189,6 +205,23 @@ export default function () {
   return c.json({ path: projectPath, name, marker })
 })
 app.get('/__e2e__/subscriptions', (c) => c.json({ totalSubscriptions, activeSubscriptions }))
+// 工作区元数据读写：仅供损坏文件 UI 场景备份/恢复，不进入生产应用。
+app.get('/__e2e__/workspace-state', async (c) => {
+  const file = workspaceStateFile(env.agentDir)
+  const content = await readFile(file, 'utf8').catch(() => null)
+  return c.json({ content })
+})
+app.put('/__e2e__/workspace-state', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { content?: unknown }
+  const file = workspaceStateFile(env.agentDir)
+  if (typeof body.content === 'string') {
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, body.content)
+  } else {
+    await rm(file, { force: true })
+  }
+  return c.body(null, 204)
+})
 app.get('/__e2e__/stream', (c) => c.json(modelControl.state()))
 app.post('/__e2e__/stream', async (c) => {
   modelControl.configure(await c.req.json())

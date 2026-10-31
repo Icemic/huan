@@ -99,13 +99,13 @@ describe('createHarnessHttpClient', () => {
     const client = createHarnessHttpClient({ fetchImpl: fn })
 
     const result = await client.listThreads({
-      workspacePath: '/ws',
+      workspaceId: 'ws_1',
       includeArchived: true,
     })
 
     expect(result).toEqual(threads)
     expect(calls[0]!.method).toBe('GET')
-    expect(calls[0]!.url).toBe('/api/pi/threads?workspacePath=%2Fws&includeArchived=true')
+    expect(calls[0]!.url).toBe('/api/pi/threads?workspaceId=ws_1&includeArchived=true')
   })
 
   it('omits empty query params when listing', async () => {
@@ -118,13 +118,13 @@ describe('createHarnessHttpClient', () => {
     const { fn, calls } = fakeFetch(() => json(snapshot))
     const client = createHarnessHttpClient({ fetchImpl: fn })
 
-    const result = await client.createThread({ workspacePath: '/ws' })
+    const result = await client.createThread({ workspaceId: 'ws_1', startProjectPath: '/ws' })
 
     expect(result).toEqual(snapshot)
     expect(calls[0]).toMatchObject({
       url: '/api/pi/threads',
       method: 'POST',
-      body: { workspacePath: '/ws' },
+      body: { workspaceId: 'ws_1', startProjectPath: '/ws' },
     })
   })
 

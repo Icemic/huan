@@ -1,5 +1,5 @@
 import type { HarnessThinkingLevel } from '@huan/protocol'
-import { useHarnessExtras, useHarnessSession } from '@huan/react'
+import { useHarnessExtras, useHarnessSession, useHarnessThreadState } from '@huan/react'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import {
   type ModelOption,
@@ -10,7 +10,7 @@ import {
 } from '@/components/assistant-ui/elements/model-selector.aui'
 import { harnessHttpClient } from './pi-http-client'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
-import { useProject } from './project-context'
+import { useWorkspace } from './workspace-context'
 
 type CatalogModel = {
   provider: string
@@ -53,7 +53,14 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
  * 保证首条消息就使用选定模型。
  */
 export function PiModelSelector() {
-  const { project } = useProject()
+  const { workspaces, activeWorkspaceId, startProjectFor, hostInfo } = useWorkspace()
+  const metadata = useHarnessThreadState((state) => state.metadata)
+  const metadataWorkspace = metadata.workspaceId
+    ? workspaces.find((item) => item.id === metadata.workspaceId)
+    : undefined
+  const activeWorkspace = workspaces.find((item) => item.id === activeWorkspaceId)
+  const workspace = metadataWorkspace ?? activeWorkspace
+  const projectPath = workspace ? startProjectFor(workspace) : hostInfo?.workspacePath
   const session = useHarnessSession()
   const extras = useHarnessExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
@@ -62,10 +69,10 @@ export function PiModelSelector() {
   const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
 
   useEffect(() => {
-    if (project?.status !== 'ready') return
+    if (!projectPath) return
     let active = true
     harnessHttpClient
-      .getAvailableModels({ workspacePath: project?.path })
+      .getAvailableModels({ workspacePath: projectPath })
       .then((infos) => {
         if (active) setModels(toModelOptions(infos as readonly CatalogModel[]))
       })
@@ -75,7 +82,7 @@ export function PiModelSelector() {
     return () => {
       active = false
     }
-  }, [project?.path, project?.status])
+  }, [projectPath])
 
   // 会话确认后清除草稿（此后以会话自身的 config 为准）。
   const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID

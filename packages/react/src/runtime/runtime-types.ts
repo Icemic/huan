@@ -6,6 +6,7 @@ import type {
 import type {
   HarnessClient,
   HarnessContextUsage,
+  HarnessCreateThreadInput,
   HarnessHostUiRequest,
   HarnessHostUiResponse,
   HarnessRuntimeReadiness,
@@ -20,8 +21,12 @@ import type { HarnessThreadState } from './thread-state.js'
 export type HarnessRuntimeOptions = ExternalStoreSharedOptions & {
   /** 传输无关的 Harness 客户端（HTTP/SSE、RPC、IPC）。 */
   client: HarnessClient
-  /** 会话列表的工作区范围。 */
-  workspacePath?: string
+  /** 会话列表的工作区过滤；省略时列出整个存储作用域。 */
+  workspaceId?: string
+  /** 只列出未归属会话（与 workspaceId 互斥，优先由调用方保证）。 */
+  unassigned?: boolean
+  /** 新建会话输入（工作区与起始项目）；在真正创建时求值。 */
+  createThreadInput?: () => HarnessCreateThreadInput
   /** 是否列出已归档会话。 */
   includeArchived?: boolean
   /** 首次打开的会话 ID（Harness 会话 ID）。 */

@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1 与 G1.2a 开发完成，G1.2b/c/d 尚未实施
+- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a 与多项目工作区开发完成；G1.2b/c/d 尚未实施
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`。2026-10-31 主 agent 实测：480 项测试、9 条 Chromium 流程与全部类型检查通过；lint 保留 1 个既有未使用 import 警告；生产构建通过并有大 chunk 警告。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 实测：517 项测试、12 条 Chromium 流程、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。多项目工作区开发完成；记录见 `iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md` §8。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### 多项目工作区（✅ 开发完成，`feat`）
+
+记录：[工作区迭代](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)
+
+- 工作区/会话两级列表，动态项目成员，固定会话 cwd，跨项目工具和指令已接入；state.json 保存定义与会话归属。
+- 主 agent review 后修复指令去重、损坏状态运行入口、归档恢复与实际生效版本通知；517 项测试、12 条 Chromium、类型检查与构建通过。
 
 ### G1.2a 项目入口与信任（✅ 2026-10-31，`feat`）
 

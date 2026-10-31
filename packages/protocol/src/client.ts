@@ -26,12 +26,31 @@ import type {
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from './thread.js'
+import type {
+  HarnessAssignThreadInput,
+  HarnessAssignThreadResult,
+  HarnessCreateWorkspaceInput,
+  HarnessUpdateWorkspaceInput,
+  HarnessWorkspaceCatalog,
+  HarnessWorkspaceMutationResult,
+} from './workspace.js'
 
 /** 宿主客户端（RPC 形态，JSON-safe）。 */
 export interface HarnessClient {
   getHostInfo(): Promise<HarnessHostInfo>
+  /** 列出工作区定义与元数据健康状态；不执行项目扩展。 */
+  listWorkspaces(): Promise<HarnessWorkspaceCatalog>
+  createWorkspace(input: HarnessCreateWorkspaceInput): Promise<HarnessWorkspaceMutationResult>
+  updateWorkspace(input: HarnessUpdateWorkspaceInput): Promise<HarnessWorkspaceMutationResult>
+  /** 把无归属会话明确加入工作区（不按 cwd 猜测）。 */
+  assignThreadWorkspace(input: HarnessAssignThreadInput): Promise<HarnessAssignThreadResult>
+  /**
+   * 列出当前存储作用域内的会话；按 workspaceId 过滤归属，`unassigned`
+   * 列出未归属会话，两者都不传时返回全部。
+   */
   listThreads(input?: {
-    workspacePath?: string
+    workspaceId?: string
+    unassigned?: boolean
     includeArchived?: boolean
   }): Promise<HarnessThreadMetadata[]>
   createThread(input?: HarnessCreateThreadInput): Promise<HarnessThreadSnapshot>
@@ -55,6 +74,11 @@ export interface HarnessClient {
    * 查询项目信任与装配状态。未回答时返回 needs-trust，不执行需要信任的项目资源。
    */
   getProject(input: { path: string }): Promise<HarnessProjectInfo>
+  /**
+   * 只读信任摘要：不加载项目扩展/资源，供工作区成员管理展示。
+   * 用户级 project_trust 扩展的即时决定仍以 getProject/实际装配为准。
+   */
+  inspectProjectTrust(input: { path: string }): Promise<HarnessProjectInfo>
   /** 保存本次信任决定（可选写入 trust.json）并立即按结论装配。 */
   decideProjectTrust(input: HarnessProjectTrustInput): Promise<HarnessProjectInfo>
   /** 同一用户空间内的最近项目（按会话活动时间排序）。 */

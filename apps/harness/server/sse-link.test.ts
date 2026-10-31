@@ -16,7 +16,7 @@
  *    上游共享缓存实现最需要验证的差异点）。
  */
 
-import type { HarnessAnyClientEvent, HarnessClient, HarnessThreadSnapshot } from '@huan/protocol'
+import type { HarnessAnyClientEvent, HarnessClient } from '@huan/protocol'
 import {
   createHarnessHttpClient,
   createHarnessThreadState,

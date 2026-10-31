@@ -243,18 +243,32 @@ describe('项目信任与安全启动', () => {
     const project = await host.getProject({ path: other })
     expect(project.status).toBe('needs-trust')
     await host.decideProjectTrust({ path: other, trusted: true })
+    const otherWorkspace = await host.createWorkspace({
+      name: '另一项目工作区',
+      projects: [{ alias: 'other', path: other }],
+    })
+    expect(otherWorkspace.ok).toBe(true)
+    if (!otherWorkspace.ok) throw new Error('工作区创建失败')
 
-    const created = await host.createThread({ workspacePath: other })
+    const created = await host.createThread({ workspaceId: otherWorkspace.workspace.id })
     expect(created.metadata.config?.provider).toBe(TEST_PROVIDER)
     expect(created.metadata.config?.modelId).toBe(TEST_MODEL_B)
+    expect(created.metadata.workspaceId).toBe(otherWorkspace.workspace.id)
+    expect(created.metadata.workspacePath).toBe(canonical(other))
 
     // 未信任时新建被拒绝，且不会静默回退到启动默认模型。
     const third = join(env.root, 'third-project')
     await mkdir(third, { recursive: true })
     await writeProjectSettings(third, { defaultModel: TEST_MODEL_B })
-    await expect(host.createThread({ workspacePath: third })).rejects.toBeInstanceOf(
-      ProjectTrustRequiredError,
-    )
+    const thirdWorkspace = await host.createWorkspace({
+      name: '第三项目工作区',
+      projects: [{ alias: 'third', path: third }],
+    })
+    expect(thirdWorkspace.ok).toBe(true)
+    if (!thirdWorkspace.ok) throw new Error('工作区创建失败')
+    await expect(
+      host.createThread({ workspaceId: thirdWorkspace.workspace.id }),
+    ).rejects.toBeInstanceOf(ProjectTrustRequiredError)
   }, 90_000)
 })
 
