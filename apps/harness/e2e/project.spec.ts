@@ -99,8 +99,9 @@ test('管理工作区动态增删成员，已有会话保持起始目录', async
   await dialog
     .locator('[data-slot="huan-workspace-member"]')
     .first()
-    .getByRole('button', { name: '移除成员' })
+    .getByRole('button', { name: '成员操作' })
     .click()
+  await page.getByRole('button', { name: '移除成员' }).click()
   await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(bar).toContainText('1 个项目')

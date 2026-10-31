@@ -1,9 +1,8 @@
 'use client'
 
-import { Slot } from 'radix-ui'
 import { type ComponentPropsWithRef, forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {
@@ -11,26 +10,29 @@ export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {
   side?: 'top' | 'bottom' | 'left' | 'right'
 }
 
+/** 图标按钮 + Base UI Tooltip；触发器通过 render 复用同一个 Button 节点。 */
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(
   ({ children, tooltip, side = 'bottom', className, ...rest }, ref) => {
     return (
-      <TooltipProvider delayDuration={0}>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      <Tooltip>
+        <TooltipTrigger
+          delay={0}
+          render={
             <Button
               variant="ghost"
               size="icon"
+              type="button"
               {...rest}
               className={cn('aui-button-icon size-6 p-1 active:scale-90', className)}
               ref={ref}
             >
-              <Slot.Slottable>{children}</Slot.Slottable>
+              {children}
               <span className="aui-sr-only sr-only">{tooltip}</span>
             </Button>
-          </TooltipTrigger>
-          <TooltipContent side={side}>{tooltip}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+          }
+        />
+        <TooltipContent side={side}>{tooltip}</TooltipContent>
+      </Tooltip>
     )
   },
 )

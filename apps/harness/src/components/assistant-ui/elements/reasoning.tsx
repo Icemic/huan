@@ -23,12 +23,12 @@ export const ANIMATION_DURATION = 200
 
 const ReasoningPreviewContext = createContext(false)
 
-const reasoningVariants = cva('aui-reasoning-root mb-4 w-full', {
+const reasoningVariants = cva('aui-reasoning-root mb-3 w-full', {
   variants: {
     variant: {
-      outline: 'rounded-lg border px-3 py-2',
+      outline: 'rounded-lg border px-2.5 py-1.5',
       ghost: '',
-      muted: 'bg-muted/50 rounded-lg px-3 py-2',
+      muted: 'bg-muted/50 rounded-lg px-2.5 py-1.5',
     },
   },
   defaultVariants: {
@@ -289,7 +289,7 @@ function ReasoningText({ className, children, ...props }: React.ComponentProps<'
       ref={scrollRef}
       data-slot="reasoning-text"
       className={cn(
-        'aui-reasoning-text relative z-0 max-h-64 overflow-y-auto ps-6 pt-2 pb-2 leading-relaxed text-pretty',
+        'aui-reasoning-text relative z-0 max-h-64 overflow-y-auto ps-5 pt-1.5 pb-1.5 leading-relaxed text-pretty',
         'transform-gpu transition-[transform,opacity] ease-[cubic-bezier(0.32,0.72,0,1)]',
         'motion-reduce:animate-none',
         'group-data-open/collapsible-content:animate-in',

@@ -3,7 +3,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app'
 import { i18n } from './i18n'
+import { initTheme } from './lib/theme'
 import './index.css'
+
+// 在 React 挂载前应用本地主题，避免首帧闪白。
+initTheme()
 
 const root = document.getElementById('root')
 if (!root) throw new Error('缺少 #root 挂载节点')

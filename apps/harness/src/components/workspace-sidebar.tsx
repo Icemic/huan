@@ -61,6 +61,7 @@ function SessionRow({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [assignOpen, setAssignOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const title = titleOf(thread, remoteTitle)
 
   const run = async (action: () => Promise<void>, success: string) => {
@@ -114,7 +115,7 @@ function SessionRow({
         <button
           type="button"
           data-slot="huan-session-trigger"
-          className="flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm group-hover:pe-9 group-has-data-[state=open]:pe-9"
+          className="flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 text-start text-sm group-hover:pe-9 group-has-data-[popup-open]:pe-9"
           onClick={() => {
             if (thread.workspaceId) selectWorkspace(thread.workspaceId)
             void aui.threads.switchToThread(thread.id)
@@ -142,22 +143,25 @@ function SessionRow({
           <FolderPlusIcon aria-hidden className="size-3.5" />
         </Button>
       ) : (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="data-[state=open]:bg-accent absolute end-1.5 top-1/2 size-6 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-              aria-label="会话操作"
-            >
-              <MoreHorizontalIcon aria-hidden className="size-3.5" />
-            </Button>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute end-1.5 top-1/2 size-6 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100"
+                aria-label="会话操作"
+              />
+            }
+          >
+            <MoreHorizontalIcon aria-hidden className="size-3.5" />
           </PopoverTrigger>
           <PopoverContent side="right" align="start" className="w-40 p-1">
             <button
               type="button"
               className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
               onClick={() => {
+                setMenuOpen(false)
                 setDraft(title)
                 setRenaming(true)
               }}
@@ -169,7 +173,8 @@ function SessionRow({
               type="button"
               className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                setMenuOpen(false)
                 void run(
                   async () => {
                     if (thread.archived) await harnessHttpClient.unarchiveThread(thread.id)
@@ -178,7 +183,7 @@ function SessionRow({
                   },
                   thread.archived ? '会话已恢复。' : '会话已归档。',
                 )
-              }
+              }}
             >
               <ArchiveIcon aria-hidden className="size-4" />
               {thread.archived ? <Trans>恢复</Trans> : <Trans>归档</Trans>}
@@ -187,12 +192,13 @@ function SessionRow({
               type="button"
               className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                setMenuOpen(false)
                 void run(async () => {
                   await harnessHttpClient.deleteThread(thread.id)
                   if (active) await aui.threads.switchToNewThread()
                 }, '会话已删除。')
-              }
+              }}
             >
               <TrashIcon aria-hidden className="size-4" />
               <Trans>删除</Trans>

@@ -52,6 +52,16 @@ export type IsolatedPiEnv = {
 const testModel = (id: string, name: string) => ({
   id,
   name,
+  reasoning: true,
+  // 让浏览器测试可覆盖模型选择器中的 Thinking 控件；合成 provider 不解析该字段。
+  thinkingLevelMap: {
+    off: 'off',
+    minimal: 'minimal',
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    xhigh: 'xhigh',
+  },
   contextWindow: 32_768,
   maxTokens: 4_096,
 })

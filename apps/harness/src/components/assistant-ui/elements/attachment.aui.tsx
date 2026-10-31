@@ -8,11 +8,11 @@ import {
   useAuiState,
 } from '@assistant-ui/react'
 import { AlertCircleIcon, FileText, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
-import { type FC, isValidElement, type PropsWithChildren, useState } from 'react'
+import { type FC, type ReactElement, useState } from 'react'
 import { TooltipIconButton } from '@/components/assistant-ui/elements/tooltip-icon-button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAttachmentSrc } from '@/hooks/use-attachment-src'
 import { cn } from '@/lib/utils'
 
@@ -38,19 +38,19 @@ const AttachmentPreview: FC<AttachmentPreviewProps> = ({ src, name }) => {
   )
 }
 
-type AttachmentPreviewDialogProps = PropsWithChildren<{
+type AttachmentPreviewDialogProps = {
   src: string | undefined
   name: string
-}>
+  trigger: ReactElement
+}
 
-const AttachmentPreviewDialog: FC<AttachmentPreviewDialogProps> = ({ children, src, name }) => {
-  if (!src) return children
+/** 预览弹层与 Tooltip 触发器经 Base UI render 组合，避免嵌套可交互元素。 */
+const AttachmentPreviewDialog: FC<AttachmentPreviewDialogProps> = ({ trigger, src, name }) => {
+  if (!src) return trigger
 
   return (
     <Dialog>
-      <DialogTrigger className="aui-attachment-preview-trigger cursor-zoom-in" asChild>
-        {isValidElement(children) ? children : <button type="button">{children}</button>}
-      </DialogTrigger>
+      <DialogTrigger render={trigger} />
       <DialogContent className="aui-attachment-preview-dialog-content [&>button]:bg-foreground/60 [&>button]:hover:bg-foreground/80 [&_svg]:text-background p-2 sm:max-w-3xl [&>button]:rounded-full [&>button]:p-1 [&>button]:opacity-100 [&>button]:ring-0!">
         <DialogTitle className="aui-sr-only sr-only">Preview {name}</DialogTitle>
         <div className="aui-attachment-preview bg-background relative mx-auto flex max-h-[80dvh] w-full items-center justify-center overflow-hidden rounded-sm">
@@ -116,77 +116,59 @@ const AttachmentUI: FC = () => {
       : undefined,
   )
 
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <AttachmentPrimitive.Root
+  const trigger = (
+    <TooltipTrigger
+      render={
+        <button
+          type="button"
           className={cn(
-            'aui-attachment-root relative',
-            isComposer && 'animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none',
-            isImage && !isComposer && 'aui-attachment-root-message only:*:first:size-24',
+            'aui-attachment-tile bg-muted hover:after:bg-foreground/10 focus-visible:ring-ring/50 relative size-14 overflow-hidden rounded-[calc(var(--composer-radius,0.5rem)-var(--composer-padding,6px))] transition-transform outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/10 after:transition-colors after:ring-inset focus-visible:ring-1 motion-reduce:transition-none dark:after:ring-white/10',
+            src ? 'cursor-zoom-in active:scale-[0.96]' : 'cursor-default',
+            isError && 'after:ring-destructive/60 dark:after:ring-destructive/60',
           )}
+          aria-label={`${src ? `Preview ${name}` : `${typeLabel} attachment ${name}`}${
+            isError ? ', upload failed' : isUploading ? ', uploading' : ''
+          }`}
         >
-          <AttachmentPreviewDialog src={src} name={name}>
-            <TooltipTrigger asChild>
-              <div
-                className={cn(
-                  'aui-attachment-tile bg-muted hover:after:bg-foreground/10 focus-visible:ring-ring/50 relative size-14 overflow-hidden rounded-[calc(var(--composer-radius,1rem)-var(--composer-padding,8px))] transition-transform outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/10 after:transition-colors after:ring-inset focus-visible:ring-1 motion-reduce:transition-none dark:after:ring-white/10',
-                  src ? 'cursor-zoom-in active:scale-[0.96]' : 'cursor-default',
-                  isError && 'after:ring-destructive/60 dark:after:ring-destructive/60',
-                )}
-                role={src ? 'button' : 'group'}
-                tabIndex={0}
-                onKeyDown={
-                  src
-                    ? (e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          e.currentTarget.click()
-                        } else if (e.key === ' ') {
-                          e.preventDefault()
-                        }
-                      }
-                    : undefined
-                }
-                onKeyUp={
-                  src
-                    ? (e) => {
-                        if (e.key === ' ') e.currentTarget.click()
-                      }
-                    : undefined
-                }
-                aria-label={`${src ? `Preview ${name}` : `${typeLabel} attachment ${name}`}${
-                  isError ? ', upload failed' : isUploading ? ', uploading' : ''
-                }`}
-              >
-                <AttachmentThumb src={src} />
-                {isUploading && (
-                  <div
-                    aria-hidden="true"
-                    className="aui-attachment-tile-uploading bg-background/60 animate-in fade-in-0 absolute inset-0 flex items-center justify-center backdrop-blur-[2px] motion-reduce:animate-none"
-                  >
-                    <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
-                  </div>
-                )}
-                {isError && (
-                  <div
-                    aria-hidden="true"
-                    className="aui-attachment-tile-error bg-background/70 animate-in fade-in-0 absolute inset-0 flex items-center justify-center backdrop-blur-[2px] motion-reduce:animate-none"
-                  >
-                    <AlertCircleIcon className="text-destructive size-4" />
-                  </div>
-                )}
-              </div>
-            </TooltipTrigger>
-          </AttachmentPreviewDialog>
-          {isComposer && <AttachmentRemove name={name} />}
-        </AttachmentPrimitive.Root>
-        <TooltipContent side="top">
-          <AttachmentPrimitive.Name />
-          {errorMessage && <p className="aui-attachment-error-message">{errorMessage}</p>}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+          <AttachmentThumb src={src} />
+          {isUploading && (
+            <div
+              aria-hidden="true"
+              className="aui-attachment-tile-uploading bg-background/60 animate-in fade-in-0 absolute inset-0 flex items-center justify-center backdrop-blur-[2px] motion-reduce:animate-none"
+            >
+              <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
+            </div>
+          )}
+          {isError && (
+            <div
+              aria-hidden="true"
+              className="aui-attachment-tile-error bg-background/70 animate-in fade-in-0 absolute inset-0 flex items-center justify-center backdrop-blur-[2px] motion-reduce:animate-none"
+            >
+              <AlertCircleIcon className="text-destructive size-4" />
+            </div>
+          )}
+        </button>
+      }
+    />
+  )
+
+  return (
+    <Tooltip>
+      <AttachmentPrimitive.Root
+        className={cn(
+          'aui-attachment-root relative',
+          isComposer && 'animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none',
+          isImage && !isComposer && 'aui-attachment-root-message only:*:first:size-24',
+        )}
+      >
+        <AttachmentPreviewDialog src={src} name={name} trigger={trigger} />
+        {isComposer && <AttachmentRemove name={name} />}
+      </AttachmentPrimitive.Root>
+      <TooltipContent side="top">
+        <AttachmentPrimitive.Name />
+        {errorMessage && <p className="aui-attachment-error-message">{errorMessage}</p>}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -195,7 +177,7 @@ const AttachmentRemove: FC<{ name: string }> = ({ name }) => {
     <AttachmentPrimitive.Remove asChild>
       <TooltipIconButton
         tooltip={`Remove ${name}`}
-        className="aui-attachment-tile-remove absolute end-1 top-1 size-5 rounded-full bg-black/50! text-white after:absolute after:-inset-1.5 hover:bg-black/70! hover:text-white! active:scale-[0.96] motion-reduce:transition-none"
+        className="aui-attachment-tile-remove absolute end-1 top-1 size-5 rounded-full bg-black/50! text-white after:absolute after:-inset-0.5 hover:bg-black/70! hover:text-white! active:scale-[0.96] motion-reduce:transition-none"
         side="top"
       >
         <XIcon className="aui-attachment-remove-icon size-3 stroke-[2.5]" />

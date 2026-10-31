@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 实测：517 项测试、12 条 Chromium 流程、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。多项目工作区开发完成；记录见 `iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md` §8。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 实测：517 项测试、16 条 Chromium 流程、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。多项目工作区与 Base UI/主题迁移开发完成，记录见 `iteration/2026-10/2026-10-31-refactor-base-ui-theme.md` §4～§6。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### Base UI 与末语工坊主题统一（✅ 开发完成，`refactor`）
+
+记录：[UI 迭代](iteration/2026-10/2026-10-31-refactor-base-ui-theme.md)
+
+- 自有组件统一 Base UI，cmdk 已移除；Radix 仅由 assistant-ui 间接引入。主题、Geist 字体与紧凑规格沿用末语工坊。
+- 主 agent review 修复模型/Thinking 状态和折叠动画，并补附件回归；517 项测试、16 条 Chromium、类型检查与构建通过。
 
 ### 多项目工作区（✅ 开发完成，`feat`）
 

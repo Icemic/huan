@@ -6,6 +6,7 @@ import { PiHostStatus } from '@/components/pi-host-status'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
 import { SessionContextBar } from '@/components/session-context-bar'
+import { ThemeSelector } from '@/components/theme-selector'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useWorkspace, WorkspaceProvider } from '@/components/workspace-context'
@@ -99,11 +100,17 @@ function WorkspaceApp() {
       onError={() => showNotice('会话操作失败，请检查左侧工作区状态、项目信任或宿主诊断后重试。')}
     >
       <div className="flex h-dvh flex-col overflow-hidden">
-        <header className="flex items-center gap-3 border-b px-4 py-2">
+        <header
+          data-slot="huan-header"
+          className="flex h-10 items-center gap-3 border-b px-3 text-sm"
+        >
           <span className="font-semibold">幻</span>
           <span className="text-muted-foreground text-xs">
             <Trans>多项目工作区</Trans>
           </span>
+          <div className="ms-auto">
+            <ThemeSelector />
+          </div>
         </header>
         <WorkspaceStatusBanner />
         {state === 'ok' && <PiLiveSubscription />}

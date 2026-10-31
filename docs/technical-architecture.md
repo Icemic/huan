@@ -16,7 +16,7 @@
 | 前端框架 | React 19 | 函数式组件 + Hooks |
 | 构建 | Vite（应用，rolldown 内核）；tsc --noEmit（类型检查） | 开发服务器与生产构建；包零构建直引源码（见 §2 与 dev-guide §4.1） |
 | 样式 | Tailwind CSS v4 | Utility-first |
-| 基础组件 | shadcn 模式：组件源码拷入项目 | 对话框、按钮、菜单、树等；无头逻辑用 Base UI（默认）或 Radix |
+| 基础组件 | shadcn 模式：组件源码拷入项目 | 按钮、对话框、弹层、选择器、折叠等无头逻辑统一用 Base UI；主题 tokens 与紧凑尺度参考末语工坊 |
 | 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 逻辑层直接依赖；浏览器侧运行时由 `@huan/react` 自研（M2，2026-10-18） |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
 | 代码查看/Diff | Monaco Editor（规划选型，尚未接入） | 增强阶段的查看 + diff editor（D-21），不作为 Pi GUI 基础依赖 |
@@ -28,6 +28,8 @@
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
 **Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 4（工作区 CRUD/会话归属；HostInfo 与项目查询/信任接口）。
+
+**UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
 **运行形态（首期）**：Node 宿主进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与宿主持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 
@@ -176,7 +178,7 @@ interface CheckpointProvider {
 apps/harness（页面装配、布局、主题）
   ├── features：会话列表、代码工作区、审查视图、设置
   ├── components/assistant-ui：assistant-ui 主题组件（CLI 拷入后自行维护）
-  ├── components/ui：shadcn 模式基础组件（拷入）
+  ├── components/ui：Base UI 基础组件（本地最小封装；不直接依赖 Radix/cmdk）
   └── @huan/react：浏览器侧运行时（reducer/投影/Controller/hook）+ Thread/Composer 通用组件、Tool Renderer Registry、Host UI 渲染扩展点
 ```
 

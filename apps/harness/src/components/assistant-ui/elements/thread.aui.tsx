@@ -1,7 +1,6 @@
 'use client'
 
 import {
-  ActionBarMorePrimitive,
   ActionBarPrimitive,
   type AssistantState,
   AuiIf,
@@ -44,6 +43,7 @@ import {
   useContext,
   useLayoutEffect,
   useRef,
+  useState,
 } from 'react'
 import {
   ComposerAddAttachment,
@@ -70,7 +70,9 @@ import {
 } from '@/components/assistant-ui/elements/tool-group.aui'
 import { TooltipIconButton } from '@/components/assistant-ui/elements/tooltip-icon-button'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart
@@ -149,13 +151,13 @@ const ThreadHistorySkeleton: FC = () => (
     className="animate-in fade-in fill-mode-both flex flex-col gap-y-6 [animation-delay:150ms] [animation-duration:200ms]"
   >
     <span className="sr-only">Loading conversation</span>
-    <Skeleton className="ml-auto h-9 w-2/5 rounded-xl motion-reduce:animate-none" />
+    <Skeleton className="ml-auto h-8 w-2/5 rounded-lg motion-reduce:animate-none" />
     <div className="flex flex-col gap-y-2">
       <Skeleton className="h-4 w-11/12 motion-reduce:animate-none" />
       <Skeleton className="h-4 w-4/5 motion-reduce:animate-none" />
       <Skeleton className="h-4 w-3/5 motion-reduce:animate-none" />
     </div>
-    <Skeleton className="ml-auto h-9 w-1/3 rounded-xl motion-reduce:animate-none" />
+    <Skeleton className="ml-auto h-8 w-1/3 rounded-lg motion-reduce:animate-none" />
     <div className="flex flex-col gap-y-2">
       <Skeleton className="h-4 w-10/12 motion-reduce:animate-none" />
       <Skeleton className="h-4 w-2/3 motion-reduce:animate-none" />
@@ -182,8 +184,8 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({ isEmpty, aut
       style={{
         ['--thread-max-width' as string]: '44rem',
         ['--composer-bg' as string]: 'color-mix(in oklab, var(--color-muted) 30%, transparent)',
-        ['--composer-radius' as string]: '1rem',
-        ['--composer-padding' as string]: '8px',
+        ['--composer-radius' as string]: '0.5rem',
+        ['--composer-padding' as string]: '6px',
       }}
     >
       <ThreadPrimitive.Viewport
@@ -206,13 +208,13 @@ const ThreadRoot: FC<{ isEmpty: boolean; autoFocus: boolean }> = ({ isEmpty, aut
 
           <ThreadLoadEarlier />
 
-          <div data-slot="aui_message-group" className="mb-14 flex flex-col gap-y-6 empty:hidden">
+          <div data-slot="aui_message-group" className="mb-10 flex flex-col gap-y-5 empty:hidden">
             <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
           </div>
 
           <ThreadPrimitive.ViewportFooter
             className={cn(
-              'aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6',
+              'aui-thread-viewport-footer bg-background flex flex-col gap-3 overflow-visible pb-3 md:pb-4',
               !isEmpty && 'sticky bottom-0 mt-auto rounded-t-(--composer-radius)',
             )}
           >
@@ -271,10 +273,10 @@ const SpokenMessage: FC = () => {
       data-voice-run={position}
       className={cn(
         'aui-spoken-message bg-muted/40 mx-2 px-3 py-1.5 [contain-intrinsic-size:auto_48px] [content-visibility:auto]',
-        position === 'single' && 'rounded-xl py-2',
-        position === 'start' && 'rounded-t-xl pt-2',
+        position === 'single' && 'rounded-lg py-2',
+        position === 'start' && 'rounded-t-lg pt-2',
         position === 'middle' && '-mt-6',
-        position === 'end' && '-mt-6 rounded-b-xl pb-2',
+        position === 'end' && '-mt-6 rounded-b-lg pb-2',
       )}
     >
       {opensExchange && (
@@ -478,7 +480,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
           <ComposerAttachments />
           <ComposerPrimitive.Input
             placeholder="Send a message..."
-            className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-10 w-full resize-none bg-transparent px-2.5 py-1 text-base leading-6 outline-none"
+            className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-9 w-full resize-none bg-transparent px-2 py-1 text-base leading-6 outline-none"
             rows={1}
             autoFocus={autoFocus}
             enterKeyHint="send"
@@ -697,6 +699,8 @@ const AssistantMessage: FC = () => {
 }
 
 const AssistantActionBar: FC = () => {
+  const [moreOpen, setMoreOpen] = useState(false)
+
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -736,26 +740,42 @@ const AssistantActionBar: FC = () => {
           <RefreshCwIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Reload>
-      <ActionBarMorePrimitive.Root>
-        <ActionBarMorePrimitive.Trigger asChild>
-          <TooltipIconButton tooltip="More" className="data-[state=open]:bg-accent">
-            <MoreHorizontalIcon />
-          </TooltipIconButton>
-        </ActionBarMorePrimitive.Trigger>
-        <ActionBarMorePrimitive.Content
+      <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    type="button"
+                    className="aui-button-icon size-6 p-1 active:scale-90 data-popup-open:bg-accent"
+                    aria-label="More"
+                  >
+                    <MoreHorizontalIcon />
+                  </Button>
+                }
+              />
+            }
+          />
+          <TooltipContent side="bottom">More</TooltipContent>
+        </Tooltip>
+        <PopoverContent
           side="bottom"
           align="start"
           sideOffset={6}
-          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-xl border p-1.5"
+          className="aui-action-bar-more-content min-w-36 p-1"
         >
-          <ActionBarPrimitive.ExportMarkdown asChild>
-            <ActionBarMorePrimitive.Item className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm outline-none select-none">
-              <DownloadIcon className="size-4" />
-              Export as Markdown
-            </ActionBarMorePrimitive.Item>
+          <ActionBarPrimitive.ExportMarkdown
+            className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-sm outline-none select-none"
+            onClick={() => setMoreOpen(false)}
+          >
+            <DownloadIcon className="size-4" />
+            Export as Markdown
           </ActionBarPrimitive.ExportMarkdown>
-        </ActionBarMorePrimitive.Content>
-      </ActionBarMorePrimitive.Root>
+        </PopoverContent>
+      </Popover>
     </ActionBarPrimitive.Root>
   )
 }
@@ -797,7 +817,7 @@ const UserMessage: FC = () => {
       <UserMessageAttachments />
 
       <div className="aui-user-message-content-wrapper relative col-start-2 min-w-0">
-        <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-4 py-2 wrap-break-word empty:hidden">
+        <div className="aui-user-message-content peer bg-muted text-foreground rounded-(--composer-radius) px-3 py-1.5 wrap-break-word empty:hidden">
           <MessagePrimitive.Parts components={{ File: UserFilePart, Image: UserImagePart }} />
         </div>
         <div className="aui-user-action-bar-wrapper absolute start-0 top-1/2 -translate-x-full -translate-y-1/2 pe-2 peer-empty:hidden rtl:translate-x-full">
@@ -837,17 +857,17 @@ const EditComposer: FC = () => {
     >
       <ComposerPrimitive.Root className="aui-edit-composer-root border-foreground/10 focus-within:border-foreground/25 ms-auto flex w-full max-w-[85%] cursor-text flex-col rounded-(--composer-radius) border bg-(--composer-bg) transition-[border-color]">
         <ComposerPrimitive.Input
-          className="aui-edit-composer-input text-foreground min-h-14 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-base outline-none"
+          className="aui-edit-composer-input text-foreground min-h-12 w-full resize-none bg-transparent px-3 pt-2 pb-1 text-base outline-none"
           autoFocus
         />
-        <div className="aui-edit-composer-footer mx-2.5 mb-2.5 flex items-center gap-1.5 self-end">
+        <div className="aui-edit-composer-footer mx-2 mb-2 flex items-center gap-1.5 self-end">
           <ComposerPrimitive.Cancel asChild>
-            <Button variant="ghost" size="sm" className="h-8 px-3">
+            <Button variant="ghost" size="sm" className="px-2.5">
               Cancel
             </Button>
           </ComposerPrimitive.Cancel>
           <ComposerPrimitive.Send asChild>
-            <Button size="sm" className="h-8 px-3">
+            <Button size="sm" className="px-2.5">
               Update
             </Button>
           </ComposerPrimitive.Send>

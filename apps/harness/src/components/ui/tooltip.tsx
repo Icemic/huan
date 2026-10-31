@@ -1,50 +1,62 @@
 'use client'
 
+import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { cn } from 'cn'
-import { Tooltip as TooltipPrimitive } from 'radix-ui'
-import type * as React from 'react'
 
-function TooltipProvider({
-  delayDuration = 0,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+/**
+ * Base UI Tooltip 基础封装。
+ * delay 默认 0，保持图标按钮悬停提示的即时反馈。
+ */
+function TooltipProvider({ delay = 0, children, ...props }: TooltipPrimitive.Provider.Props) {
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props}>
+      {children}
+    </TooltipPrimitive.Provider>
   )
 }
 
-function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
-function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
 function TooltipContent({
   className,
-  sideOffset = 0,
+  side = 'top',
+  align = 'center',
+  alignOffset = 0,
+  sideOffset = 6,
   children,
   ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+}: TooltipPrimitive.Popup.Props &
+  Pick<
+    TooltipPrimitive.Positioner.Props,
+    'align' | 'alignOffset' | 'side' | 'sideOffset'
+  >) {
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
+      <TooltipPrimitive.Positioner
+        side={side}
+        align={align}
+        alignOffset={alignOffset}
         sideOffset={sideOffset}
-        className={cn(
-          'z-50 w-fit origin-(--radix-tooltip-content-transform-origin) animate-in rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background fade-in-0 zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
-          className,
-        )}
-        {...props}
+        className="isolate z-50"
       >
-        {children}
-        <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground" />
-      </TooltipPrimitive.Content>
+        <TooltipPrimitive.Popup
+          data-slot="tooltip-content"
+          className={cn(
+            'bg-foreground text-background data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 z-50 w-fit origin-(--transform-origin) rounded-md px-2.5 py-1 text-xs text-balance',
+            className,
+          )}
+          {...props}
+        >
+          <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 rotate-45 rounded-[2px]" />
+          {children}
+        </TooltipPrimitive.Popup>
+      </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>
   )
 }

@@ -7,7 +7,7 @@ import {
   ModelSelectorRoot,
   ModelSelectorTrigger,
   ModelSelectorValue,
-} from '@/components/assistant-ui/elements/model-selector.aui'
+} from '@/components/assistant-ui/elements/model-selector'
 import { harnessHttpClient } from './pi-http-client'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
 import { useWorkspace } from './workspace-context'
@@ -60,7 +60,8 @@ export function PiModelSelector() {
     : undefined
   const activeWorkspace = workspaces.find((item) => item.id === activeWorkspaceId)
   const workspace = metadataWorkspace ?? activeWorkspace
-  const projectPath = workspace ? startProjectFor(workspace) : hostInfo?.workspacePath
+  const projectPath =
+    metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : hostInfo?.workspacePath)
   const session = useHarnessSession()
   const extras = useHarnessExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
@@ -121,10 +122,11 @@ export function PiModelSelector() {
 
   return (
     <ModelSelectorRoot
+      key={session?.id ?? PENDING_THREAD_ID}
       models={models}
       {...(displayKey ? { value: displayKey } : {})}
       onValueChange={onValueChange}
-      {...(session?.config?.thinkingLevel ? { effort: session.config.thinkingLevel } : {})}
+      effort={(isPendingThread ? draft?.thinkingLevel : session?.config?.thinkingLevel) ?? ''}
       onEffortChange={(level) => {
         if (isPendingThread) {
           // 新会话：Thinking 级别一并写入草稿（随创建请求应用）。

@@ -18,6 +18,7 @@ import {
   CheckCircle2Icon,
   FolderPlusIcon,
   Loader2Icon,
+  MoreHorizontalIcon,
   PlusIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
@@ -35,6 +36,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { harnessHttpClient } from './pi-http-client'
 import { useWorkspace } from './workspace-context'
 
@@ -383,17 +385,37 @@ export function WorkspaceManagerDialog({
                     aria-label="项目路径"
                     placeholder="/home/user/project"
                   />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="移除成员"
-                    disabled={members.length === 1}
-                    onClick={() =>
-                      setMembers((current) => current.filter((item) => item.key !== member.key))
-                    }
-                  >
-                    <Trash2Icon aria-hidden className="size-4" />
-                  </Button>
+                  <Popover>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="成员操作"
+                          className="data-popup-open:bg-accent"
+                        />
+                      }
+                    >
+                      <MoreHorizontalIcon aria-hidden className="size-4" />
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-36 p-1">
+                      <PopoverClose
+                        render={
+                          <button
+                            type="button"
+                            className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm disabled:pointer-events-none disabled:opacity-50"
+                            disabled={members.length === 1}
+                          />
+                        }
+                        onClick={() =>
+                          setMembers((current) => current.filter((item) => item.key !== member.key))
+                        }
+                      >
+                        <Trash2Icon aria-hidden className="size-4" />
+                        <Trans>移除成员</Trans>
+                      </PopoverClose>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="flex min-h-5 flex-wrap items-center gap-2 px-1 text-xs">
                   {member.checking ? (
