@@ -1,6 +1,6 @@
 # 开发与调试指南
 
-**最后更新**：2026-10-15
+**最后更新**：2026-10-31
 **状态**：持续维护文档。动手改代码前先读本文件。
 
 ---
@@ -82,8 +82,12 @@ huan/
 
 ## 6. 验证方式
 
-- 常规验证：`pnpm check && pnpm test`。
+- 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
+- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。首期 Chromium 四条流程，单 worker，不并行运行多套实例。
+- 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与宿主 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意无效，先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
+- 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。
+- 浏览器失败产物位于 `apps/harness/test-results`，包括截图和 trace；使用 `pnpm --filter @huan/harness exec playwright show-trace <trace.zip路径>` 查看。产物不入 Git。
 - 容器与检查的覆盖范围：typecheck 覆盖全部 workspace 包；测试根运行（`vitest.config.ts` 统一 include）。
 
 ## 7. 迭代②：宿主与前端（已实现）
@@ -110,7 +114,8 @@ pnpm dev          # → http://localhost:8799/
 | `HUAN_ALLOWED_ORIGINS` | `http://localhost:8799,http://127.0.0.1:8799` | 允许的来源 |
 | `HUAN_TOKEN` | 空（不校验） | 访问凭证（开发期留空）。非空时前端经 Vite `define` 注入同名值并自动带 `x-huan-token` 头；需宿主与前端用同一值启动 |
 | `PI_PROVIDER` / `PI_MODEL_ID` | 无 | 覆盖默认模型；缺省时读取 Pi settings.json |
-| `PI_CODING_AGENT_DIR` | Pi 默认（`~/.pi/agent`） | Pi 配置目录 |
+| `PI_CODING_AGENT_DIR` | Pi 默认（`~/.pi/agent`） | 用户配置与默认会话空间 |
+| `PI_CODING_AGENT_SESSION_DIR` | 无 | 单独覆盖会话目录，平铺存储，可主动共享；优先于 setting |
 
 宿主的默认模型解析链路（`@huan/core` 的 `model-catalog.ts` + `host.ts`）：**启动引导装配 → 共享 modelRuntime（provider 注册）→ 显式目录刷新（可联网）→ 解析 `PI_PROVIDER/PI_MODEL_ID` 或 settings.json 的 `defaultProvider/defaultModel`**。要点：
 
@@ -120,6 +125,10 @@ pnpm dev          # → http://localhost:8799/
 - 装配诊断（扩展注册失败、目录刷新错误）经 `host.diagnostics()` 返回，应用在启动时打印。
 
 ### 7.3 认证与模型
+
+G1.1 起可在页面“宿主信息与诊断”查看用户目录、会话存储方式及默认模型字段来源；支持复制安全摘要和重新查询。`GET /api/pi/host` 需通过现有访问校验，health 仍只返回 ok。目录与默认配置在宿主启动时固定，重新查询不等于重载。
+
+会话目录优先级：宿主 `sessionDir` 参数 → `PI_CODING_AGENT_SESSION_DIR` → 启动工作区合并 setting → `<agentDir>/sessions/<编码 cwd>`。显式/env 相对路径按启动进程目录解析，setting 相对路径按启动工作区解析；指定覆盖时不再追加 cwd 分组。无效默认模型不阻止宿主启动，空白会话可选有效模型恢复新建；认证修改仍需重启。
 
 - 已通过 `pi /login` 完成认证的机器无需额外配置。
 - 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主与模型选择器中均可用（迭代③起）。
