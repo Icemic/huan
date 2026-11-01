@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { ImportThreadButton } from './import-thread-dialog'
+import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
 import { DeleteThreadDialog, ThreadDetailsDialog } from './session-dialogs'
 import { useWorkspace } from './workspace-context'
@@ -446,6 +447,16 @@ export function WorkspaceSidebar() {
     open: false,
   })
   const [newSession, setNewSession] = useState<HarnessWorkspace>()
+  const intent = usePiIntent()
+  // /new 打开现有“新建会话”弹层，由用户在弹层里确认起始项目。
+  useEffect(() => {
+    if (intent?.kind !== 'new-session') return
+    const target =
+      workspaces.find((workspace) => workspace.id === intent.payload?.workspaceId) ??
+      workspaces.find((workspace) => workspace.id === activeWorkspaceId)
+    if (target) setNewSession(target)
+    clearPiIntent(intent.id)
+  }, [activeWorkspaceId, intent, workspaces])
   const remoteItems = useAuiState((current) => current.threads.threadItems)
   /**
    * 当前主线程对应的宿主会话 ID。

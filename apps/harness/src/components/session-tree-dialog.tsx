@@ -33,6 +33,7 @@ import {
   XIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { clearPiIntent, usePiIntent } from '@/components/pi-command-intents'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -320,6 +321,18 @@ export function SessionTreeDialog() {
   const requestGeneration = useRef(0)
   const currentThread = useRef(threadId)
   currentThread.current = threadId
+  const intent = usePiIntent()
+
+  // /tree、/fork 打开同一树面板；空白页不创建会话，只给出原因。
+  useEffect(() => {
+    if (intent?.kind !== 'session-tree') return
+    if (pendingThread) {
+      setNotice('先建立或打开会话后才能使用会话树。')
+    } else {
+      setOpen(true)
+    }
+    clearPiIntent(intent.id)
+  }, [intent, pendingThread])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 会话切换时清除面板局部状态并作废旧请求
   useEffect(() => {

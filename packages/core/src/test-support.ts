@@ -49,11 +49,13 @@ export type IsolatedPiEnv = {
   cleanup: () => Promise<void>
 }
 
-const testModel = (id: string, name: string) => ({
+const testModel = (id: string, name: string, input: readonly string[] = ['text', 'image']) => ({
   id,
   name,
+  input: [...input],
   reasoning: true,
   // 让浏览器测试可覆盖模型选择器中的 Thinking 控件；合成 provider 不解析该字段。
+  // max 必须由模型显式映射才可用（与 SDK 的可用级别规则一致）。
   thinkingLevelMap: {
     off: 'off',
     minimal: 'minimal',
@@ -61,6 +63,7 @@ const testModel = (id: string, name: string) => ({
     medium: 'medium',
     high: 'high',
     xhigh: 'xhigh',
+    max: 'max',
   },
   contextWindow: 32_768,
   maxTokens: 4_096,
@@ -74,7 +77,11 @@ function testModelsConfig() {
         baseUrl: TEST_BASE_URL,
         api: 'openai-completions',
         apiKey: TEST_API_KEY,
-        models: [testModel(TEST_MODEL_A, 'Test Model A'), testModel(TEST_MODEL_B, 'Test Model B')],
+        models: [
+          // A 声明图像输入，B 只声明文本：用于验证 input 能力透传。
+          testModel(TEST_MODEL_A, 'Test Model A', ['text', 'image']),
+          testModel(TEST_MODEL_B, 'Test Model B', ['text']),
+        ],
       },
       [TEST_UNAUTH_PROVIDER]: {
         baseUrl: TEST_BASE_URL,

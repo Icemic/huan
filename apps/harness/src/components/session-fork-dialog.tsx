@@ -13,6 +13,7 @@ import { useLingui } from '@lingui/react'
 import { Trans } from '@lingui/react/macro'
 import { AlertTriangleIcon, GitForkIcon, Loader2Icon, SquareIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { setComposerDraftOverride } from '@/components/pi-composer-draft-override'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -93,11 +94,12 @@ export function ForkThreadDialog({
       if (result.status === 'created' && result.threadId) {
         onOpenChange(false)
         onCompleted?.()
-        // 切换完成后再写编辑器：草稿必须落在子会话，不能回写父会话。
+        // 目标草稿先登记，避免切换后的草稿恢复 effect 用旧/空内容覆盖。
+        const draftText =
+          position === 'before' && result.selectedText !== undefined ? result.selectedText : ''
+        setComposerDraftOverride(result.threadId, draftText)
         await aui.threads.switchToThread(result.threadId)
-        aui.composer.setText(
-          position === 'before' && result.selectedText !== undefined ? result.selectedText : '',
-        )
+        aui.composer.setText(draftText)
         await refresh()
         showNotice(
           position === 'before'

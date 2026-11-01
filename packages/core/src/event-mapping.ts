@@ -114,7 +114,19 @@ export function mapSessionEvent(
     case 'compaction_end':
       return {
         kind: 'mapped',
-        event: { type: 'compaction_end', aborted: event.aborted, willRetry: event.willRetry },
+        event: {
+          type: 'compaction_end',
+          reason: event.reason,
+          aborted: event.aborted,
+          willRetry: event.willRetry,
+          ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),
+          ...(event.result && event.result.tokensBefore !== undefined
+            ? { tokensBefore: event.result.tokensBefore }
+            : {}),
+          ...(event.result && event.result.estimatedTokensAfter !== undefined
+            ? { estimatedTokensAfter: event.result.estimatedTokensAfter }
+            : {}),
+        },
       }
     case 'entry_appended':
       return {

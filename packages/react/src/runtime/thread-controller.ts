@@ -22,11 +22,21 @@ import type { AppendMessage, ThreadMessageLike } from '@assistant-ui/react'
 import { ExportedMessageRepository, MessageNotSentError } from '@assistant-ui/react'
 import type {
   HarnessAgentMessage,
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashStartResult,
   HarnessClient,
   HarnessClientEvent,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
   HarnessHostUiResponse,
   HarnessImageContent,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeUpdateInput,
+  HarnessModelScopeUpdateResult,
   HarnessSendMessageInput,
+  HarnessSendMessageResult,
   HarnessThinkingLevel,
   HarnessThreadForkInput,
   HarnessThreadForkResult,
@@ -110,6 +120,22 @@ export interface HarnessThreadControllerLike {
   forkThread(input: HarnessThreadForkInput): Promise<HarnessThreadForkResult>
   setModel(input: { provider: string; modelId: string }): Promise<void>
   setThinkingLevel(level: HarnessThinkingLevel): Promise<void>
+  /** 直接执行用户 Shell（`!` 纳入上下文，`!!` 排除）；输出经事件同步。 */
+  runBash(input: { command: string; excludeFromContext?: boolean }): Promise<HarnessBashStartResult>
+  /** 取消当前用户 Shell；不中止模型运行。 */
+  abortBash(): Promise<HarnessBashAbortResult>
+  /** 手动压缩上下文（可附指令）；失败保留原始消息树。 */
+  compact(input?: { customInstructions?: string }): Promise<HarnessCompactionOutcome>
+  /** 取消进行中的压缩。 */
+  abortCompaction(): Promise<HarnessCompactionAbortResult>
+  /** 保存自动压缩开关（用户全局设置）。 */
+  setAutoCompaction(enabled: boolean): Promise<HarnessAutoCompactionUpdateResult>
+  /** 读取会话模型范围与已保存的用户默认。 */
+  getModelScope(): Promise<HarnessModelScope>
+  /** 更新会话模型范围；saveAsDefault 才写入用户设置。 */
+  setModelScope(input: HarnessModelScopeUpdateInput): Promise<HarnessModelScopeUpdateResult>
+  /** 刷新模型目录；空白页需显式传固定起始目录。 */
+  refreshModels(input?: { workspacePath?: string }): Promise<HarnessModelRefreshResult>
   /** 仅通过决定来答复指定 id 的请求：`confirm` 会原样接受；拒绝会关闭其他类型的请求；
    * 若接受请求时未提供其选项或文本，则会被拒绝。 */
   respondToToolApproval(approvalId: string, approved: boolean): Promise<void>
@@ -117,6 +143,8 @@ export interface HarnessThreadControllerLike {
   resumeToolCall(toolCallId: string, payload: unknown): Promise<void>
   /** 直接答复一个通过 side-channel（独立方式）发起的 host-UI 请求。 */
   respondToHostUiRequest(response: HarnessHostUiResponse): Promise<void>
+  /** 消费会话级 Host UI 指令（编辑器文本/命令目标）；成功后从快照移除。 */
+  consumeHostUiDirective(directiveId: string): Promise<boolean>
   dispose(): void
 }
 
@@ -172,6 +200,8 @@ const MESSAGE_FRAME_COALESCED_EVENT_TYPES: ReadonlySet<string> = new Set([
   'tool_execution_update',
 ])
 
+// `bash_*` 只改变 extras/线程状态中的 Shell 运行态，不改消息或元数据；
+// 归入此集合以通知 allListeners（选择器引用稳定，不会引起多余重渲染）。
 const METADATA_DIRTY_EVENT_TYPES: ReadonlySet<string> = new Set([
   'snapshot',
   'agent_start',
@@ -179,6 +209,10 @@ const METADATA_DIRTY_EVENT_TYPES: ReadonlySet<string> = new Set([
   'queue_update',
   'compaction_start',
   'compaction_end',
+  'bash_start',
+  'bash_output',
+  'bash_end',
+  'host_ui_update',
   'auto_retry_start',
   'auto_retry_end',
   'session_info_changed',
@@ -443,7 +477,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
   private eventSubscriptionGeneration = 0
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null
   private loadPromise: Promise<void> | null = null
-  private sendDispatchTail: Promise<void> = Promise.resolve()
+  private sendDispatchTail: Promise<unknown> = Promise.resolve()
   private readonly pendingSends = new Set<PendingSend>()
   private runStateRevision = 0
   private readonly runLeases = new RunLeases()
@@ -670,6 +704,20 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     return send
   }
 
+  private discardOptimisticSend(send: OptimisticSend) {
+    const index = this.optimisticUserMessages.findIndex((entry) => entry.message === send.message)
+    if (index !== -1) this.optimisticUserMessages.splice(index, 1)
+    this.recomputeProjectedMessagesAndNotify()
+
+    // 期间没有新运行结算时才恢复发送前的运行状态；已开始的运行不能被旧状态覆盖。
+    if (this.runStateRevision !== send.runStateRevision) return
+    this.setState({
+      ...this.state,
+      runStatus: send.previousRunStatus,
+      metadata: { ...this.state.metadata, status: send.previousMetadataStatus },
+    })
+  }
+
   private rollbackOptimisticSend(send: OptimisticSend, error: unknown) {
     const index = this.optimisticUserMessages.findIndex((entry) => entry.message === send.message)
     if (index !== -1) this.optimisticUserMessages.splice(index, 1)
@@ -719,7 +767,12 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     const optimisticSend = this.beginOptimisticSend(optimisticInput)
 
     try {
-      await this.dispatchMessage(message, behavior, pending)
+      const result = await this.dispatchMessage(message, behavior, pending)
+      // handled/cancelled 不会产生对应的真实消息；撤销乐观输入并恢复运行状态，
+      // 不等待永远不会到来的 message/agent 事件。
+      if (result?.disposition === 'handled' || result?.disposition === 'cancelled') {
+        this.discardOptimisticSend(optimisticSend)
+      }
     } catch (error) {
       this.rollbackOptimisticSend(optimisticSend, error)
       if (error === sendAbandonedError) return
@@ -746,7 +799,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     this.setState({ ...this.state, queue: optimisticQueue })
 
     try {
-      await this.dispatchMessage(message, behavior, pending, {
+      const result = await this.dispatchMessage(message, behavior, pending, {
         onRunStateResolved: (runIsActive) => {
           if (runIsActive) return
 
@@ -767,6 +820,28 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
           promoted = this.beginOptimisticSend(buildOptimisticPiSendInput(message, undefined))
         },
       })
+      if (result?.disposition === 'handled' || result?.disposition === 'cancelled') {
+        if (promoted) {
+          this.discardOptimisticSend(promoted)
+        } else {
+          const ownsEntry = pending.queueMirror === this.state.queue
+          pending.queueEntry = undefined
+          pending.queueMirror = undefined
+          if (ownsEntry) {
+            const entries = this.state.queue[mode]
+            const index = entries.lastIndexOf(content)
+            if (index !== -1) {
+              this.setState({
+                ...this.state,
+                queue: {
+                  ...this.state.queue,
+                  [mode]: entries.filter((_, i) => i !== index),
+                },
+              })
+            }
+          }
+        }
+      }
     } catch (error) {
       const promotedSend = promoted
       if (promotedSend) {
@@ -817,7 +892,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     options?: {
       onRunStateResolved: (runIsActive: boolean) => void
     },
-  ) {
+  ): Promise<HarnessSendMessageResult> {
     const abortController = pending.controller
     const previousRequest = this.sendDispatchTail
     const request = (async () => {
@@ -831,7 +906,7 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
         options?.onRunStateResolved(this.state.runStatus === 'running')
         abortController.signal.throwIfAborted()
         pending.accepted = true
-        await this.client.sendMessage(this.threadId, input)
+        return await this.client.sendMessage(this.threadId, input)
       } catch (error) {
         if (abortController.signal.aborted) {
           throw abortController.signal.reason
@@ -858,7 +933,13 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     // 引用变化时优先跳过本地清空：残留的过期条目会由下一次 `queue_update` 自动修复，
     // 而清空操作可能会丢弃服务端仍保留的消息。
     const queueBefore = this.state.queue
-    const cleared = await this.client.clearQueue(this.threadId)
+    let cleared: { steering: string[]; followUp: string[] }
+    try {
+      cleared = await this.client.clearQueue(this.threadId)
+    } catch (error) {
+      // 本地未派出发送已取消：即使服务端清空失败，也必须把这部分文本交还窗口。
+      throw Object.assign(new Error(errorText(error)), { recoveredQueue: locallyCleared })
+    }
     // 乐观地清空本地镜像；Pi 自己发出的 `queue_update`（由 `session.clearQueue` 触发）会确认此操作。
     if (
       this.state.queue === queueBefore &&
@@ -1078,6 +1159,92 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
     await this.refresh()
   }
 
+  public async runBash(input: { command: string; excludeFromContext?: boolean }) {
+    try {
+      return await this.client.runThreadBash(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async abortBash() {
+    try {
+      return await this.client.abortThreadBash(this.threadId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async compact(input?: { customInstructions?: string }) {
+    let outcome: HarnessCompactionOutcome
+    try {
+      outcome = await this.client.compactThread(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+    await this.refresh()
+    // 失败原因在权威快照之后落地，避免被快照的 lastError 覆盖；不伪造成功状态。
+    if (outcome.status === 'failed') {
+      this.setState({ ...this.state, lastError: outcome.message })
+    }
+    return outcome
+  }
+
+  public async abortCompaction() {
+    try {
+      return await this.client.abortThreadCompaction(this.threadId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async setAutoCompaction(enabled: boolean) {
+    try {
+      const result = await this.client.setAutoCompaction(this.threadId, enabled)
+      if (result.status === 'failed') {
+        this.setState({ ...this.state, lastError: result.message })
+      }
+      return result
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async getModelScope() {
+    try {
+      return await this.client.getThreadModelScope(this.threadId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async setModelScope(input: HarnessModelScopeUpdateInput) {
+    try {
+      return await this.client.setThreadModelScope(this.threadId, input)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
+  public async refreshModels(input?: { workspacePath?: string }) {
+    try {
+      // 有 live 会话 id 时优先用会话自身的固定 cwd；空白页必须显式给固定目录。
+      return await this.client.refreshModels(
+        input?.workspacePath ? { workspacePath: input.workspacePath } : { threadId: this.threadId },
+      )
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
+  }
+
   public async respondToToolApproval(approvalId: string, approved: boolean) {
     const request = this.state.hostUiRequests.find((r) => r.id === approvalId)
     await this.respond(
@@ -1101,6 +1268,15 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
 
   public async respondToHostUiRequest(response: HarnessHostUiResponse) {
     await this.respond(response)
+  }
+
+  public async consumeHostUiDirective(directiveId: string) {
+    try {
+      return await this.client.consumeHostUiDirective(this.threadId, directiveId)
+    } catch (error) {
+      this.setState({ ...this.state, lastError: errorText(error) })
+      throw error
+    }
   }
 
   private async respond(response: HarnessHostUiResponse) {

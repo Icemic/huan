@@ -15,6 +15,7 @@ import type {
   HarnessAgentMessage,
   HarnessAssistantMessage,
   HarnessAssistantMessageDelta,
+  HarnessHostInteractionSnapshot,
   HarnessHostUiRequest,
   HarnessThreadDetails,
   HarnessThreadForkResult,
@@ -228,6 +229,118 @@ export const isHostUiRequest = (value: unknown): value is HarnessHostUiRequest =
   }
 }
 
+/** 宿主级交互作用域守卫。 */
+const isHostInteractionScope = (value: unknown): boolean => {
+  if (!isRecord(value)) return false
+  if (value.kind === 'project') return typeof value.cwd === 'string'
+  if (value.kind === 'session') {
+    return typeof value.sessionId === 'string' && isOptionalString(value.cwd)
+  }
+  return false
+}
+
+/** 宿主级交互请求守卫（只接受展示与结算所需字段）。 */
+const isHostInteractionRequest = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  isHostInteractionScope(value.scope) &&
+  (value.kind === 'confirm' ||
+    value.kind === 'select' ||
+    value.kind === 'input' ||
+    value.kind === 'editor') &&
+  typeof value.title === 'string' &&
+  isOptionalString(value.message) &&
+  (value.options === undefined || isStringArray(value.options)) &&
+  isOptionalString(value.placeholder) &&
+  isOptionalString(value.prefill) &&
+  isOptionalString(value.toolCallId) &&
+  isOptionalNumber(value.timeoutMs) &&
+  typeof value.createdAt === 'number'
+
+const isHostInteractionNotification = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  isHostInteractionScope(value.scope) &&
+  typeof value.message === 'string' &&
+  (value.type === 'info' || value.type === 'warning' || value.type === 'error') &&
+  typeof value.createdAt === 'number'
+
+/** 宿主级交互快照守卫。 */
+export const isHostInteractionSnapshot = (
+  value: unknown,
+): value is HarnessHostInteractionSnapshot =>
+  isRecord(value) &&
+  typeof value.seq === 'number' &&
+  Array.isArray(value.requests) &&
+  value.requests.every(isHostInteractionRequest) &&
+  Array.isArray(value.notifications) &&
+  value.notifications.every(isHostInteractionNotification)
+
+/** 会话运行期 Host UI 状态守卫（快照可携带；缺失表示无扩展状态）。 */
+export const isThreadHostUi = (value: unknown): boolean => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.statuses) ||
+    !value.statuses.every(
+      (item) => isRecord(item) && typeof item.key === 'string' && typeof item.text === 'string',
+    ) ||
+    !Array.isArray(value.widgets) ||
+    !value.widgets.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.key === 'string' &&
+        isStringArray(item.lines) &&
+        (item.placement === 'aboveEditor' || item.placement === 'belowEditor'),
+    ) ||
+    !Array.isArray(value.notifications) ||
+    !value.notifications.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.id === 'string' &&
+        typeof item.message === 'string' &&
+        (item.type === 'info' || item.type === 'warning' || item.type === 'error') &&
+        typeof item.createdAt === 'number',
+    ) ||
+    !isOptionalString(value.title) ||
+    !isOptionalString(value.workingMessage) ||
+    !isOptionalBoolean(value.workingVisible) ||
+    !isOptionalString(value.hiddenThinkingLabel)
+  ) {
+    return false
+  }
+  if (value.editorDirective !== undefined) {
+    const directive = value.editorDirective
+    if (
+      !isRecord(directive) ||
+      typeof directive.id !== 'string' ||
+      typeof directive.text !== 'string' ||
+      (directive.mode !== 'set' && directive.mode !== 'paste') ||
+      !isOptionalString(directive.callerId) ||
+      typeof directive.createdAt !== 'number'
+    ) {
+      return false
+    }
+  }
+  if (value.commandTarget !== undefined) {
+    const target = value.commandTarget
+    if (
+      !isRecord(target) ||
+      typeof target.id !== 'string' ||
+      (target.action !== 'newSession' &&
+        target.action !== 'fork' &&
+        target.action !== 'switchSession' &&
+        target.action !== 'navigateTree') ||
+      typeof target.threadId !== 'string' ||
+      !isOptionalString(target.title) ||
+      typeof target.message !== 'string' ||
+      typeof target.createdAt !== 'number'
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 const isQueuedMessage = (value: unknown): boolean =>
   isRecord(value) &&
   typeof value.id === 'string' &&
@@ -240,6 +353,39 @@ const isThreadConfig = (value: unknown): boolean =>
     isOptionalString(value.provider) &&
     isOptionalString(value.modelId) &&
     isOptionalString(value.thinkingLevel))
+
+/** Shell 结果摘要守卫。 */
+const isBashResult = (value: unknown): boolean =>
+  isRecord(value) &&
+  isOptionalNumber(value.exitCode) &&
+  typeof value.cancelled === 'boolean' &&
+  typeof value.truncated === 'boolean' &&
+  isOptionalString(value.fullOutputPath) &&
+  typeof value.endedAt === 'string' &&
+  isOptionalString(value.error)
+
+/** 用户 Shell 运行态守卫（快照与 bash_* 事件共用）。 */
+export const isBashRun = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.command === 'string' &&
+  typeof value.excludeFromContext === 'boolean' &&
+  typeof value.cwd === 'string' &&
+  (value.status === 'running' || value.status === 'complete') &&
+  typeof value.output === 'string' &&
+  typeof value.outputTruncated === 'boolean' &&
+  typeof value.startedAt === 'string' &&
+  (value.result === undefined || isBashResult(value.result))
+
+/** 压缩运行态守卫。 */
+const isCompactionPhase = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.active === 'boolean' &&
+  (value.reason === undefined ||
+    value.reason === 'manual' ||
+    value.reason === 'threshold' ||
+    value.reason === 'overflow') &&
+  isOptionalString(value.error)
 
 /** 结构操作状态守卫。 */
 const isTreeOperation = (value: unknown): value is HarnessThreadTreeOperation =>
@@ -446,6 +592,13 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   isOptionalString(value.workspacePath) &&
   isOptionalBoolean(value.archived) &&
   isOptionalBoolean(value.compactionActive) &&
+  (value.compactionReason === undefined ||
+    value.compactionReason === 'manual' ||
+    value.compactionReason === 'threshold' ||
+    value.compactionReason === 'overflow') &&
+  isOptionalBoolean(value.autoCompactionEnabled) &&
+  (value.scopedModelKeys === undefined || isStringArray(value.scopedModelKeys)) &&
+  isOptionalNumber(value.modelCatalogRevision) &&
   isOptionalBoolean(value.retryActive) &&
   isOptionalNumber(value.retryAttempt) &&
   isOptionalString(value.runningRunId) &&
@@ -519,7 +672,10 @@ export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot
     !Array.isArray(value.messages) ||
     !value.messages.every(isRenderableTranscriptMessage) ||
     (value.hostUiRequests !== undefined &&
-      (!Array.isArray(value.hostUiRequests) || !value.hostUiRequests.every(isHostUiRequest)))
+      (!Array.isArray(value.hostUiRequests) || !value.hostUiRequests.every(isHostUiRequest))) ||
+    (value.hostUi !== undefined && !isThreadHostUi(value.hostUi)) ||
+    (value.bash !== undefined && !isBashRun(value.bash)) ||
+    (value.compaction !== undefined && !isCompactionPhase(value.compaction))
   ) {
     return false
   }

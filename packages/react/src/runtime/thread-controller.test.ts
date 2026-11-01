@@ -20,13 +20,18 @@ import type { HarnessThreadState } from './thread-state.js'
 
 const THREAD = 't1'
 
+const createController = (client: FakeClient, threadId: string = THREAD): HarnessThreadController =>
+  new HarnessThreadController(client as unknown as HarnessClient, threadId)
+
 const snapshot = (over: Partial<HarnessThreadSnapshot> = {}): HarnessThreadSnapshot => ({
   metadata: { id: THREAD, status: 'idle' },
   messages: [],
   ...over,
 })
 
-type FakeClient = HarnessClient & {
+type FakeClient = Omit<HarnessClient, 'sendMessage'> & {
+  /** 测试可覆盖为任意返回；Controller 会按真实客户端契约读取 disposition。 */
+  sendMessage: (...args: Parameters<HarnessClient['sendMessage']>) => Promise<unknown>
   emit: (event: HarnessClientEvent) => void
   listeners: Set<(e: HarnessClientEvent) => void>
   subscribed: number
@@ -91,6 +96,18 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async getHostInfo() {
       throw new Error('Controller 不查询宿主信息')
     },
+    async getHostInteractions() {
+      return { seq: 0, requests: [], notifications: [] }
+    },
+    subscribeHostInteractions() {
+      return () => {}
+    },
+    async respondToHostInteraction() {
+      return { accepted: true }
+    },
+    async consumeHostUiDirective() {
+      return false
+    },
     async listWorkspaces() {
       return { workspaces: [], state: 'ok' as const }
     },
@@ -127,6 +144,15 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
         branchEntryCount: 0,
       }
     },
+    async listCommands() {
+      return { commands: [], skillCommandsEnabled: false, diagnostics: [] }
+    },
+    async getCommandArgumentCompletions() {
+      return []
+    },
+    async searchFiles() {
+      return { files: [], truncated: false }
+    },
     async getThreadTree(threadId) {
       client.treeRequests.push(threadId)
       return client.treeResult
@@ -155,6 +181,7 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     },
     async sendMessage(threadId, input) {
       client.sent.push({ threadId, input })
+      return { disposition: 'started' as const }
     },
     async cancelRun(threadId) {
       client.cancelled.push(threadId)
@@ -186,6 +213,47 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     },
     async setThinkingLevel(threadId, level) {
       client.thinkingChanges.push({ threadId, level })
+    },
+    async runThreadBash() {
+      return {
+        status: 'started',
+        run: {
+          id: 'bash:test',
+          command: 'echo hi',
+          excludeFromContext: false,
+          cwd: '/workspace',
+          status: 'running',
+          output: '',
+          outputTruncated: false,
+          startedAt: '2026-08-18T00:00:00.000Z',
+        },
+      }
+    },
+    async abortThreadBash() {
+      return { status: 'idle' }
+    },
+    async compactThread() {
+      return { status: 'compacted' }
+    },
+    async abortThreadCompaction() {
+      return { status: 'idle' }
+    },
+    async setAutoCompaction(_threadId, enabled) {
+      return { status: 'saved', enabled, scope: 'global' }
+    },
+    async getThreadModelScope() {
+      return { patterns: [], models: [], diagnostics: [] }
+    },
+    async setThreadModelScope(_threadId, input) {
+      return {
+        patterns: [...input.patterns],
+        models: [],
+        diagnostics: [],
+        persistence: 'skipped',
+      }
+    },
+    async refreshModels() {
+      return { models: [], failedProviders: [] }
     },
     async renameThread() {},
     async archiveThread() {},
@@ -274,7 +342,7 @@ describe('HarnessThreadController', () => {
         messages: [{ role: 'user', content: 'hello', timestamp: 1 }],
       }),
     )
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     expect(controller.getState().loadState).toBe('pending')
 
     await controller.load()
@@ -291,7 +359,7 @@ describe('HarnessThreadController', () => {
     client.getThread = async () => {
       throw new Error('boom')
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(controller.load()).rejects.toThrow('boom')
     expect(controller.getState().lastError).toBe('boom')
@@ -300,7 +368,7 @@ describe('HarnessThreadController', () => {
 
   it('applies subscribed events and notifies listeners', () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const notify = vi.fn()
     controller.subscribe(notify)
     controller.connect()
@@ -324,7 +392,7 @@ describe('HarnessThreadController', () => {
 
   it('ignores events addressed to a different thread', () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit({ type: 'agent_start', threadId: 'other', seq: 1 })
     expect(controller.getState().runStatus).toBe('idle')
@@ -332,14 +400,14 @@ describe('HarnessThreadController', () => {
 
   it('sends an idle message with no streamingBehavior', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.sendMessage(userMessage('go'))
     expect(client.sent[0]!.input).toEqual({ content: 'go' })
   })
 
   it('derives followUp while running and honors a steer runConfig', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
 
@@ -356,7 +424,7 @@ describe('HarnessThreadController', () => {
 
   it('treats a locally accepted send as running before Pi emits agent_start', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.subscribe(() => {})
 
     await controller.sendMessage(userMessage('first'))
@@ -372,7 +440,7 @@ describe('HarnessThreadController', () => {
 
   it('isolates subscriber errors while sending messages', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const listenerError = new Error('listener failed')
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     onTestFinished(() => consoleError.mockRestore())
@@ -392,7 +460,7 @@ describe('HarnessThreadController', () => {
 
   it('maps image attachments to Pi image content', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.sendMessage(userMessageWithImage('look', 'data:image/png;base64,AAAA'))
     expect(client.sent[0]!.input.attachments).toEqual([
       { type: 'image', mimeType: 'image/png', data: 'AAAA' },
@@ -401,7 +469,7 @@ describe('HarnessThreadController', () => {
 
   it('maps uppercase-scheme data URLs to Pi image content with a lowercase mime', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.sendMessage(userMessageWithImage('look', 'DATA:IMAGE/PNG;base64,AAAA'))
     expect(client.sent[0]!.input.attachments).toEqual([
       { type: 'image', mimeType: 'image/png', data: 'AAAA' },
@@ -415,7 +483,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.sendMessage(
       userMessageWithImage('look', 'data:image/png;charset=utf-8;base64,iVBORw=='),
@@ -439,7 +507,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.sendMessage(userMessageWithImage('look', image))
 
@@ -463,7 +531,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.sendMessage(userMessageWithImage('look', image))
 
@@ -489,7 +557,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.sendMessage(userMessageWithImage('look', 'https://cdn.example.com/image'))
 
@@ -509,7 +577,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(
       controller.sendMessage(userMessageWithImage('look', 'https://cdn.example.com/not-an-image')),
@@ -526,7 +594,7 @@ describe('HarnessThreadController', () => {
     ['/uploads/image.png', 'Invalid Pi image attachment source'],
   ])('rejects invalid image sources: %s', async (image, error) => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(controller.sendMessage(userMessageWithImage('look', image))).rejects.toThrow(error)
 
@@ -540,14 +608,14 @@ describe('HarnessThreadController', () => {
 
   it('cancels the run via the client', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.cancel()
     expect(client.cancelled).toEqual([THREAD])
   })
 
   it('keeps a new run started during queue clearing out of a captured Stop', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
 
@@ -577,7 +645,7 @@ describe('HarnessThreadController', () => {
 
   it('sets model and thinking level via the client', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.setModel({ provider: 'anthropic', modelId: 'claude' })
     await controller.setThinkingLevel('high')
@@ -597,7 +665,7 @@ describe('HarnessThreadController', () => {
       toolCallId: 'tc1',
     }
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'extension_ui_request', request }, 1))
     expect(controller.getState().hostUiRequests).toHaveLength(1)
@@ -619,7 +687,7 @@ describe('HarnessThreadController', () => {
       toolCallId: 'tc1',
     }
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'extension_ui_request', request }, 1))
 
@@ -645,7 +713,7 @@ describe('HarnessThreadController', () => {
       toolCallId: 'tc9',
     }
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'extension_ui_request', request }, 1))
 
@@ -659,7 +727,7 @@ describe('HarnessThreadController', () => {
 
   it('throws when resuming an unknown tool call', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await expect(controller.resumeToolCall('nope', 'x')).rejects.toThrow(
       /No pending host-UI request/,
     )
@@ -668,7 +736,7 @@ describe('HarnessThreadController', () => {
   it('defers disconnecting when the last listener unsubscribes (disconnect ≠ abort)', () => {
     vi.useFakeTimers()
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const unsub = controller.subscribe(() => {})
     unsub()
     expect(client.subscribed).toBe(0)
@@ -684,7 +752,7 @@ describe('HarnessThreadController', () => {
   it('keeps the event subscription while the active runtime retains it', () => {
     vi.useFakeTimers()
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const release = controller.connect()
     const unsub = controller.subscribe(() => {})
 
@@ -712,7 +780,7 @@ describe('HarnessThreadController', () => {
         client.listeners.delete(listener)
       }
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const notify = vi.fn()
     controller.subscribe(notify)
     controller.connect()
@@ -736,8 +804,8 @@ describe('HarnessThreadController', () => {
     const client = createFakeClient(
       snapshot({ messages: [{ role: 'user', content: 'one', timestamp: 1 }] }),
     )
-    const first = new HarnessThreadController(client, 'thread-one')
-    const second = new HarnessThreadController(client, 'thread-two')
+    const first = createController(client, 'thread-one')
+    const second = createController(client, 'thread-two')
     first.subscribe(() => {})
     second.subscribe(() => {})
 
@@ -758,7 +826,7 @@ describe('HarnessThreadController', () => {
       snapshot({ messages: [{ role: 'user', content: 'x', timestamp: 1 }] }),
     )
     const getThread = vi.spyOn(client, 'getThread')
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     client.emit({
@@ -781,7 +849,7 @@ describe('HarnessThreadController', () => {
       new Promise((resolve) => {
         resolveSnapshot = resolve
       })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     const load = controller.load()
@@ -816,7 +884,7 @@ describe('HarnessThreadController', () => {
       new Promise((resolve) => {
         resolveSnapshot = resolve
       })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const load = controller.load()
     const send = controller.sendMessage(userMessage('instant'))
@@ -853,7 +921,7 @@ describe('HarnessThreadController', () => {
         messages: [{ role: 'user', content: 'snapshot', timestamp: 1 }],
       }),
     )
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     await controller.load()
@@ -875,7 +943,7 @@ describe('HarnessThreadController', () => {
 
   it('rebases from an HTTP snapshot after the supervisor sequence resets', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(
       ev(
@@ -918,7 +986,7 @@ describe('HarnessThreadController', () => {
       new Promise((resolve) => {
         resolveSnapshot = resolve
       })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(
       ev(
@@ -961,7 +1029,7 @@ describe('HarnessThreadController', () => {
   it('does not refresh snapshots for settled or custom entry events', async () => {
     const client = createFakeClient()
     const getThread = vi.spyOn(client, 'getThread')
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     client.emit(ev({ type: 'agent_settled' }, 1))
@@ -991,7 +1059,7 @@ describe('HarnessThreadController', () => {
   it('refreshes snapshots for appended entry variants without companion events', async () => {
     const client = createFakeClient()
     const getThread = vi.spyOn(client, 'getThread')
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     client.emit(
@@ -1019,7 +1087,7 @@ describe('HarnessThreadController', () => {
   it('refreshes when an older server omits the appended entry payload', async () => {
     const client = createFakeClient()
     const getThread = vi.spyOn(client, 'getThread')
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     client.emit({
@@ -1042,7 +1110,7 @@ describe('HarnessThreadController', () => {
         resolveSend = resolve
       })
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const notify = vi.fn()
     controller.subscribe(notify)
 
@@ -1076,7 +1144,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const image = 'https://cdn.example.com/image.png'
 
     const send = controller.sendMessage(userMessageWithImage('look', image))
@@ -1113,7 +1181,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(
       userMessageWithImage('first', 'https://cdn.example.com/image.png'),
@@ -1150,7 +1218,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(
       userMessageWithImage('first', 'https://cdn.example.com/image.png'),
@@ -1188,7 +1256,7 @@ describe('HarnessThreadController', () => {
       client.sent.push({ threadId, input })
       if (input.content === 'first') await accepted.promise
     })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(userMessage('first'))
     await vi.waitFor(() => expect(client.sent).toHaveLength(1))
@@ -1224,7 +1292,7 @@ describe('HarnessThreadController', () => {
     onTestFinished(() => {
       vi.unstubAllGlobals()
     })
-    const controller = new HarnessThreadController(createFakeClient(), THREAD)
+    const controller = createController(createFakeClient(), THREAD)
 
     const send = controller.sendMessage(
       userMessageWithImage('look', 'https://cdn.example.com/image.png'),
@@ -1245,7 +1313,7 @@ describe('HarnessThreadController', () => {
       await accepted.promise
       throw sendError
     })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const send = controller.sendMessage(userMessage('hello'))
     const sendResult = send.catch((error: unknown) => error)
     await vi.waitFor(() => expect(client.sent).toHaveLength(1))
@@ -1262,7 +1330,7 @@ describe('HarnessThreadController', () => {
     client.sendMessage = vi.fn(async () => {
       throw abortError
     })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(controller.sendMessage(userMessage('hello'))).rejects.toBe(abortError)
     expect(controller.getState()).toMatchObject({
@@ -1291,7 +1359,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const send = controller.sendMessage(
       userMessageWithImage('look', 'https://cdn.example.com/image.png'),
@@ -1319,7 +1387,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(
       userMessageWithImage('first', 'https://cdn.example.com/missing.png'),
@@ -1354,7 +1422,7 @@ describe('HarnessThreadController', () => {
   it('restores a previous failure when image preparation is cancelled', async () => {
     const client = createFakeClient()
     client.sendMessage = vi.fn().mockRejectedValueOnce(new Error('previous send failed'))
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(controller.sendMessage(userMessage('first'))).rejects.toThrow(
       'previous send failed',
@@ -1414,7 +1482,7 @@ describe('HarnessThreadController', () => {
       process.off('unhandledRejection', onUnhandledRejection)
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const message = userMessage('look', {
       content: [
         { type: 'text', text: 'look' },
@@ -1445,7 +1513,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(
       controller.sendMessage(userMessageWithImage('look', 'https://cdn.example.com/missing.png')),
@@ -1474,7 +1542,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const send = controller.sendMessage(
       userMessageWithImage('look', 'https://cdn.example.com/missing.png'),
@@ -1509,7 +1577,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const send = controller.sendMessage(
       userMessageWithImage('look', 'https://cdn.example.com/missing.png'),
@@ -1548,7 +1616,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(
       controller.sendMessage(userMessageWithImage('look', 'https://cdn.example.com/not-an-image')),
@@ -1572,7 +1640,7 @@ describe('HarnessThreadController', () => {
     const frame = (event: object) => `data: ${JSON.stringify(event)}\n\n`
     let eventStreams = 0
     const fetchImpl = vi.fn(async (url: string) => {
-      if (!url.endsWith('/events')) return new Response(null, { status: 204 })
+      if (!url.endsWith('/events')) return Response.json({ disposition: 'started' })
       eventStreams += 1
       return eventStreams === 1
         ? sse(
@@ -1618,7 +1686,7 @@ describe('HarnessThreadController', () => {
 
   it('requests the subscription snapshot even after a thread has loaded', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.load()
     await controller.sendMessage(userMessage('instant'))
@@ -1632,7 +1700,7 @@ describe('HarnessThreadController', () => {
       vi.useRealTimers()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.connect()
     const second = controller.connect()
@@ -1658,7 +1726,7 @@ describe('HarnessThreadController', () => {
     const offline = { role: 'user' as const, content: 'offline', timestamp: 2 }
     const client = createFakeClient(snapshot({ seq: 1, messages: [before] }))
     client.snapshotOnSubscribe = true
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await controller.load()
     const release = controller.connect()
@@ -1692,7 +1760,7 @@ describe('HarnessThreadController', () => {
         releaseSend = resolve
       })
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
 
     const send = controller.sendMessage(userMessage('hello'))
@@ -1730,7 +1798,7 @@ describe('HarnessThreadController', () => {
         releaseSend = resolve
       })
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     // 关掉订阅，模拟发送时重建订阅（此时 runStatus 仍为 running）。
@@ -1759,7 +1827,7 @@ describe('HarnessThreadController', () => {
       new Promise<void>((_, reject) => {
         rejectSend = reject
       })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     controller.dispose()
@@ -1777,7 +1845,7 @@ describe('HarnessThreadController', () => {
 
   it('does not revive a consumed queued send while its HTTP response is pending', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     onTestFinished(() => controller.dispose())
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
@@ -1810,7 +1878,7 @@ describe('HarnessThreadController', () => {
 
   it('does not revive a pending send after a snapshot has already confirmed it', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     onTestFinished(() => controller.dispose())
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
@@ -1858,7 +1926,7 @@ describe('HarnessThreadController', () => {
   it('does not restore an accepted queue entry after clearQueue or cancel', async () => {
     for (const action of ['clearQueue', 'cancel'] as const) {
       const client = createFakeClient()
-      const controller = new HarnessThreadController(client, THREAD)
+      const controller = createController(client, THREAD)
       onTestFinished(() => controller.dispose())
       controller.connect()
       client.emit(ev({ type: 'agent_start' }, 1))
@@ -1892,7 +1960,7 @@ describe('HarnessThreadController', () => {
 
   it('does not restore a queued send after it has been promoted to a normal message', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     onTestFinished(() => controller.dispose())
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
@@ -1915,7 +1983,7 @@ describe('HarnessThreadController', () => {
 
   it('removes both local queue entries when serialized sends fail after a snapshot', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     onTestFinished(() => controller.dispose())
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
@@ -1962,7 +2030,7 @@ describe('HarnessThreadController', () => {
       new Promise((resolve) => {
         resolveLoad = resolve
       })
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     await flushMicrotasks()
     expect(controller.getState().lastSeq).toBe(2)
@@ -1981,7 +2049,7 @@ describe('HarnessThreadController', () => {
 
   it('does not dispatch an idle send cancelled by its optimistic notification', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     let cancelled = false
     const unsubscribe = controller.subscribe(() => {
       if (cancelled || controller.getState().runStatus !== 'running') return
@@ -2010,7 +2078,7 @@ describe('HarnessThreadController', () => {
         })
       }
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(userMessage('cancelled'))
     await vi.waitFor(() => expect(client.sent).toHaveLength(1))
@@ -2048,7 +2116,7 @@ describe('HarnessThreadController', () => {
     client.sendMessage = async () => {
       throw new Error('nope')
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     await expect(controller.sendMessage(userMessage('hi'))).rejects.toThrow('nope')
 
@@ -2061,7 +2129,7 @@ describe('HarnessThreadController', () => {
 
   it('mirrors a mid-run send into the queue instead of the transcript', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
 
@@ -2086,7 +2154,7 @@ describe('HarnessThreadController', () => {
 
   it('rolls back the optimistic queue entry when a mid-run send rejects', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     client.sendMessage = async () => {
@@ -2104,7 +2172,7 @@ describe('HarnessThreadController', () => {
 
   it('does not remove a surviving identical message when an earlier send fails', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
 
@@ -2132,7 +2200,7 @@ describe('HarnessThreadController', () => {
 
   it('does not remove a surviving identical message reconciled by a snapshot', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
 
@@ -2175,7 +2243,7 @@ describe('HarnessThreadController', () => {
 
   it('does not dispatch a queued send cancelled during optimistic promotion', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     const sending = controller.sendMessage(userMessage('queued'))
@@ -2196,7 +2264,7 @@ describe('HarnessThreadController', () => {
 
   it('does not dispatch a queued send cleared by its optimistic notification', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     let clearing: ReturnType<HarnessThreadController['clearQueue']> | undefined
@@ -2222,7 +2290,7 @@ describe('HarnessThreadController', () => {
   it('clears the queue via the client and returns the cleared text', async () => {
     const client = createFakeClient()
     client.clearQueueResult = { steering: ['a'], followUp: ['b', 'c'] }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     await controller.sendMessage(userMessage('b'))
@@ -2252,7 +2320,7 @@ describe('HarnessThreadController', () => {
       vi.unstubAllGlobals()
     })
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
 
     const first = controller.sendMessage(
       userMessageWithImage('first', 'https://cdn.example.com/image.png'),
@@ -2279,6 +2347,37 @@ describe('HarnessThreadController', () => {
     expect(client.sent.map(({ input }) => input.content)).toEqual(['first'])
   })
 
+  it('服务端取回失败仍交还已取消的本地排队文本', async () => {
+    let release!: (response: Response) => void
+    vi.stubGlobal(
+      'fetch',
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve
+        }),
+    )
+    onTestFinished(() => {
+      vi.unstubAllGlobals()
+    })
+    const client = createFakeClient()
+    const controller = createController(client, THREAD)
+    const first = controller.sendMessage(
+      userMessageWithImage('first', 'https://cdn.example.com/image.png'),
+    )
+    const second = controller.sendMessage(userMessage('not-dispatched'))
+    await vi.waitFor(() => expect(controller.getState().queue.followUp).toEqual(['not-dispatched']))
+    client.clearQueue = async () => {
+      throw new Error('offline')
+    }
+    await expect(controller.clearQueue()).rejects.toMatchObject({
+      recoveredQueue: { steering: [], followUp: ['not-dispatched'] },
+    })
+    release(new Response(new Uint8Array([0]), { headers: { 'content-type': 'image/png' } }))
+    await first
+    await second
+    expect(client.sent.map(({ input }) => input.content)).toEqual(['first'])
+  })
+
   it('does not empty a queue that a newer message repopulated before the clear response', async () => {
     const client = createFakeClient()
     let resolveClear!: () => void
@@ -2289,7 +2388,7 @@ describe('HarnessThreadController', () => {
       })
       return client.clearQueueResult
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     await controller.sendMessage(userMessage('old'))
@@ -2319,7 +2418,7 @@ describe('HarnessThreadController', () => {
       })
       return client.clearQueueResult
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
     client.emit(ev({ type: 'agent_start' }, 1))
     await controller.sendMessage(userMessage('old'))
@@ -2340,7 +2439,7 @@ describe('HarnessThreadController', () => {
 
   it('reconciles an optimistic message against an enriched echo', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     controller.connect()
 
     await controller.sendMessage(userMessage('look'))
@@ -2372,7 +2471,7 @@ describe('HarnessThreadController', () => {
   it('coalesces high-frequency stream notifications', () => {
     const client = createFakeClient()
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     const notify = vi.fn()
@@ -2426,7 +2525,7 @@ describe('HarnessThreadController', () => {
       }),
     )
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     controller.connect()
@@ -2499,7 +2598,7 @@ describe('HarnessThreadController', () => {
     })
     const client = createFakeClient(snapshot({ messages: stableMessages }))
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     controller.connect()
@@ -2533,7 +2632,7 @@ describe('HarnessThreadController state snapshot', () => {
   it('holds the snapshot steady while a coalesced message frame is pending', () => {
     const client = createFakeClient()
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     const notify = vi.fn()
@@ -2573,7 +2672,7 @@ describe('HarnessThreadController state snapshot', () => {
 
   it('advances the snapshot to live state on every notification', () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     const seen: HarnessThreadState[] = []
     controller.subscribe(() => seen.push(controller.getStateSnapshot()))
     controller.connect()
@@ -2597,7 +2696,7 @@ describe('HarnessThreadController state snapshot', () => {
   it('publishes state when a message event leaves the projection unchanged', () => {
     const client = createFakeClient()
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     const notify = vi.fn()
@@ -2639,7 +2738,7 @@ describe('HarnessThreadController state snapshot', () => {
   it('does not notify when neither the projection nor state moved', () => {
     const client = createFakeClient()
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     const notify = vi.fn()
@@ -2657,7 +2756,7 @@ describe('HarnessThreadController state snapshot', () => {
   })
 
   it('starts the snapshot at the initial state', () => {
-    const controller = new HarnessThreadController(createFakeClient(), THREAD)
+    const controller = createController(createFakeClient(), THREAD)
     expect(controller.getStateSnapshot()).toBe(controller.getState())
   })
 
@@ -2667,7 +2766,7 @@ describe('HarnessThreadController state snapshot', () => {
   it('publishes live state on a metadata notification mid-frame', () => {
     const client = createFakeClient()
     const scheduled: Array<() => void> = []
-    const controller = new HarnessThreadController(client, THREAD, {
+    const controller = new HarnessThreadController(client as unknown as HarnessClient, THREAD, {
       scheduleNotify: (flush) => scheduled.push(flush),
     })
     controller.subscribe(() => {})
@@ -2710,7 +2809,7 @@ describe('HarnessThreadController state snapshot', () => {
         messageEntryIds: ['entry-user-1'],
       }),
     )
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
 
     const projected = controller.getProjectedMessages()
@@ -2733,7 +2832,7 @@ describe('HarnessThreadController state snapshot', () => {
         releaseSend = resolve
       })
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
     const sending = controller
       .sendMessage(userMessage('本地排队'), { streamingBehavior: 'followUp' })
@@ -2784,7 +2883,7 @@ describe('HarnessThreadController state snapshot', () => {
     client.navigateThreadTree = async () => {
       throw new Error('offline')
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
     const sending = controller
       .sendMessage(userMessage('离线前排队'), { streamingBehavior: 'followUp' })
@@ -2813,7 +2912,7 @@ describe('HarnessThreadController state snapshot', () => {
         messages: [],
       }),
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
 
     const result = await controller.setThreadEntryLabel({
@@ -2836,7 +2935,7 @@ describe('HarnessThreadController state snapshot', () => {
       branchSummarySkipPrompt: true,
       nodes: [],
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     expect((await controller.getThreadTree()).branchSummarySkipPrompt).toBe(true)
     expect(await controller.cancelThreadTreeNavigation()).toEqual({ status: 'cancelled' })
     expect(client.treeRequests).toEqual([THREAD])
@@ -2846,7 +2945,7 @@ describe('HarnessThreadController state snapshot', () => {
     const client = createFakeClient(
       snapshot({ metadata: { id: THREAD, status: 'running' }, messages: [] }),
     )
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
     controller.connect()
     client.emit(ev({ type: 'message_start', message: assistantMessage('partial', 1) }, 1))
@@ -2896,7 +2995,7 @@ describe('fork / clone', () => {
       selectedText: '第一问',
       snapshot: snapshot({ metadata: { id: 'child', status: 'idle' }, messages: [] }),
     }
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
     const result = await controller.forkThread({
       entryId: 'e1',
@@ -2918,7 +3017,7 @@ describe('fork / clone', () => {
 
   it('失败结果写入 lastError，busy 不当作失败', async () => {
     const client = createFakeClient()
-    const controller = new HarnessThreadController(client, THREAD)
+    const controller = createController(client, THREAD)
     await controller.load()
     client.forkResult = { status: 'busy', message: '会话正在运行' }
     expect((await controller.forkThread({ position: 'at' })).status).toBe('busy')
@@ -2927,5 +3026,115 @@ describe('fork / clone', () => {
     client.forkResult = { status: 'failed', message: '创建分叉会话文件失败' }
     expect((await controller.forkThread({ position: 'at' })).status).toBe('failed')
     expect(controller.getState().lastError).toContain('创建分叉会话文件失败')
+  })
+})
+
+describe('用户 Shell 状态传播', () => {
+  it('bash 事件推进状态并通知状态订阅者', () => {
+    const client = createFakeClient()
+    const controller = createController(client, THREAD)
+    controller.connect()
+    let notifications = 0
+    const unsubscribe = controller.subscribe(() => {
+      notifications += 1
+    })
+    const run = {
+      id: 'bash:1',
+      command: 'echo hi',
+      excludeFromContext: false,
+      cwd: '/workspace',
+      status: 'running' as const,
+      output: '',
+      outputTruncated: false,
+      startedAt: '2026-08-18T00:00:00.000Z',
+    }
+
+    client.emit(ev({ type: 'bash_start', run }, 1))
+    expect(controller.getState().bash).toEqual(run)
+    expect(notifications).toBeGreaterThan(0)
+
+    const before = notifications
+    client.emit(ev({ type: 'bash_output', id: 'bash:1', delta: 'hi\n', dropped: 0 }, 2))
+    expect(controller.getState().bash?.output).toBe('hi\n')
+    expect(notifications).toBeGreaterThan(before)
+
+    client.emit(
+      ev(
+        {
+          type: 'bash_end',
+          run: {
+            ...run,
+            status: 'complete',
+            result: {
+              exitCode: 0,
+              cancelled: false,
+              truncated: false,
+              endedAt: '2026-08-18T00:00:01.000Z',
+            },
+          },
+        },
+        3,
+      ),
+    )
+    expect(controller.getState().bash?.status).toBe('complete')
+    expect(controller.getState().bash?.result?.exitCode).toBe(0)
+    unsubscribe()
+  })
+})
+
+describe('运行操作动作', () => {
+  it('转发 Shell、压缩、自动压缩、模型范围与目录刷新', async () => {
+    const client = createFakeClient()
+    const controller = createController(client, THREAD)
+
+    const started = await controller.runBash({ command: 'echo hi', excludeFromContext: true })
+    expect(started.status).toBe('started')
+    await expect(controller.abortBash()).resolves.toEqual({ status: 'idle' })
+    await expect(controller.compact({ customInstructions: '摘要指令' })).resolves.toEqual({
+      status: 'compacted',
+    })
+    await expect(controller.abortCompaction()).resolves.toEqual({ status: 'idle' })
+    await expect(controller.setAutoCompaction(false)).resolves.toEqual({
+      status: 'saved',
+      enabled: false,
+      scope: 'global',
+    })
+    await expect(controller.getModelScope()).resolves.toEqual({
+      patterns: [],
+      models: [],
+      diagnostics: [],
+    })
+    await expect(
+      controller.setModelScope({ patterns: ['a/b'], saveAsDefault: true }),
+    ).resolves.toMatchObject({ patterns: ['a/b'], persistence: 'skipped' })
+    await expect(controller.refreshModels()).resolves.toEqual({
+      models: [],
+      failedProviders: [],
+    })
+    await expect(controller.refreshModels({ workspacePath: '/ws' })).resolves.toEqual({
+      models: [],
+      failedProviders: [],
+    })
+  })
+
+  it('压缩失败写入 lastError，不伪装成功', async () => {
+    const client = createFakeClient()
+    client.compactThread = vi.fn(async () => ({ status: 'failed' as const, message: '压缩失败' }))
+    const controller = createController(client, THREAD)
+    const outcome = await controller.compact()
+    expect(outcome).toEqual({ status: 'failed', message: '压缩失败' })
+    expect(controller.getState().lastError).toBe('压缩失败')
+    // 仍刷新一次权威状态（失败可能由事件先行呈现）。
+    expect(client.getThreadSnapshot).toEqual(snapshot())
+  })
+
+  it('Shell 启动异常向上抛出并记录 lastError', async () => {
+    const client = createFakeClient()
+    client.runThreadBash = vi.fn(async () => {
+      throw new Error('shell unavailable')
+    })
+    const controller = createController(client, THREAD)
+    await expect(controller.runBash({ command: 'x' })).rejects.toThrow('shell unavailable')
+    expect(controller.getState().lastError).toBe('shell unavailable')
   })
 })

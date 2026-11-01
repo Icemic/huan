@@ -11,6 +11,7 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessImageContent,
 } from './messages.js'
+import type { HarnessBashRun, HarnessCompactionPhase } from './runtime.js'
 import type { HarnessThreadTreeOperation } from './tree.js'
 
 /** 上下文用量。 */
@@ -20,8 +21,11 @@ export interface HarnessContextUsage {
   percent: number | null
 }
 
-/** Thinking 级别。 */
-export type HarnessThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+/** Thinking 级别（与 Pi 1.4 的 ThinkingLevel 一致，含 max）。 */
+export type HarnessThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
+/** 模型输入模态（Pi Model.input 的受控子集）。 */
+export type HarnessModelInput = 'text' | 'image'
 
 /** 目录中的模型信息。 */
 export type HarnessModelInfo = {
@@ -29,7 +33,10 @@ export type HarnessModelInfo = {
   modelId: string
   name?: string
   supportsThinking?: boolean
+  /** 模型支持的 Thinking 级别（按 SDK 规则解析，xhigh/max 需显式映射）。 */
   availableThinkingLevels?: readonly HarnessThinkingLevel[]
+  /** 输入模态；缺失表示目录未声明。 */
+  input?: readonly HarnessModelInput[]
 }
 
 /** 就绪度（模型是否可就绪、缺什么）。 */
@@ -77,6 +84,16 @@ export type HarnessThreadMetadata = {
   archived?: boolean
   status: HarnessThreadStatus
   compactionActive?: boolean
+  /** 压缩触发原因（进行中才有意义）。 */
+  compactionReason?: 'manual' | 'threshold' | 'overflow'
+  /** 当前会话的自动压缩开关（来自该会话的用户设置）；冷会话可能缺失。 */
+  autoCompactionEnabled?: boolean
+  /** 当前会话的模型选择范围；空数组为全部。 */
+  scopedModelKeys?: readonly string[]
+  /** 共享模型目录显式刷新代数。 */
+  modelCatalogRevision?: number
+  /** 当前模型声明的输入模态；用于提交前校验图片能力。 */
+  modelInput?: readonly HarnessModelInput[]
   retryActive?: boolean
   retryAttempt?: number
   runningRunId?: string
@@ -111,6 +128,27 @@ export type HarnessSendMessageInput = {
   attachments?: HarnessInputAttachment[]
   /** 运行中必需（Pi `prompt()` 否则抛错）。 */
   streamingBehavior?: 'followUp' | 'steer'
+}
+
+/**
+ * 发送调用的传输元数据（不进入 Pi 会话记录）。
+ *
+ * `callerId` 标识发起窗口，用于把扩展的编辑器操作定向到该窗口。
+ */
+export type HarnessSendMessageOptions = {
+  callerId?: string
+}
+
+/**
+ * 发送提交点处置。
+ *
+ * `handled` 表示扩展命令或 input hook 已处理输入、不会产生运行事件；
+ * 客户端据此撤销乐观消息，而不是等待永远不会到来的消息/快照确认。
+ */
+export type HarnessSendMessageDisposition = 'started' | 'queued' | 'handled' | 'cancelled'
+
+export type HarnessSendMessageResult = {
+  disposition: HarnessSendMessageDisposition
 }
 
 /** 创建会话输入。 */
@@ -174,6 +212,73 @@ export type HarnessHostUiResponse =
   | { requestId: string; value: string }
   | { requestId: string; dismissed: true }
 
+/** 运行期扩展通知（有界列表；按 id 去重）。 */
+export type HarnessHostUiNotification = {
+  id: string
+  message: string
+  type: 'info' | 'warning' | 'error'
+  createdAt: number
+}
+
+/** 运行期扩展状态行（setStatus；按 key 覆盖/清除）。 */
+export type HarnessHostUiStatus = {
+  key: string
+  text: string
+}
+
+/** 文本 widget 的放置位置（仅文本行；组件工厂不支持）。 */
+export type HarnessHostUiWidgetPlacement = 'aboveEditor' | 'belowEditor'
+
+export type HarnessHostUiWidget = {
+  key: string
+  lines: readonly string[]
+  placement: HarnessHostUiWidgetPlacement
+}
+
+/**
+ * 扩展写输入框的定向指令。
+ *
+ * `callerId` 是发起命令/发送的窗口标识；缺省表示后台扩展，需由任一窗口
+ * 主动接受。指令有唯一 id，消费后从快照移除，重连不会重复应用。
+ */
+export type HarnessHostUiEditorDirective = {
+  id: string
+  text: string
+  mode: 'set' | 'paste'
+  callerId?: string
+  createdAt: number
+}
+
+/** commandContextActions 创建/切换的目标会话提示（供发起窗明确接收）。 */
+export type HarnessHostUiCommandTarget = {
+  id: string
+  action: 'newSession' | 'fork' | 'switchSession' | 'navigateTree'
+  threadId: string
+  title?: string
+  callerId?: string
+  editorText?: string
+  message: string
+  createdAt: number
+}
+
+/**
+ * 会话运行期 Host UI 状态（快照权威；断线重连补齐）。
+ *
+ * 不包含 TUI 专属组件/主题；终端专属能力另以通知说明不支持。
+ */
+export type HarnessThreadHostUi = {
+  statuses: readonly HarnessHostUiStatus[]
+  widgets: readonly HarnessHostUiWidget[]
+  notifications: readonly HarnessHostUiNotification[]
+  /** `setTitle` 的扩展标题提示；不覆盖会话名称或 document.title。 */
+  title?: string
+  workingMessage?: string
+  workingVisible?: boolean
+  hiddenThinkingLabel?: string
+  editorDirective?: HarnessHostUiEditorDirective
+  commandTarget?: HarnessHostUiCommandTarget
+}
+
 /** 事件包封（每线程单调序号，用于排序与去重）。 */
 export type HarnessClientEventEnvelope = {
   threadId: string
@@ -200,7 +305,28 @@ export type HarnessClientEventBody =
   | { type: 'tool_execution_end'; toolCallId: string; result: unknown; isError: boolean }
   | { type: 'queue_update'; steering: readonly string[]; followUp: readonly string[] }
   | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow' }
-  | { type: 'compaction_end'; aborted: boolean; willRetry: boolean }
+  | {
+      type: 'compaction_end'
+      reason: 'manual' | 'threshold' | 'overflow'
+      aborted: boolean
+      willRetry: boolean
+      /** 失败原因（取消时不写）。 */
+      errorMessage?: string
+      /** 压缩前的上下文 token 估算（成功时）。 */
+      tokensBefore?: number
+      /** 压缩后的上下文 token 估算（成功时）。 */
+      estimatedTokensAfter?: number
+    }
+  | { type: 'bash_start'; run: HarnessBashRun }
+  | {
+      type: 'bash_output'
+      id: string
+      /** 本次新增的输出片段。 */
+      delta: string
+      /** 宿主为保持有界缓冲而丢弃的前缀字符数（客户端同步裁剪）。 */
+      dropped: number
+    }
+  | { type: 'bash_end'; run: HarnessBashRun }
   | { type: 'entry_appended'; entry: HarnessAnySessionEntry }
   | { type: 'auto_retry_start'; attempt: number; delayMs: number }
   | { type: 'auto_retry_end'; success: boolean }
@@ -208,6 +334,7 @@ export type HarnessClientEventBody =
   | { type: 'thinking_level_changed'; level: string }
   | { type: 'context_usage'; contextUsage: HarnessContextUsage }
   | { type: 'extension_ui_request'; request: HarnessHostUiRequest }
+  | { type: 'host_ui_update'; hostUi?: HarnessThreadHostUi }
   | { type: 'extension_ui_resolved'; requestId: string }
   | {
       type: 'error'
@@ -277,6 +404,12 @@ export type HarnessThreadSnapshot = {
   messageEntryIds?: (string | null)[]
   /** 待处理的阻断式 Host UI 请求（存活于宿主 record，重连后仍可见）。 */
   hostUiRequests?: readonly HarnessHostUiRequest[]
+  /** 扩展报告的状态/通知/widget/标题/编辑器指令（运行期快照权威）。 */
+  hostUi?: HarnessThreadHostUi
+  /** 用户 Shell 的实时/刚完成状态；持久化为历史消息后清除。 */
+  bash?: HarnessBashRun
+  /** 压缩运行态（进行中、原因与最近失败原因）。 */
+  compaction?: HarnessCompactionPhase
   readiness?: HarnessRuntimeReadiness
   /** 快照反映的每线程序号；HTTP 冷读可缺席。 */
   seq?: number

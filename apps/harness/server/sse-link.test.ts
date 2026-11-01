@@ -16,7 +16,11 @@
  *    上游共享缓存实现最需要验证的差异点）。
  */
 
-import type { HarnessAnyClientEvent, HarnessClient } from '@huan/protocol'
+import type {
+  HarnessAnyClientEvent,
+  HarnessClient,
+  HarnessHostInteractionEvent,
+} from '@huan/protocol'
 import {
   createHarnessHttpClient,
   createHarnessThreadState,
@@ -24,7 +28,7 @@ import {
 } from '@huan/react'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
-import { createEventsRoute } from './sse.js'
+import { createEventsRoute, createHostInteractionEventsRoute } from './sse.js'
 
 const THREAD_ID = 't-e2e'
 
@@ -341,5 +345,65 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
     } finally {
       unsubscribe()
     }
+  })
+})
+
+describe('宿主级交互 SSE（启动期请求）', () => {
+  it('订阅首帧与后续快照都能到达客户端', async () => {
+    const listeners = new Set<(event: HarnessHostInteractionEvent) => void>()
+    const client: Pick<HarnessClient, 'subscribeHostInteractions'> = {
+      subscribeHostInteractions(listener) {
+        listener({
+          type: 'snapshot',
+          seq: 0,
+          snapshot: { seq: 0, requests: [], notifications: [] },
+        })
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const app = new Hono()
+    app.get('/api/pi/interactions/events', createHostInteractionEventsRoute(client))
+    const http = createHarnessHttpClient({
+      baseUrl: '/api/pi',
+      fetchImpl: async (input, init) =>
+        app.fetch(new Request(new URL(String(input), 'http://localhost'), init)),
+      reconnectDelay: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      },
+    })
+    const events: Array<{ seq: number; count: number }> = []
+    const release = http.subscribeHostInteractions((event) => {
+      events.push({ seq: event.snapshot.seq, count: event.snapshot.requests.length })
+    })
+    await waitFor(() => events.length === 1)
+    for (const listener of [...listeners]) {
+      listener({
+        type: 'snapshot',
+        seq: 1,
+        snapshot: {
+          seq: 1,
+          requests: [
+            {
+              id: 'r1',
+              scope: { kind: 'project', cwd: '/project' },
+              kind: 'confirm',
+              title: '确认',
+              message: '允许？',
+              createdAt: 1,
+            },
+          ],
+          notifications: [],
+        },
+      })
+    }
+    await waitFor(() => events.length === 2)
+    release()
+    expect(events).toEqual([
+      { seq: 0, count: 0 },
+      { seq: 1, count: 1 },
+    ])
   })
 })

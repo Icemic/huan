@@ -2,15 +2,23 @@ import { useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { Thread } from '@/components/assistant-ui/elements/thread.aui'
+import { PiCommandPanels } from '@/components/pi-command-panels'
+import { PiHostInteractions } from '@/components/pi-host-interactions'
 import { PiHostStatus } from '@/components/pi-host-status'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
+import { PiRunStatus } from '@/components/pi-run-status'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
+import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
+import { RuntimeDataParts } from '@/components/runtime-data-parts'
 import { SessionContextBar } from '@/components/session-context-bar'
 import { ThemeSelector } from '@/components/theme-selector'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useWorkspace, WorkspaceProvider } from '@/components/workspace-context'
 import { WorkspaceSidebar } from '@/components/workspace-sidebar'
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error && error.message ? error.message : String(error)
 
 /** 就绪度横幅：模型/凭据不可用时给出提示。 */
 function ReadinessBanner() {
@@ -97,7 +105,7 @@ function WorkspaceApp() {
     <PiRuntimeProvider
       createThreadInput={createThreadInput}
       readOnly={state !== undefined && state !== 'ok'}
-      onError={() => showNotice('会话操作失败，请检查左侧工作区状态、项目信任或宿主诊断后重试。')}
+      onError={(error) => showNotice(`会话操作失败：${errorMessage(error)}`)}
     >
       <div className="flex h-dvh flex-col overflow-hidden">
         <header
@@ -112,14 +120,20 @@ function WorkspaceApp() {
             <ThemeSelector />
           </div>
         </header>
+        <PiHostInteractions />
         <WorkspaceStatusBanner />
         {state === 'ok' && <PiLiveSubscription />}
+        <RuntimeDataParts />
         <div className="flex min-h-0 flex-grow">
           <WorkspaceSidebar />
           <main className="flex min-h-0 min-w-0 flex-grow flex-col overflow-hidden">
             <SessionContextBar />
+            <PiCommandPanels />
             <PiHostStatus />
             <ReadinessBanner />
+            <PiHostUiRequests />
+            <PiThreadHostUi />
+            <PiRunStatus />
             <Thread />
           </main>
         </div>

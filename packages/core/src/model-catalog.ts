@@ -40,7 +40,7 @@ export type HarnessResourceLoaderOptions = {
   additionalThemePaths?: readonly string[]
 }
 
-/** 与 protocol 的 thinking 级别清单一致的顺序。 */
+/** 与 protocol 的 thinking 级别清单一致的顺序（含 Pi 1.4 的 max）。 */
 const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
   'off',
   'minimal',
@@ -48,7 +48,29 @@ const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
   'medium',
   'high',
   'xhigh',
+  'max',
 ]
+
+/**
+ * 模型可用的 Thinking 级别（与 Pi 的 `getSupportedThinkingLevels` 同规则）。
+ *
+ * - 非推理模型只有 `off`；
+ * - `null` 映射的级别不可用；
+ * - `xhigh` / `max` 必须由模型显式映射才可用（避免高估能力后请求被拒）。
+ */
+function supportedThinkingLevels(model: {
+  reasoning?: boolean
+  thinkingLevelMap?: Record<string, unknown>
+}): HarnessThinkingLevel[] {
+  if (!model.reasoning) return ['off']
+  const map = model.thinkingLevelMap
+  return THINKING_LEVELS.filter((level) => {
+    const mapped = map?.[level]
+    if (mapped === null) return false
+    if (level === 'xhigh' || level === 'max') return mapped !== undefined
+    return true
+  })
+}
 
 /** 由模型注册表条目映射为协议模型信息。 */
 function mapModelInfo(model: {
@@ -57,15 +79,18 @@ function mapModelInfo(model: {
   name?: string
   reasoning?: boolean
   thinkingLevelMap?: Record<string, unknown>
+  input?: readonly string[]
 }): HarnessModelInfo {
-  const map = model.thinkingLevelMap
-  const available = map ? THINKING_LEVELS.filter((level) => map[level] !== null) : undefined
+  const input = model.input?.filter(
+    (modality): modality is 'text' | 'image' => modality === 'text' || modality === 'image',
+  )
   return {
     provider: String(model.provider),
     modelId: model.id,
     ...(model.name ? { name: model.name } : {}),
     supportsThinking: Boolean(model.reasoning),
-    ...(available ? { availableThinkingLevels: available } : {}),
+    availableThinkingLevels: supportedThinkingLevels(model),
+    ...(input ? { input: [...input] } : {}),
   }
 }
 

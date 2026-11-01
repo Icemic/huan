@@ -28,9 +28,11 @@ import { isKnownHarnessClientEventType } from '../event-types.js'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import {
   isAssistantMessageDelta,
+  isBashRun,
   isCompleteTranscriptMessage,
   isContextUsage,
   isHostUiRequest,
+  isThreadHostUi,
   isThreadSnapshot,
 } from './validation.js'
 
@@ -123,6 +125,9 @@ const hasOwn = (value: Record<string, unknown>, key: string): boolean => Object.
 const isStringArray = (value: unknown): boolean =>
   Array.isArray(value) && value.every((item) => typeof item === 'string')
 
+const isOptionalNumber = (value: unknown): boolean =>
+  value === undefined || typeof value === 'number'
+
 const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
   switch (event.type) {
     case 'snapshot':
@@ -166,7 +171,23 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
     case 'compaction_start':
       return typeof event.reason === 'string'
     case 'compaction_end':
-      return typeof event.aborted === 'boolean' && typeof event.willRetry === 'boolean'
+      return (
+        typeof event.reason === 'string' &&
+        typeof event.aborted === 'boolean' &&
+        typeof event.willRetry === 'boolean' &&
+        isOptionalString(event.errorMessage) &&
+        isOptionalNumber(event.tokensBefore) &&
+        isOptionalNumber(event.estimatedTokensAfter)
+      )
+    case 'bash_start':
+    case 'bash_end':
+      return isBashRun(event.run)
+    case 'bash_output':
+      return (
+        typeof event.id === 'string' &&
+        typeof event.delta === 'string' &&
+        typeof event.dropped === 'number'
+      )
     case 'entry_appended':
       return (
         isRecord(event.entry) &&
@@ -187,6 +208,8 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
       return isContextUsage(event.contextUsage)
     case 'extension_ui_request':
       return isHostUiRequest(event.request)
+    case 'host_ui_update':
+      return event.hostUi === undefined || isThreadHostUi(event.hostUi)
     case 'extension_ui_resolved':
       return typeof event.requestId === 'string'
     case 'error':

@@ -72,6 +72,10 @@ const thread: HarnessThreadMetadata = {
 function setup(overrides: Partial<HarnessClient> = {}) {
   const client = {
     getHostInfo: vi.fn(),
+    getHostInteractions: vi.fn(async () => ({ seq: 0, requests: [], notifications: [] })),
+    subscribeHostInteractions: vi.fn(() => () => {}),
+    respondToHostInteraction: vi.fn(async () => ({ accepted: true })),
+    consumeHostUiDirective: vi.fn(async () => true),
     listWorkspaces: vi.fn(async () => ({ workspaces: [], state: 'ok' as const })),
     createWorkspace: vi.fn(),
     updateWorkspace: vi.fn(),
@@ -80,6 +84,13 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     createThread: vi.fn(),
     getThread: vi.fn(),
     getThreadDetails: vi.fn(),
+    listCommands: vi.fn(async () => ({
+      commands: [],
+      skillCommandsEnabled: true,
+      diagnostics: [],
+    })),
+    getCommandArgumentCompletions: vi.fn(async () => []),
+    searchFiles: vi.fn(async () => ({ files: [], truncated: false })),
     getThreadTree: vi.fn(),
     navigateThreadTree: vi.fn(),
     setThreadEntryLabel: vi.fn(),
@@ -87,7 +98,7 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     forkThread: vi.fn(),
     previewThreadImport: vi.fn(),
     importThread: vi.fn(),
-    sendMessage: vi.fn(),
+    sendMessage: vi.fn(async () => ({ disposition: 'started' as const })),
     cancelRun: vi.fn(),
     clearQueue: vi.fn(),
     checkProjectPath: vi.fn(async () => pathCheck),
@@ -98,6 +109,14 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     getAvailableModels: vi.fn(),
     setModel: vi.fn(),
     setThinkingLevel: vi.fn(),
+    runThreadBash: vi.fn(),
+    abortThreadBash: vi.fn(),
+    compactThread: vi.fn(),
+    abortThreadCompaction: vi.fn(),
+    setAutoCompaction: vi.fn(),
+    getThreadModelScope: vi.fn(),
+    setThreadModelScope: vi.fn(),
+    refreshModels: vi.fn(),
     renameThread: vi.fn(),
     archiveThread: vi.fn(),
     unarchiveThread: vi.fn(),
@@ -600,5 +619,177 @@ describe('独立分支与 JSONL 导入路由', () => {
     await expect(
       invalid.importThread({ source: { kind: 'path', path: '/x' }, workspaceId: 'ws_1' }),
     ).rejects.toThrow('Invalid Pi HTTP response')
+  })
+})
+
+describe('运行操作路由', () => {
+  it('Shell 启动/取消与压缩/自动压缩按受控载荷转发', async () => {
+    const bashRun = {
+      id: 'bash:1',
+      command: 'echo hi',
+      excludeFromContext: true,
+      cwd: '/projects/app',
+      status: 'running' as const,
+      output: '',
+      outputTruncated: false,
+      startedAt: '2026-08-18T00:00:00.000Z',
+    }
+    const { app, client } = setup({
+      runThreadBash: vi.fn(async () => ({ status: 'started' as const, run: bashRun })),
+      abortThreadBash: vi.fn(async () => ({ status: 'requested' as const })),
+      compactThread: vi.fn(async () => ({ status: 'compacted' as const, tokensBefore: 10 })),
+      abortThreadCompaction: vi.fn(async () => ({ status: 'idle' as const })),
+      setAutoCompaction: vi.fn(async (_id, enabled) => ({
+        status: 'saved' as const,
+        enabled,
+        scope: 'global' as const,
+      })),
+    })
+
+    const bash = await app.request('/api/pi/threads/t1/bash', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'echo hi', excludeFromContext: true }),
+    })
+    expect(bash.status).toBe(200)
+    expect(await bash.json()).toMatchObject({ status: 'started' })
+    expect(client.runThreadBash).toHaveBeenCalledWith('t1', {
+      command: 'echo hi',
+      excludeFromContext: true,
+    })
+
+    const abort = await app.request('/api/pi/threads/t1/bash/abort', {
+      method: 'POST',
+      headers,
+    })
+    expect(await abort.json()).toEqual({ status: 'requested' })
+
+    const compact = await app.request('/api/pi/threads/t1/compact', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ customInstructions: '保留决策' }),
+    })
+    expect(await compact.json()).toEqual({ status: 'compacted', tokensBefore: 10 })
+    expect(client.compactThread).toHaveBeenCalledWith('t1', { customInstructions: '保留决策' })
+
+    const cancelCompact = await app.request('/api/pi/threads/t1/compact/abort', {
+      method: 'POST',
+      headers,
+    })
+    expect(await cancelCompact.json()).toEqual({ status: 'idle' })
+
+    const auto = await app.request('/api/pi/threads/t1/auto-compaction', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false }),
+    })
+    expect(await auto.json()).toMatchObject({ status: 'saved', enabled: false })
+    expect(client.setAutoCompaction).toHaveBeenCalledWith('t1', false)
+  })
+
+  it('非法运行输入返回 400，不触达宿主', async () => {
+    const { app, client } = setup()
+    const cases: Array<{ path: string; body: unknown }> = [
+      { path: '/api/pi/threads/t1/bash', body: { command: 1 } },
+      { path: '/api/pi/threads/t1/compact', body: { customInstructions: 1 } },
+      { path: '/api/pi/threads/t1/auto-compaction', body: { enabled: 'yes' } },
+      { path: '/api/pi/threads/t1/model-scope', body: { patterns: 'a/b' } },
+    ]
+    for (const item of cases) {
+      const response = await app.request(item.path, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(item.body),
+      })
+      expect(response.status).toBe(400)
+    }
+    expect(client.runThreadBash).not.toHaveBeenCalled()
+    expect(client.compactThread).not.toHaveBeenCalled()
+    expect(client.setAutoCompaction).not.toHaveBeenCalled()
+    expect(client.setThreadModelScope).not.toHaveBeenCalled()
+  })
+
+  it('模型范围读取与刷新按显式会话/固定目录转发', async () => {
+    const scope = {
+      patterns: ['huan-test/test-model-a'],
+      models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
+      diagnostics: [],
+    }
+    const { app, client } = setup({
+      getThreadModelScope: vi.fn(async () => scope),
+      setThreadModelScope: vi.fn(async (_id, input) => ({
+        ...scope,
+        patterns: input.patterns,
+        persistence: 'saved' as const,
+      })),
+      refreshModels: vi.fn(async () => ({ models: [], failedProviders: [] })),
+    })
+
+    expect(await (await app.request('/api/pi/threads/t1/model-scope', { headers })).json()).toEqual(
+      scope,
+    )
+
+    const updated = await app.request('/api/pi/threads/t1/model-scope', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ patterns: ['a/b'], saveAsDefault: true }),
+    })
+    expect(await updated.json()).toMatchObject({ patterns: ['a/b'], persistence: 'saved' })
+    expect(client.setThreadModelScope).toHaveBeenCalledWith('t1', {
+      patterns: ['a/b'],
+      saveAsDefault: true,
+    })
+
+    const refresh = await app.request('/api/pi/models/refresh', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ workspacePath: '/ws' }),
+    })
+    expect(await refresh.json()).toEqual({ models: [], failedProviders: [] })
+    expect(client.refreshModels).toHaveBeenCalledWith({ workspacePath: '/ws' })
+  })
+
+  it('宿主交互查询/应答与消息调用方窗口走同一鉴权路由', async () => {
+    const snapshot = { seq: 2, requests: [], notifications: [] }
+    const { app, client } = setup({
+      getHostInteractions: vi.fn(async () => snapshot),
+      respondToHostInteraction: vi.fn(async () => ({ accepted: true })),
+    })
+
+    expect(await (await app.request('/api/pi/interactions', { headers })).json()).toEqual(snapshot)
+    const answered = await app.request('/api/pi/interactions/respond', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ response: { requestId: 'r1', confirmed: true } }),
+    })
+    expect(await answered.json()).toEqual({ accepted: true })
+    expect(client.respondToHostInteraction).toHaveBeenCalledWith({
+      requestId: 'r1',
+      confirmed: true,
+    })
+
+    const sent = await app.request('/api/pi/threads/t1/messages', {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+        'x-huan-caller': 'window-a',
+      },
+      body: JSON.stringify({ input: { content: 'hello' } }),
+    })
+    expect(sent.status).toBe(200)
+    expect(client.sendMessage).toHaveBeenCalledWith(
+      't1',
+      { content: 'hello' },
+      { callerId: 'window-a' },
+    )
+
+    const consumed = await app.request('/api/pi/threads/t1/host-ui/consume', {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'd1' }),
+    })
+    expect(consumed.status).toBe(200)
+    expect(client.consumeHostUiDirective).toHaveBeenCalledWith('t1', 'd1', { callerId: undefined })
   })
 })

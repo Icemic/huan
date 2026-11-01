@@ -10,6 +10,13 @@
  *   取消不算失败（不置 lastError、不广播 error 事件）。
  */
 
+import type {
+  HarnessCommandArgumentCompletion,
+  HarnessCommandArgumentInput,
+  HarnessCommandCatalog,
+  HarnessFileSearchInput,
+  HarnessFileSearchResult,
+} from './commands.js'
 import type { HarnessThreadForkInput, HarnessThreadForkResult } from './fork.js'
 import type { HarnessHostInfo } from './host.js'
 import type {
@@ -19,17 +26,37 @@ import type {
   HarnessThreadImportResult,
 } from './import.js'
 import type {
+  HarnessHostInteractionAnswer,
+  HarnessHostInteractionEvent,
+  HarnessHostInteractionResponse,
+  HarnessHostInteractionSnapshot,
+} from './interaction.js'
+import type {
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
   HarnessRecentProject,
 } from './project.js'
 import type {
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashStartResult,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
+  HarnessModelRefreshInput,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeUpdateInput,
+  HarnessModelScopeUpdateResult,
+} from './runtime.js'
+import type {
   HarnessClientEvent,
   HarnessCreateThreadInput,
   HarnessHostUiResponse,
   HarnessModelInfo,
   HarnessSendMessageInput,
+  HarnessSendMessageOptions,
+  HarnessSendMessageResult,
   HarnessThinkingLevel,
   HarnessThreadDetails,
   HarnessThreadMetadata,
@@ -55,6 +82,20 @@ import type {
 /** 宿主客户端（RPC 形态，JSON-safe）。 */
 export interface HarnessClient {
   getHostInfo(): Promise<HarnessHostInfo>
+  /** 宿主级交互快照：启动装配期也可查询，不依赖选中会话。 */
+  getHostInteractions(): Promise<HarnessHostInteractionSnapshot>
+  /** 订阅宿主级交互；首帧为权威快照，断线重连同样以快照恢复。 */
+  subscribeHostInteractions(listener: (event: HarnessHostInteractionEvent) => void): () => void
+  /** 应答宿主级请求；已结算/未知 ID 返回 accepted=false（幂等）。 */
+  respondToHostInteraction(
+    response: HarnessHostInteractionResponse,
+  ): Promise<HarnessHostInteractionAnswer>
+  /** 消费会话级 Host UI 指令（编辑器文本/命令目标）；成功后从快照移除。 */
+  consumeHostUiDirective(
+    threadId: string,
+    directiveId: string,
+    options?: { callerId?: string },
+  ): Promise<boolean>
   /** 列出工作区定义与元数据健康状态；不执行项目扩展。 */
   listWorkspaces(): Promise<HarnessWorkspaceCatalog>
   createWorkspace(input: HarnessCreateWorkspaceInput): Promise<HarnessWorkspaceMutationResult>
@@ -74,14 +115,77 @@ export interface HarnessClient {
     includeArchived?: boolean
     refresh?: boolean
   }): Promise<HarnessThreadMetadata[]>
-  createThread(input?: HarnessCreateThreadInput): Promise<HarnessThreadSnapshot>
+  createThread(
+    input?: HarnessCreateThreadInput,
+    options?: { callerId?: string },
+  ): Promise<HarnessThreadSnapshot>
   getThread(threadId: string): Promise<HarnessThreadSnapshot>
   /**
    * 只读详情：元数据、全文件累计统计与当前活动分支上下文。
    * 冷会话不装配项目扩展、不发起网络请求；热会话直接使用 SDK 统计。
    */
   getThreadDetails(threadId: string): Promise<HarnessThreadDetails>
-  sendMessage(threadId: string, input: HarnessSendMessageInput): Promise<void>
+  /**
+   * 公开 SDK 资源命令目录（扩展/模板/skill）；内置命令由应用合并。
+   * 会话或空白页固定起始目录二选一，不隐式使用窗口工作区。
+   */
+  listCommands(input?: {
+    threadId?: string
+    workspacePath?: string
+  }): Promise<HarnessCommandCatalog>
+  /** 按需调用扩展的参数补全；不适用时返回空数组。 */
+  getCommandArgumentCompletions(
+    input: HarnessCommandArgumentInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<readonly HarnessCommandArgumentCompletion[]>
+  /**
+   * 查询当前会话/选中工作区成员内的文件引用；只返回路径与类型，
+   * 不读取文件内容，不扫描个人空间。
+   */
+  searchFiles(
+    input: HarnessFileSearchInput,
+    options?: { signal?: AbortSignal },
+  ): Promise<HarnessFileSearchResult>
+  sendMessage(
+    threadId: string,
+    input: HarnessSendMessageInput,
+    options?: HarnessSendMessageOptions,
+  ): Promise<HarnessSendMessageResult>
+  /**
+   * 直接执行用户 Shell（`!` 纳入上下文，`!!` 排除）。
+   * 返回 started 即已登记并开始执行；输出/完成经 bash_* 事件与快照同步。
+   * 同一会话同时至多一条用户 Shell；结构操作进行中返回 busy。
+   */
+  runThreadBash(
+    threadId: string,
+    input: { command: string; excludeFromContext?: boolean },
+  ): Promise<HarnessBashStartResult>
+  /** 取消当前用户 Shell；不中止模型运行。 */
+  abortThreadBash(threadId: string): Promise<HarnessBashAbortResult>
+  /** 手动压缩上下文（可附指令）；失败保留原始消息树。 */
+  compactThread(
+    threadId: string,
+    input?: { customInstructions?: string },
+  ): Promise<HarnessCompactionOutcome>
+  /** 取消进行中的压缩（手动或自动）。 */
+  abortThreadCompaction(threadId: string): Promise<HarnessCompactionAbortResult>
+  /**
+   * 保存自动压缩开关到当前 agentDir 的用户设置（全局），
+   * 并同步所有已打开会话的有效状态。写盘失败时回滚内存并如实返回 failed。
+   */
+  setAutoCompaction(threadId: string, enabled: boolean): Promise<HarnessAutoCompactionUpdateResult>
+  /** 读取会话模型范围（会话级）与已保存的用户默认。 */
+  getThreadModelScope(threadId: string): Promise<HarnessModelScope>
+  /** 更新会话模型范围；saveAsDefault 才写入用户设置。 */
+  setThreadModelScope(
+    threadId: string,
+    input: HarnessModelScopeUpdateInput,
+  ): Promise<HarnessModelScopeUpdateResult>
+  /**
+   * 显式刷新模型目录（可以不重建 live session 或发起模型请求）。
+   * 必须显式指定会话或固定起始目录，不接受隐式窗口工作区。
+   */
+  refreshModels(input: HarnessModelRefreshInput): Promise<HarnessModelRefreshResult>
   /**
    * 停止：中止当前运行、丢弃未送达的排队输入，覆盖 prompt 预检窗口。
    * 取消不产生失败状态（不置 lastError、不广播 error）；已产出内容保留。

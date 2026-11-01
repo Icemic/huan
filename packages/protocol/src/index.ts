@@ -5,6 +5,7 @@
  *
  * - messages.ts：Pi 消息/内容/会话记录形状的 JSON-safe 镜像
  * - thread.ts：会话元数据、快照、事件、Host UI、模型与就绪度
+ * - commands.ts：命令目录、参数补全与文件引用
  * - client.ts：宿主客户端接口（传输无关）
  * - queue.ts：输入队列条目 ID 方案
  *
@@ -18,11 +19,30 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 7 as const
+export const HARNESS_PROTOCOL_VERSION = 10 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
 export type { HarnessClient } from './client.js'
+export type {
+  HarnessBuiltinCommand,
+  HarnessBuiltinCommandStage,
+  HarnessCommandArgumentCompletion,
+  HarnessCommandArgumentInput,
+  HarnessCommandCatalog,
+  HarnessCommandSource,
+  HarnessCommandSourceInfo,
+  HarnessFileReference,
+  HarnessFileSearchInput,
+  HarnessFileSearchResult,
+  HarnessResourceCommand,
+} from './commands.js'
+export {
+  builtinCommandNameOf,
+  HARNESS_BUILTIN_COMMANDS,
+  isBuiltinCommandName,
+  parseLeadingSlashCommand,
+} from './commands.js'
 export type {
   HarnessThreadForkInput,
   HarnessThreadForkPosition,
@@ -41,6 +61,16 @@ export type {
   HarnessThreadImportSourceInfo,
   HarnessThreadImportStatus,
 } from './import.js'
+export type {
+  HarnessHostInteractionAnswer,
+  HarnessHostInteractionEvent,
+  HarnessHostInteractionNotification,
+  HarnessHostInteractionRequest,
+  HarnessHostInteractionResponse,
+  HarnessHostInteractionScope,
+  HarnessHostInteractionSnapshot,
+} from './interaction.js'
+export { hostInteractionScopeKey } from './interaction.js'
 export type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,
@@ -81,22 +111,51 @@ export type {
 export type { HarnessQueueMode } from './queue.js'
 export { harnessQueueItemId, isHarnessSteerQueueItemId } from './queue.js'
 export type {
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashResult,
+  HarnessBashRun,
+  HarnessBashStartResult,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
+  HarnessCompactionPhase,
+  HarnessCompactionReason,
+  HarnessModelRefreshInput,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeDiagnostic,
+  HarnessModelScopeModel,
+  HarnessModelScopeUpdateInput,
+  HarnessModelScopeUpdateResult,
+} from './runtime.js'
+export type {
   HarnessAnyClientEvent,
   HarnessClientEvent,
   HarnessClientEventBody,
   HarnessClientEventEnvelope,
   HarnessContextUsage,
   HarnessCreateThreadInput,
+  HarnessHostUiCommandTarget,
+  HarnessHostUiEditorDirective,
+  HarnessHostUiNotification,
   HarnessHostUiRequest,
   HarnessHostUiRequestKind,
   HarnessHostUiResponse,
+  HarnessHostUiStatus,
+  HarnessHostUiWidget,
+  HarnessHostUiWidgetPlacement,
   HarnessInputAttachment,
   HarnessModelInfo,
+  HarnessModelInput,
   HarnessQueuedMessage,
   HarnessRuntimeReadiness,
+  HarnessSendMessageDisposition,
   HarnessSendMessageInput,
+  HarnessSendMessageOptions,
+  HarnessSendMessageResult,
   HarnessThinkingLevel,
   HarnessThreadDetails,
+  HarnessThreadHostUi,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
   HarnessThreadStats,

@@ -157,11 +157,16 @@ export type E2eProject = {
   marker?: string
 }
 
-/** 创建隔离项目（可选项目扩展探针/项目 settings）。 */
+/** 创建隔离项目（可选项目扩展探针/项目 settings/启动期交互标记）。 */
 export async function createProject(
   request: APIRequestContext,
   name: string,
-  options: { extension?: boolean; settings?: Record<string, unknown> } = {},
+  options: {
+    extension?: boolean
+    settings?: Record<string, unknown>
+    askTrust?: boolean
+    askStartup?: boolean
+  } = {},
 ): Promise<E2eProject> {
   const response = await request.post(`${E2E_HOST_URL}/__e2e__/projects`, {
     data: { name, ...options },

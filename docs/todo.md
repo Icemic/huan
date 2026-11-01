@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a/b/c、多项目工作区与 Base UI/主题开发完成；G1.2d 开发与主 agent 验收完成
+- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a/b/c、多项目工作区与 Base UI/主题开发完成；G1.2d 开发与主 agent 验收完成；G1.3a/b/c开发与主agent验收完成
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -27,13 +27,29 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：598 项测试、29 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：685 项测试、47 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.3b/c 命令输入与Host UI（✅ 开发完成，`feat`）
+
+记录：[命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)、[Host UI与启动交互](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)
+
+- 命令目录/补全与路由、文件引用（嵌套gitignore）、图片粘贴/能力校验、窗口草稿/历史/长输入和显式排队已接入。
+- 启动信任/session_start交互可答，宿主通道支持跨窗接管；运行通知/status/widget与原子领取的定向编辑器指令可见，父子会话动作独立。
+- 主agent直接修复异步草稿/补全竞态、Shell/设置、独立UI事件避免冲掉流式内容、原子领取与newSession初始化/血缘；累计亲验38文件685项、47条Chromium、lint/类型/build/Lingui299通过。
+
+### G1.3a 运行操作与上下文（✅ 开发完成，`feat`）
+
+记录：[运行操作](iteration/2026-10/2026-10-31-feat-runtime-operations.md)
+
+- 协议 8：Shell 实时输出/取消/`!`与`!!`、压缩状态与失败原因、自动压缩用户设置、模型范围/刷新、Thinking `max` 与输入模态。
+- 宿主、HTTP、react 运行时、会话上下文栏“运行操作”面板与数据消息渲染器已接入；Shell/压缩/删除/销毁竞态与设置写盘校验按设计处理。
+- 主 agent直接review修复Shell自定义operations、钩子取消、历史替换、设置串行写入/缓存与选择器范围；亲验642项测试、33条Chromium、lint/全仓类型/build/Lingui275通过。后续b/c交付见上文。
 
 ### G1.2d 独立分支与 JSONL 导入（✅ 开发完成，`feat`）
 
@@ -77,7 +93,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 - GUI 路径输入、最近项目、窗口独立选择、信任决定与继续最近已实现；未知信任时项目资源不执行，冷历史可读。
 - 主 agent 直接简化重复扩展初始化并验收：480 项 Vitest、9 条 Chromium 流程、类型检查与构建通过。
-- 用户信任扩展以无 UI 上下文运行；交互型 handler 仍有限制，详见迭代记录。
+- 此次原为无UI上下文；G1.3c已补启动交互通道，当前行为见对应记录。
 
 ### 浏览器验证基线（✅ 2026-10-31，`test`）
 
@@ -181,13 +197,13 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | --- | --- |
 | `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false） |
 | 附件仅图片 | 无其他文件类型支持 |
-| skills / extensions 不暴露 UI | SDK 层已支持加载，界面不呈现 |
+| 资源管理尚未完整 | skills/模板/扩展命令已有目录与调用；完整资源配置与重载归G1.4 |
 | 外部会话并行改写 | 已加载 live 会话由宿主持有，外部 Pi 同时改写同一文件不提供多写者合并 |
 | 无文件快照 / 回滚 | 属后续增强能力 |
 | 会话搜索范围有限 | 只匹配显式名称与首条用户消息，不含全历史全文检索；支持全部/当前工作区范围与最近活动/创建时间/名称排序 |
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
 | 内置 MCP 等能力未装配 | 尚未注入 MCP、codemode、tool search 工厂，无 GUI 管理入口 |
-| 多项原生操作无 GUI 入口 | 包括手动 compact、reload、认证、导出与直接 Shell 输入，完整范围见能力规范 |
+| 多项原生操作无 GUI 入口 | reload、认证、设置、MCP与导出/分享等仍未实施；Shell和compact已有入口 |
 | 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
 
 ---

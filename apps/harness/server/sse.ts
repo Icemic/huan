@@ -68,3 +68,45 @@ export function createEventsRoute(client: Pick<HarnessClient, 'subscribe'>) {
     })
   }
 }
+
+/**
+ * 宿主级交互快照事件流。
+ *
+ * 与线程流共用慢客户端上限；断开只退订，不取消任何任务或请求。
+ * 首帧由 `subscribeHostInteractions` 保证为权威快照（重连同样如此）。
+ */
+export function createHostInteractionEventsRoute(
+  client: Pick<HarnessClient, 'subscribeHostInteractions'>,
+) {
+  return async (c: Context) =>
+    streamSSE(c, async (stream) => {
+      let unsubscribe: (() => void) | undefined
+      let settled = false
+      let inflight = 0
+
+      await new Promise<void>((resolve) => {
+        const cleanup = () => {
+          if (settled) return
+          settled = true
+          unsubscribe?.()
+          resolve()
+        }
+        stream.onAbort(cleanup)
+        unsubscribe = client.subscribeHostInteractions((event) => {
+          if (settled) return
+          if (inflight >= MAX_INFLIGHT_WRITES) {
+            void stream.close().catch(() => {})
+            cleanup()
+            return
+          }
+          inflight++
+          void stream
+            .writeSSE({ data: JSON.stringify(event) })
+            .catch(() => {})
+            .finally(() => {
+              inflight--
+            })
+        })
+      })
+    })
+}

@@ -147,6 +147,9 @@ importers:
       '@huan/protocol':
         specifier: workspace:*
         version: link:../protocol
+      ignore:
+        specifier: 7.0.8
+        version: 7.0.8
       typebox:
         specifier: 1.3.27
         version: 1.3.27

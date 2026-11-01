@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
 import { useWorkspace } from './workspace-context'
 import { TrustDecisionPanel } from './workspace-manager'
@@ -52,10 +53,11 @@ type SourceMode = 'path' | 'upload'
 
 export type ImportThreadDialogProps = {
   open: boolean
+  initialPath?: string
   onOpenChange: (open: boolean) => void
 }
 
-export function ImportThreadDialog({ open, onOpenChange }: ImportThreadDialogProps) {
+export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportThreadDialogProps) {
   const { i18n } = useLingui()
   const aui = useAui()
   const { workspaces, activeWorkspaceId, refresh, selectWorkspace, showNotice } = useWorkspace()
@@ -73,14 +75,14 @@ export function ImportThreadDialog({ open, onOpenChange }: ImportThreadDialogPro
 
   // 打开时重置输入与预览；目标工作区默认跟随当前窗口。
   // 只用 open 作为触发条件：工作区列表刷新不应清空正在填写的导入输入。
-  const defaultsRef = useRef({ activeWorkspaceId, workspaces })
-  defaultsRef.current = { activeWorkspaceId, workspaces }
+  const defaultsRef = useRef({ activeWorkspaceId, workspaces, initialPath })
+  defaultsRef.current = { activeWorkspaceId, workspaces, initialPath }
   useEffect(() => {
     if (!open) return
     const defaults = defaultsRef.current
     setWorkspaceId(defaults.activeWorkspaceId ?? defaults.workspaces[0]?.id)
     setMode('path')
-    setPath('')
+    setPath(defaults.initialPath ?? '')
     setUpload(undefined)
     setCwdOverride('')
     setPreview(undefined)
@@ -536,6 +538,14 @@ export function ImportThreadDialog({ open, onOpenChange }: ImportThreadDialogPro
 /** 侧栏导入入口。 */
 export function ImportThreadButton() {
   const [open, setOpen] = useState(false)
+  const [initialPath, setInitialPath] = useState<string>()
+  const intent = usePiIntent()
+  useEffect(() => {
+    if (intent?.kind !== 'import') return
+    setInitialPath(intent.payload?.path)
+    setOpen(true)
+    clearPiIntent(intent.id)
+  }, [intent])
   const { i18n } = useLingui()
   return (
     <>
@@ -548,7 +558,7 @@ export function ImportThreadButton() {
       >
         <FileUpIcon aria-hidden className="size-4" />
       </Button>
-      <ImportThreadDialog open={open} onOpenChange={setOpen} />
+      <ImportThreadDialog open={open} onOpenChange={setOpen} initialPath={initialPath} />
     </>
   )
 }

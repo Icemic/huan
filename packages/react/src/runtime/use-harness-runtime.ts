@@ -28,6 +28,7 @@ import type {
 import {
   ExportedMessageRepository,
   isMessageNotSentError,
+  MessageNotSentError,
   useAui,
   useAuiState,
   useExternalStoreRuntime,
@@ -35,6 +36,7 @@ import {
 } from '@assistant-ui/react'
 import type { HarnessClient, HarnessThreadMetadata } from '@huan/protocol'
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { HarnessHttpError } from '../client/http-client.js'
 import { harnessQueueItemId } from '../queue-ids.js'
 import { invokeUserCallback } from '../vendor/anti-corruption.js'
 import { useLatestRef, useReplaySafeEffect } from '../vendor/hooks.js'
@@ -54,6 +56,17 @@ import {
 import { createHarnessThreadState, type HarnessThreadState } from './thread-state.js'
 
 const EMPTY_THREAD_STATE = createHarnessThreadState('__pending__')
+
+/**
+ * 把“宿主未接受发送”的 4xx 错误转成 assistant-ui 的消息未发送错误。
+ *
+ * assistant-ui 只在该错误下把文字与附件恢复到输入框；网络中断/5xx 可能是
+ * 已接受后失去响应，不能自动重投，因此保持原错误。
+ */
+const asRejectedSendError = (error: unknown): unknown =>
+  error instanceof HarnessHttpError && error.status >= 400 && error.status < 500
+    ? new MessageNotSentError(error.message)
+    : error
 const EMPTY_PROJECTED_MESSAGES: readonly ThreadMessageLike[] = []
 const EMPTY_MESSAGE_REPOSITORY = ExportedMessageRepository.fromArray([])
 
@@ -133,9 +146,27 @@ export const NOOP_CONTROLLER: HarnessThreadControllerLike = {
   forkThread: async () => ({ status: 'failed', message: '分叉不可用' }),
   setModel: async () => {},
   setThinkingLevel: async () => {},
+  runBash: async () => ({ status: 'failed', message: 'Shell 不可用' }),
+  abortBash: async () => ({ status: 'idle' }),
+  compact: async () => ({ status: 'failed', message: '压缩不可用' }),
+  abortCompaction: async () => ({ status: 'idle' }),
+  setAutoCompaction: async () => ({
+    status: 'failed',
+    message: '自动压缩设置不可用',
+  }),
+  getModelScope: async () => ({ patterns: [], models: [], diagnostics: [] }),
+  setModelScope: async () => ({
+    patterns: [],
+    models: [],
+    diagnostics: [],
+    persistence: 'failed',
+    message: '模型范围不可用',
+  }),
+  refreshModels: async () => ({ models: [], failedProviders: [] }),
   respondToToolApproval: async () => {},
   resumeToolCall: async () => {},
   respondToHostUiRequest: async () => {},
+  consumeHostUiDirective: async () => false,
   dispose: () => {},
 }
 
@@ -159,6 +190,7 @@ const buildExtras = (
     allHostUiRequests: state.hostUiRequests,
     queue: state.queue,
     compaction: state.compaction,
+    bash: state.bash,
     retry: state.retry,
     lastError: state.lastError,
     connect: () => controller.connect(),
@@ -171,7 +203,16 @@ const buildExtras = (
     cancelThreadTreeNavigation: () => controller.cancelThreadTreeNavigation(),
     setModel: (input) => controller.setModel(input),
     setThinkingLevel: (level) => controller.setThinkingLevel(level),
+    runBash: (input) => controller.runBash(input),
+    abortBash: () => controller.abortBash(),
+    compact: (input) => controller.compact(input),
+    abortCompaction: () => controller.abortCompaction(),
+    setAutoCompaction: (enabled) => controller.setAutoCompaction(enabled),
+    getModelScope: () => controller.getModelScope(),
+    setModelScope: (input) => controller.setModelScope(input),
+    refreshModels: (input) => controller.refreshModels(input),
     respondToHostUiRequest: (response) => controller.respondToHostUiRequest(response),
+    consumeHostUiDirective: (directiveId) => controller.consumeHostUiDirective(directiveId),
     respondToToolApproval: (id, approved) => controller.respondToToolApproval(id, approved),
     resumeToolCall: (toolCallId, payload) => controller.resumeToolCall(toolCallId, payload),
   })
@@ -330,7 +371,7 @@ const useHarnessThreadStore = (
           if (!isMessageNotSentError(error)) {
             invokeHarnessErrorCallback(onError, error)
           }
-          throw error
+          throw asRejectedSendError(error)
         }
       },
       onCancel: async () => {
@@ -451,7 +492,7 @@ const useNewHarnessThreadStore = (
           if (!isMessageNotSentError(error)) {
             invokeHarnessErrorCallback(onError, error)
           }
-          throw error
+          throw asRejectedSendError(error)
         }
       },
     }),

@@ -378,6 +378,8 @@ const projectHarnessThreadMessagesFrom = (
               cancelled: m.cancelled,
               truncated: m.truncated,
               fullOutputPath: m.fullOutputPath,
+              // `!!` 的历史卡片需要标明「不进入模型上下文」。
+              excludeFromContext: m.excludeFromContext === true,
             },
             sourceEntryIdOf(input, index),
           ),

@@ -21,10 +21,13 @@
 import type {
   HarnessAgentMessage,
   HarnessAssistantMessage,
+  HarnessBashRun,
   HarnessClientEvent,
+  HarnessCompactionReason,
   HarnessContextUsage,
   HarnessHostUiRequest,
   HarnessRuntimeReadiness,
+  HarnessThreadHostUi,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
@@ -64,10 +67,14 @@ export interface HarnessThreadState {
   runStatus: HarnessRunStatus
   queue: { steering: readonly string[]; followUp: readonly string[] }
   contextUsage: HarnessContextUsage | undefined
-  compaction: { active: boolean; reason?: 'manual' | 'threshold' | 'overflow' }
+  compaction: { active: boolean; reason?: HarnessCompactionReason; error?: string }
+  /** 用户 Shell 的实时/刚完成状态；持久化为历史消息后由快照清除。 */
+  bash: HarnessBashRun | undefined
   retry: { active: boolean; attempt: number }
   /** 待处理的阻断式 Host UI 请求（Pi 的审批界面）。 */
   hostUiRequests: readonly HarnessHostUiRequest[]
+  /** 扩展报告的状态/通知/widget/标题/编辑器指令（快照权威）。 */
+  hostUi: HarnessThreadHostUi | undefined
   readiness: HarnessRuntimeReadiness | undefined
   lastError: string | undefined
   loadState: HarnessLoadState
@@ -94,8 +101,10 @@ export const createHarnessThreadState = (threadId: string): HarnessThreadState =
   queue: { steering: [], followUp: [] },
   contextUsage: undefined,
   compaction: { active: false },
+  bash: undefined,
   retry: { active: false, attempt: 0 },
   hostUiRequests: [],
+  hostUi: undefined,
   readiness: undefined,
   lastError: undefined,
   loadState: 'pending',
@@ -140,10 +149,18 @@ const applySnapshot = (
   // 旧版宿主省略活动标志，因此已结束状态是「两项操作都不在飞行中」的唯一信号。
   const settled = runStatus !== 'running'
   const compactionActive =
-    snapshot.metadata.compactionActive ?? (settled ? false : state.compaction.active)
+    snapshot.compaction?.active ??
+    snapshot.metadata.compactionActive ??
+    (settled ? false : state.compaction.active)
   const retryActive = snapshot.metadata.retryActive ?? (settled ? false : state.retry.active)
 
-  const compaction = compactionActive ? { ...state.compaction, active: true } : { active: false }
+  // 快照携带压缩运行态（含最近失败原因）时以其为权威；否则按活动标志兼容投影。
+  const compaction =
+    snapshot.compaction !== undefined
+      ? { ...snapshot.compaction }
+      : compactionActive
+        ? { ...state.compaction, active: true }
+        : { active: false }
   const retry = retryActive
     ? { active: true, attempt: snapshot.metadata.retryAttempt ?? state.retry.attempt }
     : { active: false, attempt: 0 }
@@ -159,6 +176,7 @@ const applySnapshot = (
     toolExecutions: {},
     runStatus,
     compaction,
+    bash: snapshot.bash,
     retry,
     // 缺失 `queuedMessages` 表示空队列（无排队内容时快照省略该字段，冷线程
     // 更是完全没有队列）——此处保留旧队列会让「事件流断开期间被清空的条目」
@@ -173,6 +191,7 @@ const applySnapshot = (
     },
     contextUsage: snapshot.metadata.contextUsage ?? state.contextUsage,
     hostUiRequests: snapshot.hostUiRequests ?? [],
+    hostUi: snapshot.hostUi,
     readiness: snapshot.readiness ?? state.readiness,
     lastError: snapshot.lastError,
     loadState: 'loaded',
@@ -368,11 +387,36 @@ export const reduceHarnessThreadState = (
     }
 
     case 'compaction_end': {
-      const compaction = { active: false }
+      // 失败保留 errorMessage；取消不算失败（不保留错误）。
+      const compaction = event.aborted
+        ? { active: false }
+        : {
+            active: false,
+            ...(event.errorMessage ? { error: event.errorMessage } : {}),
+          }
       return stamped({
         ...state,
         compaction,
         metadata: withMetadataActivity(state.metadata, compaction, state.retry),
+      })
+    }
+
+    case 'bash_start':
+    case 'bash_end':
+      return stamped({ ...state, bash: event.run })
+
+    case 'bash_output': {
+      const current = state.bash
+      if (!current || current.id !== event.id) return stamped(state)
+      let output = current.output + event.delta
+      if (event.dropped > 0) output = output.slice(event.dropped)
+      return stamped({
+        ...state,
+        bash: {
+          ...current,
+          output,
+          outputTruncated: current.outputTruncated || event.dropped > 0,
+        },
       })
     }
 
@@ -428,6 +472,9 @@ export const reduceHarnessThreadState = (
         hostUiRequests: [...state.hostUiRequests, event.request],
       })
     }
+
+    case 'host_ui_update':
+      return stamped({ ...state, hostUi: event.hostUi })
 
     case 'extension_ui_resolved':
       return stamped(removeHostUiRequest(state, event.requestId))

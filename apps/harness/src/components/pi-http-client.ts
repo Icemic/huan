@@ -12,9 +12,32 @@ import { getDraftModel } from './pi-model-draft'
  *   丢弃；而创建发生在首条消息发送时，client 是我们传入的，因此 await
  *   createThread 是唯一可靠的前置注入点。
  */
-const baseClient = createHarnessHttpClient(
-  __HUAN_TOKEN__ ? { headers: { 'x-huan-token': __HUAN_TOKEN__ } } : undefined,
-)
+/**
+ * 当前浏览器窗口的稳定标识（同一标签页刷新后保持）。
+ *
+ * 扩展写输入框时据此定向；不进入 Pi 会话记录，也不作为安全边界。
+ */
+const WINDOW_ID_KEY = 'huan.window-id'
+const createWindowId = (): string => {
+  if (typeof window === 'undefined') return 'host'
+  try {
+    const existing = window.sessionStorage.getItem(WINDOW_ID_KEY)
+    if (existing) return existing
+    const id = crypto.randomUUID()
+    window.sessionStorage.setItem(WINDOW_ID_KEY, id)
+    return id
+  } catch {
+    // 隐私模式等无法持久化时退回进程内随机值。
+    return crypto.randomUUID()
+  }
+}
+
+export const harnessWindowId = createWindowId()
+
+const baseClient = createHarnessHttpClient({
+  callerId: harnessWindowId,
+  ...(__HUAN_TOKEN__ ? { headers: { 'x-huan-token': __HUAN_TOKEN__ } } : {}),
+})
 
 const notifyThreadsChanged = (event: 'created' | 'updated') => {
   if (typeof window === 'undefined') return
@@ -38,9 +61,10 @@ export const harnessHttpClient: typeof baseClient = {
     return result
   },
   async sendMessage(threadId, input) {
-    await baseClient.sendMessage(threadId, input)
+    const result = await baseClient.sendMessage(threadId, input)
     // 首条消息写入后标题才可读；接受消息后补一次列表重查。
     notifyThreadsChanged('updated')
+    return result
   },
   subscribe(threadId, listener, options) {
     return baseClient.subscribe(

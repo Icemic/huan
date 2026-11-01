@@ -19,7 +19,6 @@ import {
 } from '@assistant-ui/react'
 import {
   ArrowDownIcon,
-  ArrowUpIcon,
   AudioLinesIcon,
   CheckIcon,
   ChevronLeftIcon,
@@ -52,7 +51,22 @@ import {
   UserMessageAttachments,
 } from '@/components/assistant-ui/elements/attachment.aui'
 import { File, getFileHref } from '@/components/assistant-ui/elements/file'
+import { type PiComposerController, usePiComposer } from '@/components/pi-composer-controller'
+import {
+  ComposerCompletionMenu,
+  ComposerExpandButton,
+  ComposerNotice,
+  ComposerQueue as ComposerQueuePanel,
+  ComposerQueueMode,
+  ComposerSendButton,
+  ComposerTools,
+  PiComposerDialogs,
+} from '@/components/pi-composer-tools'
 import { PiModelSelector } from '@/components/pi-model-selector'
+import {
+  PiComposerHostUi,
+  PiComposerWidgets,
+} from '@/components/pi-thread-host-ui'
 import { ThreadFollowupSuggestions } from '@/components/assistant-ui/elements/follow-up-suggestions.aui'
 import { Image } from '@/components/assistant-ui/elements/image'
 import { MarkdownText } from '@/components/assistant-ui/elements/markdown-text'
@@ -459,22 +473,13 @@ const ThreadSuggestionItem: FC = () => {
   )
 }
 
-/** 排队中的消息（运行期间提交的 steer / follow-up）。
- *  react-pi 只支持整体清空队列，因此这里仅做展示，不提供逐项操作。 */
-const ComposerQueue: FC = () => (
-  <ComposerPrimitive.Queue>
-    {({ queueItem }) => (
-      <div className="border-foreground/10 text-muted-foreground mb-1 rounded-(--composer-radius) border border-dashed px-3 py-1.5 text-sm">
-        {queueItem.prompt}
-      </div>
-    )}
-  </ComposerPrimitive.Queue>
-)
-
 const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
+  const controller = usePiComposer()
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
-      <ComposerQueue />
+      <PiComposerWidgets placement="aboveEditor" />
+      <ComposerQueuePanel controller={controller} />
+      <ComposerCompletionMenu controller={controller} />
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
           data-slot="aui_composer-shell"
@@ -482,21 +487,30 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
         >
           <ComposerAttachments />
           <ComposerPrimitive.Input
+            ref={controller.inputRef}
             placeholder="Send a message..."
+            submitMode="none"
             className="aui-composer-input caret-primary placeholder:text-muted-foreground/60 max-h-48 min-h-9 w-full resize-none bg-transparent px-2 py-1 text-base leading-6 outline-none"
             rows={1}
             autoFocus={autoFocus}
             enterKeyHint="send"
             aria-label="Message input"
+            onChange={controller.onInputChange}
+            onSelect={controller.onInputSelect}
+            onKeyDown={controller.onKeyDown}
           />
-          <ComposerAction />
+          <ComposerNotice controller={controller} />
+          <ComposerAction controller={controller} />
         </div>
       </ComposerPrimitive.AttachmentDropzone>
+      <PiComposerHostUi inputRef={controller.inputRef} />
+      <PiComposerWidgets placement="belowEditor" />
+      <PiComposerDialogs controller={controller} />
     </ComposerPrimitive.Root>
   )
 }
 
-const ComposerAction: FC = () => {
+const ComposerAction: FC<{ controller: PiComposerController }> = ({ controller }) => {
   // The stop control only cancels the send while no run it could stop is going.
   const isSending = useAuiState(
     (s) =>
@@ -507,9 +521,11 @@ const ComposerAction: FC = () => {
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
-        <PiModelSelector />
+        <ComposerTools controller={controller} />
+        <PiModelSelector openOnCommand />
       </div>
       <div className="flex items-center gap-1.5">
+        <ComposerQueueMode controller={controller} />
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
@@ -542,26 +558,8 @@ const ComposerAction: FC = () => {
             </ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
-        <AuiIf
-          condition={(s) =>
-            !s.composer.canCancel ||
-            (s.thread.voice !== undefined && s.composer.submission === undefined)
-          }
-        >
-          <ComposerPrimitive.Send asChild>
-            <TooltipIconButton
-              tooltip="Send message"
-              side="bottom"
-              type="button"
-              variant="default"
-              size="icon"
-              className="aui-composer-send size-7 rounded-full"
-              aria-label="Send message"
-            >
-              <ArrowUpIcon className="aui-composer-send-icon size-4" />
-            </TooltipIconButton>
-          </ComposerPrimitive.Send>
-        </AuiIf>
+        <ComposerExpandButton controller={controller} />
+        <ComposerSendButton controller={controller} />
         <AuiIf
           condition={(s) =>
             s.composer.canCancel &&

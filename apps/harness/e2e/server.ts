@@ -42,11 +42,68 @@ process.env.HUAN_API_TARGET = E2E_HOST_URL
 const tempParent = resolve(import.meta.dirname, '..', 'test-results', 'e2e')
 await mkdir(tempParent, { recursive: true })
 const env = await createIsolatedPiEnv('run-', { parentDir: tempParent })
+// 固定资源：一条扩展命令用于验证“未知 slash 交给 SDK 执行”和参数补全；
+// 工作区文件用于 @ 引用查询（不读取文件内容，也不访问个人空间）。
+await mkdir(join(env.agentDir, 'extensions'), { recursive: true })
+await writeFile(
+  join(env.agentDir, 'extensions', 'command-probe.js'),
+  `import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+export default function (pi) {
+  pi.registerCommand('probe', {
+    description: '浏览器测试扩展命令',
+    getArgumentCompletions: (prefix) =>
+      [
+        { value: 'alpha', label: 'alpha', description: '第一项' },
+        { value: 'beta', label: 'beta' },
+      ].filter((item) => item.value.startsWith(prefix)),
+    handler: async (args, ctx) => {
+      ctx.ui.notify('probe-command:' + (args || '(empty)'), 'info')
+    },
+  })
+  pi.registerCommand('host-ui', {
+    description: '浏览器测试运行期 Host UI',
+    handler: async (_args, ctx) => {
+      ctx.ui.notify('HOSTUI-通知', 'warning')
+      ctx.ui.setStatus('huan-test', 'HOSTUI-状态')
+      ctx.ui.setWidget('huan-widget', ['HOSTUI-行一', 'HOSTUI-行二'], { placement: 'belowEditor' })
+      ctx.ui.setTitle('HOSTUI-扩展标题')
+      ctx.ui.setEditorText('HOSTUI-编辑内容')
+    },
+  })
+  pi.registerCommand('ask-host-ui', {
+    description: '浏览器测试阻断交互',
+    handler: async (_args, ctx) => {
+      const ok = await ctx.ui.confirm('HOSTUI-工具确认', '允许这次操作？')
+      ctx.ui.notify('HOSTUI-确认结果:' + ok, 'info')
+    },
+  })
+  pi.on('project_trust', async (_event, ctx) => {
+    if (!existsSync(join(ctx.cwd, '.pi', 'ask-trust'))) return { trusted: 'undecided' }
+    const ok = await ctx.ui.confirm('HOSTUI-项目信任', ctx.cwd)
+    return { trusted: ok ? 'yes' : 'no' }
+  })
+  pi.on('session_start', async (_event, ctx) => {
+    if (!existsSync(join(ctx.cwd, '.pi', 'ask-startup'))) return
+    await ctx.ui.confirm('HOSTUI-启动确认', '允许启动？')
+  })
+}
+`,
+)
+await mkdir(join(env.workspace, 'docs'), { recursive: true })
+await mkdir(join(env.workspace, 'src'), { recursive: true })
+await writeFile(join(env.workspace, 'docs', '指南 文件.md'), '# 指南\n')
+await writeFile(join(env.workspace, 'src', 'main.ts'), 'export {}\n')
 // 默认模型故意无效：空白页必须呈现错误并允许从模型选择器恢复。
+// 压缩阈值调小，使浏览器验收里的短会话也能走真实的手动压缩路径。
 await writeFile(
   join(env.agentDir, 'settings.json'),
   `${JSON.stringify(
-    { defaultProvider: 'e2e-missing-provider', defaultModel: 'e2e-missing-model' },
+    {
+      defaultProvider: 'e2e-missing-provider',
+      defaultModel: 'e2e-missing-model',
+      compaction: { enabled: true, keepRecentTokens: 40, reserveTokens: 1_000 },
+    },
     null,
     2,
   )}\n`,
@@ -174,6 +231,8 @@ app.post('/__e2e__/projects', async (c) => {
     name?: unknown
     extension?: unknown
     settings?: unknown
+    askTrust?: unknown
+    askStartup?: unknown
   }
   const rawName = typeof body.name === 'string' ? body.name : `project-${Date.now()}`
   const name = rawName.replace(/[^a-zA-Z0-9_-]/g, '-')
@@ -193,6 +252,11 @@ export default function () {
 }
 `,
     )
+  }
+  if (body.askTrust === true || body.askStartup === true) {
+    await mkdir(join(projectPath, '.pi'), { recursive: true })
+    if (body.askTrust === true) await writeFile(join(projectPath, '.pi', 'ask-trust'), '')
+    if (body.askStartup === true) await writeFile(join(projectPath, '.pi', 'ask-startup'), '')
   }
   if (body.settings && typeof body.settings === 'object') {
     await mkdir(join(projectPath, '.pi'), { recursive: true })

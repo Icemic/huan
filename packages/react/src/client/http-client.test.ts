@@ -7,7 +7,7 @@ import type {
 import { describe, expect, it, vi } from 'vitest'
 import { createHarnessHttpClient } from './http-client.js'
 
-type Call = { url: string; method: string; body: unknown }
+type Call = { url: string; method: string; body: unknown; headers: Record<string, string> }
 
 /** A fake `fetch` that records calls and returns whatever `responder` yields. */
 const fakeFetch = (responder: (url: string) => Response) => {
@@ -17,6 +17,7 @@ const fakeFetch = (responder: (url: string) => Response) => {
       url,
       method: init?.method ?? 'GET',
       body: typeof init?.body === 'string' ? JSON.parse(init.body as string) : undefined,
+      headers: (init?.headers ?? {}) as Record<string, string>,
     })
     return responder(url)
   }) as unknown as typeof fetch
@@ -197,12 +198,14 @@ describe('createHarnessHttpClient', () => {
     )
   })
 
-  it('sends a message wrapped as { input }', async () => {
-    const { fn, calls } = fakeFetch(() => new Response(null, { status: 204 }))
-    await createHarnessHttpClient({ fetchImpl: fn }).sendMessage('t1', {
-      content: 'hi',
-      streamingBehavior: 'steer',
-    })
+  it('sends a message wrapped as { input } 并读取提交处置', async () => {
+    const { fn, calls } = fakeFetch(() => json({ disposition: 'started' }))
+    await expect(
+      createHarnessHttpClient({ fetchImpl: fn }).sendMessage('t1', {
+        content: 'hi',
+        streamingBehavior: 'steer',
+      }),
+    ).resolves.toEqual({ disposition: 'started' })
     expect(calls[0]).toMatchObject({
       url: '/api/pi/threads/t1/messages',
       method: 'POST',
@@ -304,6 +307,51 @@ describe('createHarnessHttpClient', () => {
       url: '/api/pi/threads/t1/host-ui',
       method: 'POST',
       body: { response: { requestId: 'r1', confirmed: true } },
+    })
+  })
+
+  it('sends the caller window id only for message sends', async () => {
+    const { fn, calls } = fakeFetch((url) =>
+      url.endsWith('/messages') ? json({ disposition: 'started' }) : json(snapshot),
+    )
+    const client = createHarnessHttpClient({ fetchImpl: fn, callerId: 'window-a' })
+    await client.sendMessage('t1', { content: 'hello' })
+    expect(calls[0]?.headers['x-huan-caller']).toBe('window-a')
+    await client.getThread('t1')
+    expect(calls[1]?.headers['x-huan-caller']).toBeUndefined()
+  })
+
+  it('reads and answers host-level interactions', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.endsWith('/interactions')) {
+        return json({ seq: 1, requests: [], notifications: [] })
+      }
+      return json({ accepted: true })
+    })
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+    await expect(client.getHostInteractions()).resolves.toEqual({
+      seq: 1,
+      requests: [],
+      notifications: [],
+    })
+    await expect(
+      client.respondToHostInteraction({ requestId: 'r1', dismissed: true }),
+    ).resolves.toEqual({ accepted: true })
+    expect(calls.map((call) => [call.method, call.url])).toEqual([
+      ['GET', '/api/pi/interactions'],
+      ['POST', '/api/pi/interactions/respond'],
+    ])
+  })
+
+  it('posts a consume directive request', async () => {
+    const { fn, calls } = fakeFetch(() => Response.json({ accepted: true }))
+    await expect(
+      createHarnessHttpClient({ fetchImpl: fn }).consumeHostUiDirective('t1', 'd1'),
+    ).resolves.toBe(true)
+    expect(calls[0]).toMatchObject({
+      url: '/api/pi/threads/t1/host-ui/consume',
+      method: 'POST',
+      body: { id: 'd1' },
     })
   })
 
@@ -684,5 +732,157 @@ describe('createHarnessHttpClient', () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1))
     unsubscribe()
     await vi.waitFor(() => expect(aborted).toBe(true))
+  })
+})
+
+describe('运行操作路由（Shell / 压缩 / 模型范围）', () => {
+  const bashRun = {
+    id: 'bash:1',
+    command: 'echo hi',
+    excludeFromContext: false,
+    cwd: '/workspace',
+    status: 'running',
+    output: '',
+    outputTruncated: false,
+    startedAt: '2026-08-18T00:00:00.000Z',
+  }
+
+  const scope = {
+    patterns: ['huan-test/test-model-a'],
+    models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
+    diagnostics: [],
+  }
+
+  it('启动与取消 Shell 经独立路由，并保留上下文排除选项', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.endsWith('/bash/abort')) return json({ status: 'requested' })
+      if (url.endsWith('/bash')) return json({ status: 'started', run: bashRun })
+      return new Response(null, { status: 404 })
+    })
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+
+    await expect(
+      client.runThreadBash('t1', { command: 'echo hi', excludeFromContext: true }),
+    ).resolves.toEqual({ status: 'started', run: bashRun })
+    await expect(client.abortThreadBash('t1')).resolves.toEqual({ status: 'requested' })
+
+    expect(calls[0]).toMatchObject({
+      url: '/api/pi/threads/t1/bash',
+      method: 'POST',
+      body: { command: 'echo hi', excludeFromContext: true },
+    })
+    expect(calls[1]).toMatchObject({ url: '/api/pi/threads/t1/bash/abort', method: 'POST' })
+  })
+
+  it('拒绝畸形 Shell 启动结果', async () => {
+    const { fn } = fakeFetch(() => json({ status: 'started', run: { id: 'x' } }))
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+    await expect(client.runThreadBash('t1', { command: 'x' })).rejects.toThrow(
+      'Invalid Pi HTTP response',
+    )
+  })
+
+  it('压缩、取消与自动压缩开关使用可识别结果', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.endsWith('/compact/abort')) return json({ status: 'idle' })
+      if (url.endsWith('/auto-compaction')) {
+        return json({ status: 'saved', enabled: false, scope: 'global' })
+      }
+      if (url.endsWith('/compact')) {
+        return json({ status: 'compacted', tokensBefore: 120, estimatedTokensAfter: 30 })
+      }
+      return new Response(null, { status: 404 })
+    })
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+
+    await expect(client.compactThread('t1', { customInstructions: '保留决策' })).resolves.toEqual({
+      status: 'compacted',
+      tokensBefore: 120,
+      estimatedTokensAfter: 30,
+    })
+    await expect(client.abortThreadCompaction('t1')).resolves.toEqual({ status: 'idle' })
+    await expect(client.setAutoCompaction('t1', false)).resolves.toEqual({
+      status: 'saved',
+      enabled: false,
+      scope: 'global',
+    })
+
+    expect(calls[0]).toMatchObject({
+      url: '/api/pi/threads/t1/compact',
+      method: 'POST',
+      body: { customInstructions: '保留决策' },
+    })
+    expect(calls[1]).toMatchObject({ url: '/api/pi/threads/t1/compact/abort', method: 'POST' })
+    expect(calls[2]).toMatchObject({
+      url: '/api/pi/threads/t1/auto-compaction',
+      method: 'POST',
+      body: { enabled: false },
+    })
+  })
+
+  it('自动压缩失败结果是可读的失败，不伪装成功', async () => {
+    const { fn } = fakeFetch(() => json({ status: 'failed', message: '保存失败' }))
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+    await expect(client.setAutoCompaction('t1', true)).resolves.toEqual({
+      status: 'failed',
+      message: '保存失败',
+    })
+  })
+
+  it('模型范围读写与目录刷新经固定会话/目录', async () => {
+    const { fn, calls } = fakeFetch((url) => {
+      if (url.endsWith('/models/refresh')) {
+        return json({
+          models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
+          failedProviders: [],
+        })
+      }
+      if (url.endsWith('/model-scope')) {
+        return json({
+          ...scope,
+          persistence: 'saved',
+          savedPatterns: scope.patterns,
+        })
+      }
+      return new Response(null, { status: 404 })
+    })
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+
+    await expect(client.getThreadModelScope('t1')).resolves.toEqual({
+      ...scope,
+      persistence: 'saved',
+      savedPatterns: scope.patterns,
+    })
+    await expect(
+      client.setThreadModelScope('t1', { patterns: scope.patterns, saveAsDefault: true }),
+    ).resolves.toMatchObject({ patterns: scope.patterns, persistence: 'saved' })
+    await expect(client.refreshModels({ workspacePath: '/ws' })).resolves.toMatchObject({
+      failedProviders: [],
+    })
+
+    expect(calls[0]).toMatchObject({ url: '/api/pi/threads/t1/model-scope', method: 'GET' })
+    expect(calls[1]).toMatchObject({
+      url: '/api/pi/threads/t1/model-scope',
+      method: 'POST',
+      body: { patterns: scope.patterns, saveAsDefault: true },
+    })
+    expect(calls[2]).toMatchObject({
+      url: '/api/pi/models/refresh',
+      method: 'POST',
+      body: { workspacePath: '/ws' },
+    })
+  })
+
+  it('拒绝畸形模型范围与刷新结果', async () => {
+    const { fn } = fakeFetch(() => json({ patterns: [], models: [{ provider: 'x' }] }))
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+    await expect(client.getThreadModelScope('t1')).rejects.toThrow('Invalid Pi HTTP response')
+
+    const refresh = createHarnessHttpClient({
+      fetchImpl: fakeFetch(() => json({ models: [], failedProviders: [1] })).fn,
+    })
+    await expect(refresh.refreshModels({ threadId: 't1' })).rejects.toThrow(
+      'Invalid Pi HTTP response',
+    )
   })
 })

@@ -154,7 +154,7 @@ describe('mapSessionEvent', () => {
       ),
     ).toEqual({
       kind: 'mapped',
-      event: { type: 'compaction_end', aborted: false, willRetry: true },
+      event: { type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: true },
     })
   })
 

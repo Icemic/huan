@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 5（在 4 的工作区 CRUD/会话归属、HostInfo 与项目查询/信任接口之上，新增会话列表显式刷新、名称/首条消息字段与只读详情）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 10（运行操作之上新增命令/文件查询、发送处置、宿主启动交互与线程UI状态/原子指令领取）。
 
 **UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -107,6 +107,18 @@ fork/clone 使用独立 `SessionManager` 句柄调用公开 `createBranchedSessi
 
 JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧版经公开 `migrateSessionEntries` 迁移，未知扩展条目透传；预览只读文件、目录与冲突，不装配项目。确认时重读源、重算冲突、经既有项目信任入口，再按宿主范围串行独占写入；默认保留源 ID 与完整树，冲突副本只改 header ID/cwd/血缘与文件名。上传按 20MiB 限制，路径不使用上传文件名拼接，源文件永不改写；归属保存失败保留可发现的未归属文件并如实报告。协议 7 的 fork/导入路由沿用既有鉴权、Host/Origin 与会话作用域校验。设计与验证见[独立分支与导入迭代](iteration/2026-10/2026-10-31-feat-session-fork-import.md)。
 
+### 3.2.5 运行操作与上下文
+
+用户Shell先发布有界运行态，再通过公开user_bash事件处理结果或自定义operations，普通命令交executeBash；取消覆盖扩展等待窗口。Shell与模型可并存，结构导航/压缩不得越过Shell；完成后用SDK持久历史替代瞬态卡，pendingBashMessages未排空时保留完成态，断线重连取权威快照。Shell取消独立于模型取消。
+
+手动compact共享结构闸门，abortCompaction取消；压缩错误/原因随事件与快照可见。自动压缩用户默认经独立SettingsManager串行保存、flush与磁盘校验后同步live缓存，不在保存失败时回写旧值。项目覆盖仍生效。模型范围默认会话临时，保存默认是显式操作；选择器禁用范围外模型且保留当前模型展示，刷新代数使各窗重读目录。具体行为与验证见[运行操作](iteration/2026-10/2026-10-31-feat-runtime-operations.md)。
+
+### 3.2.6 命令输入与Host UI
+
+应用拦截内置slash与!命令，core拒绝保留内置被当prompt发送，其余交Pi按扩展→input→skill→模板语义执行。资源目录/参数补全只使用公开SDK；文件搜索限工作区成员，有界BFS并按目录gitignore过滤，不读取个人全局ignore，不预读内容。图片能力在首条/普通发送前校验，4xx未接受发送恢复文字与附件；窗口文字草稿存sessionStorage，附件不持久化。
+
+宿主级交互在record发布前承接project_trust与session_start；首次订阅及重连投递seq权威快照，答复/取消/超时/销毁唯一结算。启动装配遇UI等待即先返回宿主，HTTP可用后同一装配继续，不重跑扩展。线程UI通过host_ui_update独立投递，不清空聊天流；重连快照携带当前通知/status/widget等。有调用方的编辑器指令与命令目标定向窗口，无调用方须主动应用，宿主原子领取防多窗重复；窗口保留原草稿可恢复。模式rpc；终端组件与未交付reload/shutdown显式不支持。commandContextActions使用独立record而非替换父会话，setup/血缘/取消和withSession按公开SDK接入。详见[Host UI迭代](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)。
+
 ### 3.3 react-pi 采用分步（D-14）——已落地
 
 **长期边界**（不随计划变化）：公共层以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
@@ -117,7 +129,7 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 **内部子路径依赖已切断**：此前 react-pi 经 `@assistant-ui/core/internal` 等子路径引用上游内部工具（实证脆弱：`RunLeases` 在 core@0.3.21 中不存在，0.3.27 才加入）。`@huan/react` 以 `src/vendor/` 下的本地副本替代（11 个工具）。
 
-react-pi 已知缺口（仍适用，由公共 Controller 或应用功能补齐）：无 fork/树导航（已由公共 Controller 与应用功能补齐）、队列不可逐条编辑、附件仅图片、不暴露 skills/extensions、恢复仅快照无重放。
+react-pi原有能力由公共Controller与应用补齐了树/fork、命令目录与调用。仍保留SDK的整体队列边界、仅图片附件、权威快照恢复（不依赖重放）；完整资源管理随G1.4实施。
 
 ---
 

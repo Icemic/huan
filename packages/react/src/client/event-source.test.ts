@@ -119,6 +119,17 @@ const assistantMessage: HarnessAssistantMessage = {
   timestamp: 1,
 }
 
+const bashRun = {
+  id: 'bash:1',
+  command: 'echo hi',
+  excludeFromContext: false,
+  cwd: '/workspace',
+  status: 'running' as const,
+  output: '',
+  outputTruncated: false,
+  startedAt: '2026-08-18T00:00:00.000Z',
+}
+
 const knownEventBodies = {
   snapshot: {
     type: 'snapshot',
@@ -169,9 +180,14 @@ const knownEventBodies = {
   compaction_start: { type: 'compaction_start', reason: 'threshold' },
   compaction_end: {
     type: 'compaction_end',
+    reason: 'threshold',
     aborted: false,
     willRetry: false,
+    tokensBefore: 100,
   },
+  bash_start: { type: 'bash_start', run: bashRun },
+  bash_output: { type: 'bash_output', id: 'bash:1', delta: 'out', dropped: 0 },
+  bash_end: { type: 'bash_end', run: { ...bashRun, status: 'complete' } },
   entry_appended: {
     type: 'entry_appended',
     entry: {
@@ -199,6 +215,7 @@ const knownEventBodies = {
       message: 'Allow the tool to continue?',
     },
   },
+  host_ui_update: { type: 'host_ui_update' },
   extension_ui_resolved: {
     type: 'extension_ui_resolved',
     requestId: 'request-1',
@@ -959,6 +976,26 @@ describe('openHarnessEventStream', () => {
         reason: 1,
       },
       'event "compaction_start" has an invalid payload',
+    ],
+    [
+      {
+        type: 'bash_start',
+        threadId: 't1',
+        seq: 1,
+        run: { id: 'bash:1', command: 'echo hi', status: 'running' },
+      },
+      'event "bash_start" has an invalid payload',
+    ],
+    [
+      {
+        type: 'bash_output',
+        threadId: 't1',
+        seq: 1,
+        id: 'bash:1',
+        delta: 'out',
+        dropped: '2',
+      },
+      'event "bash_output" has an invalid payload',
     ],
   ])(
     'reports malformed event payloads without delivering them',

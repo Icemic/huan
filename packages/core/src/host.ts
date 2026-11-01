@@ -31,13 +31,16 @@ import {
   type AgentSession,
   type AgentSessionServices,
   createAgentSessionFromServices,
+  type ExtensionCommandContextActions,
   ExtensionRunner,
   hasTrustRequiringProjectResources,
   type InlineExtension,
   type LoadExtensionsResult,
   ModelRegistry,
+  type ProjectTrustContext,
   ProjectTrustStore,
   type ResourceLoader,
+  resolveModelScopeWithDiagnostics,
   SessionManager,
   type SessionStartEvent,
   SettingsManager,
@@ -45,22 +48,50 @@ import {
 import type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashResult,
+  HarnessBashRun,
+  HarnessBashStartResult,
   HarnessClient,
   HarnessClientEvent,
   HarnessClientEventBody,
+  HarnessCommandArgumentCompletion,
+  HarnessCommandArgumentInput,
+  HarnessCommandCatalog,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
+  HarnessCompactionReason,
   HarnessCreateThreadInput,
+  HarnessFileSearchInput,
+  HarnessFileSearchResult,
+  HarnessHostInteractionScope,
+  HarnessHostInteractionSnapshot,
+  HarnessHostUiCommandTarget,
+  HarnessHostUiEditorDirective,
+  HarnessHostUiNotification,
   HarnessHostUiRequest,
   HarnessHostUiResponse,
+  HarnessHostUiWidgetPlacement,
+  HarnessModelRefreshInput,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeDiagnostic,
+  HarnessModelScopeUpdateInput,
+  HarnessModelScopeUpdateResult,
   HarnessProjectFailureCode,
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
   HarnessRecentProject,
   HarnessSendMessageInput,
+  HarnessSendMessageOptions,
+  HarnessSendMessageResult,
   HarnessThinkingLevel,
   HarnessThreadDetails,
   HarnessThreadForkInput,
   HarnessThreadForkResult,
+  HarnessThreadHostUi,
   HarnessThreadImportErrorCode,
   HarnessThreadImportInput,
   HarnessThreadImportPreview,
@@ -83,8 +114,10 @@ import type {
   HarnessWorkspaceMutationResult,
   HarnessWorkspaceProject,
 } from '@huan/protocol'
+import { builtinCommandNameOf } from '@huan/protocol'
 import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
+import { createHostInteractions } from './host-interactions.js'
 import { createHostUiBridge, type HostUiBridge } from './host-ui.js'
 import {
   extractMessageText,
@@ -108,6 +141,14 @@ import {
   type ProjectTrustSource,
   prepareProjectTrust,
 } from './project-trust.js'
+import {
+  commandArgumentsFromLoader,
+  commandArgumentsFromSession,
+  commandCatalogFromLoader,
+  commandCatalogFromSession,
+  type FileSearchRoot,
+  searchWorkspaceFiles,
+} from './resource-queries.js'
 import {
   createSessionDirResolver,
   defaultSessionsRoot,
@@ -205,6 +246,24 @@ export class ProjectTrustRequiredError extends Error {
   }
 }
 
+/**
+ * 扩展命令上下文能力尚未实现（reload/shutdown 等）。
+ *
+ * 明确拒绝并携带方法名，避免用默认空成功冒充“已执行”。
+ */
+export class UnsupportedHostCommandActionError extends Error {
+  readonly code = 'host-command-action-unsupported'
+  readonly action: string
+  constructor(action: string) {
+    super(
+      `宿主暂不支持扩展命令上下文操作 “${action}”；该能力将在配置/资源阶段提供，` +
+        '请勿以空结果继续。',
+    )
+    this.name = 'UnsupportedHostCommandActionError'
+    this.action = action
+  }
+}
+
 /** 一次装载的项目信任结果与输入守卫绑定槽（loader 只服务一个 live session）。 */
 type PreparedProject = {
   trust: ProjectTrustResult
@@ -240,6 +299,39 @@ type ProjectRuntime = {
   pending?: PreparedProject
 }
 
+/**
+ * SDK 命令上下文的会话替换参数与替换后上下文类型。
+ *
+ * 根入口未导出 `ReplacedSessionContext`，这里从公开的
+ * `ExtensionCommandContextActions` 推导，避免私有深导入。
+ */
+type CommandNewSessionOptions = NonNullable<
+  Parameters<ExtensionCommandContextActions['newSession']>[0]
+>
+type ReplacedSessionContext = Parameters<NonNullable<CommandNewSessionOptions['withSession']>>[0]
+
+/** 当前命令所属的发送不应阻塞其自身的结构操作。 */
+const hasOtherInFlight = (record: ThreadRecord): boolean => {
+  const current = sendContext.getStore()
+  return [...record.inFlight].some((send) => send !== current)
+}
+
+/** 每会话的扩展 UI 可变状态（统一由 snapshotOf 投影）。 */
+type ThreadHostUiState = {
+  statuses: Map<string, string>
+  widgets: Map<string, { lines: string[]; placement: HarnessHostUiWidgetPlacement }>
+  notifications: HarnessHostUiNotification[]
+  notificationCounter: number
+  /** 已报告过不支持的终端专属方法（每会话只提示一次）。 */
+  unsupportedReported: Set<string>
+  title: string | undefined
+  workingMessage: string | undefined
+  workingVisible: boolean | undefined
+  hiddenThinkingLabel: string | undefined
+  editorDirective: HarnessHostUiEditorDirective | undefined
+  commandTarget: HarnessHostUiCommandTarget | undefined
+}
+
 type ThreadRecord = {
   threadId: string
   session: AgentSession
@@ -248,6 +340,11 @@ type ThreadRecord = {
   /** 本会话装配的 settings（branchSummary.skipPrompt 等展示用）。 */
   settingsManager: SettingsManager
   uiBridge: HostUiBridge
+  /**
+   * 运行期扩展 UI 状态（setStatus/widget/title/通知/编辑器指令）。
+   * 每次变化都经权威快照广播；会话 retire 时随 record 释放。
+   */
+  hostUi: ThreadHostUiState
   unsubscribe: () => void
   listeners: Set<(event: HarnessClientEvent) => void>
   seq: number
@@ -265,6 +362,14 @@ type ThreadRecord = {
   inFlight: Set<InFlightSend>
   /** 当前运行的归属与结局候选（agent_start 建立、agent_settled 结算）。 */
   currentRun: CurrentRun | undefined
+  /** 当前/最近一条用户 Shell；持久化为历史消息后才清除。 */
+  bash: UserBashRun | undefined
+  /** 压缩触发原因（进行中）；由 compaction_start/end 事件维护。 */
+  compactionReason: HarnessCompactionReason | undefined
+  /** 最近一次压缩失败原因（成功/取消时清除）；取消不算失败。 */
+  lastCompactionError: string | undefined
+  /** 最近一次 compaction_end 是否为取消（供手动压缩结果映射）。 */
+  lastCompactionAborted: boolean
   /**
    * 启动窗口的准入控制（每会话同时至多一个发送处于预检→运行确认段）。
    * 作用：防止两个发送并发越过 SDK 的预检，后到者的运行收尾提前结算前者。
@@ -295,7 +400,26 @@ type ThreadRecord = {
 }
 
 /** 结构操作种类（只用于互斥与 UI 提示）。 */
-type StructureKind = 'navigate' | 'label' | 'model' | 'thinking' | 'rename' | 'fork'
+type StructureKind = 'navigate' | 'label' | 'model' | 'thinking' | 'rename' | 'fork' | 'compact'
+
+/** 用户 Shell（`!` / `!!`）的宿主内状态（含实时输出与完成标记）。 */
+type UserBashRun = {
+  id: string
+  command: string
+  excludeFromContext: boolean
+  cwd: string
+  status: 'running' | 'complete'
+  output: string
+  outputTruncated: boolean
+  startedAt: string
+  result?: HarnessBashResult
+  /** 覆盖 user_bash 扩展等待窗口，防取消后再启动命令。 */
+  cancelRequested: boolean
+  /** SDK 已接受结果；等待其 pending 队列落盘后可释放完成卡。 */
+  recorded: boolean
+  /** 实际执行结束（含取消/失败）时 resolve。 */
+  done: Promise<void>
+}
 
 /** 一次结构操作的租约；`settled` 供删除/销毁在收尾前排空。 */
 type StructureOperation = {
@@ -317,6 +441,33 @@ export class ThreadStructureBusyError extends Error {
   constructor(message = '会话结构操作进行中，请稍后再试') {
     super(message)
     this.name = 'ThreadStructureBusyError'
+  }
+}
+
+/**
+ * 已知内置 slash 命令被直接提交为普通 prompt。
+ *
+ * GUI 应在应用层路由内置动作；宿主守卫用于阻止其他客户端绕过 GUI，
+ * 把“/model”等文本发给模型冒充执行。扩展/模板/skill 与未知 slash 不受影响。
+ */
+export class ReservedBuiltinCommandError extends Error {
+  readonly code = 'reserved-builtin-command'
+  constructor(readonly command: string) {
+    super(`内置命令 /${command} 必须经 GUI 入口执行，不能作为普通 prompt 发送`)
+    this.name = 'ReservedBuiltinCommandError'
+  }
+}
+
+/** 当前模型不接受图片输入；提交前拒绝并保留调用方的草稿。 */
+export class ImageInputUnsupportedError extends Error {
+  readonly code = 'image-input-unsupported'
+  constructor(
+    readonly provider: string | undefined,
+    readonly modelId: string | undefined,
+  ) {
+    const name = provider && modelId ? `${provider}/${modelId}` : '当前模型'
+    super(`${name} 未声明图像输入能力，无法发送图片附件`)
+    this.name = 'ImageInputUnsupportedError'
   }
 }
 
@@ -378,6 +529,15 @@ type CurrentRun = {
 const sendContext = new AsyncLocalStorage<InFlightSend | undefined>()
 
 /**
+ * 调用方窗口上下文（不进入 Pi 会话记录）。
+ *
+ * 由 HTTP 层的 `x-huan-caller` 头传入 `sendMessage`，沿 `prompt()` 的异步链
+ * 传播；扩展命令/工具中的 setEditorText/getEditorText 据此定向到发起窗口。
+ * 无调用方的后台扩展得到空串，只能生成“请窗口主动接受”的指令。
+ */
+const callerContext = new AsyncLocalStorage<string | undefined>()
+
+/**
  * 宿主输入守卫（合成扩展）：在 SDK 的 input 拦截点否决「已取消 / 已退休」的输入。
  *
  * 为什么需要：SDK 在 input hook 之后才做「流式中 → 入队 / 空闲 → 启动运行」的
@@ -432,6 +592,14 @@ async function abortForRetire(session: AgentSession): Promise<void> {
 
 /** 默认空间跨分组枚举的并发上限（与 Pi 自身目录发现的保守值一致）。 */
 const SCOPE_LIST_CONCURRENCY = 8
+
+/**
+ * 用户 Shell 实时输出的有界上限（字符）。
+ *
+ * 目的：断线重连时快照不会携带无限增长的无界输出；超出时丢弃前缀并
+ * 在增量事件里告知客户端 `dropped`，使两侧缓冲保持一致。
+ */
+const BASH_OUTPUT_MAX_CHARS = 120_000
 
 /** 按上限并发执行（结果保持输入顺序）。 */
 async function mapWithConcurrency<T, R>(
@@ -519,6 +687,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
 
   const records = new Map<string, ThreadRecord>()
+  /** 宿主级交互通道：启动期 project_trust/session_start 请求也经它发现与应答。 */
+  const interactions = createHostInteractions()
+  /**
+   * 调用方窗口的临时草稿镜像。
+   *
+   * key = `<threadId>\0<callerId>`；仅驻留内存，供扩展同步 getEditorText，
+   * 不进入 JSONL/全局用户配置。会话 retire/宿主销毁时清理。
+   */
+  const editorMirrors = new Map<string, string>()
   /** 进行中的冷打开（并发调用共享同一 promise，避免同文件双开）。 */
   const pendingOpens = new Map<
     string,
@@ -534,6 +711,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   let disposed = false
   /** 代数计数：使 dispose 前发起的异步打开失效。 */
   let generation = 0
+
+  /** 编辑器镜像 key（同一会话内按窗口隔离）。 */
+  const editorMirrorKey = (threadId: string, callerId: string): string =>
+    `${threadId}\u0000${callerId}`
+  const forgetEditorMirrors = (threadId: string): void => {
+    const prefix = `${threadId}\u0000`
+    for (const key of [...editorMirrors.keys()]) {
+      if (key.startsWith(prefix)) editorMirrors.delete(key)
+    }
+  }
 
   /** 项目状态与可复用装配按规范化 cwd 缓存；live session 仍各自重新装配。 */
   const projectRuntimes = new Map<string, ProjectRuntime>()
@@ -749,6 +936,75 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     runtime.pendingVirtualModelRegistrations = []
   }
 
+  /** 宿主级交互请求 ID（与线程请求 ID 命名空间分离）。 */
+  let interactionRequestCounter = 0
+  const nextInteractionRequestId = (): string => {
+    interactionRequestCounter += 1
+    return `host:ui:${interactionRequestCounter}:${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  /**
+   * 项目信任扩展的真实 UI 上下文。
+   *
+   * 与 CLI 一致地声明 `mode: 'rpc'`、`hasUI: true`；confirm/select 进入
+   * 宿主级交互域，notify 作为有界可见通知。`inspectProjectTrust` 仍走无 UI
+   * 路径，不在此触发任何交互。
+   */
+  const projectTrustContextOf = (cwd: string): ProjectTrustContext => {
+    const canonicalCwd = canonicalProjectPath(cwd)
+    const scope: HarnessHostInteractionScope = { kind: 'project', cwd: canonicalCwd }
+    return {
+      cwd: canonicalCwd,
+      mode: 'rpc',
+      hasUI: true,
+      ui: {
+        select: async (title, options, opts) => {
+          const answer = await interactions.ask(
+            {
+              id: nextInteractionRequestId(),
+              kind: 'select',
+              title,
+              options,
+              ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+            },
+            scope,
+            opts,
+          )
+          return answer.dismissed ? undefined : answer.value
+        },
+        confirm: async (title, message, opts) => {
+          const answer = await interactions.ask(
+            {
+              id: nextInteractionRequestId(),
+              kind: 'confirm',
+              title,
+              message,
+              ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+            },
+            scope,
+            opts,
+          )
+          return answer.confirmed ?? false
+        },
+        input: async (title, placeholder, opts) => {
+          const answer = await interactions.ask(
+            {
+              id: nextInteractionRequestId(),
+              kind: 'input',
+              title,
+              ...(placeholder !== undefined ? { placeholder } : {}),
+              ...(opts?.timeout ? { timeoutMs: opts.timeout } : {}),
+            },
+            scope,
+            opts,
+          )
+          return answer.dismissed ? undefined : answer.value
+        },
+        notify: (message, type) => interactions.notify(scope, message, type),
+      },
+    }
+  }
+
   /**
    * 经统一信任入口准备一份会话装配。
    *
@@ -784,6 +1040,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
           }),
         ],
       },
+      // 项目信任扩展可以获得真实 RPC UI；请求在 record 发布前也可发现/应答。
+      projectTrustContext: projectTrustContextOf(cwd),
     })
     for (const message of [...trust.loadErrors, ...trust.state.extensionErrors]) {
       diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
@@ -958,6 +1216,61 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return { runtime, prepared }
   }
 
+  /**
+   * 读取空白页资源目录所需的装配，但不消费 loader。
+   *
+   * 目录查询会在首个会话创建前发生；这里把装配结果留在 pending，
+   * 后续 createThread 直接复用，避免扩展工厂因浏览命令目录被重复执行。
+   */
+  const peekProjectSession = async (input: string): Promise<PreparedProject> => {
+    const check = await inspectProjectPath(input)
+    if (check.error) throw new Error(`项目路径不可用：${check.error.code}`)
+    let runtime = projectRuntimes.get(check.path)
+    if (!runtime || runtime.info.status === 'failed') {
+      runtime = await loadProjectRuntime(check.path)
+    }
+    if (runtime.info.status === 'needs-trust') {
+      throw new ProjectTrustRequiredError(runtime.info)
+    }
+    if (runtime.pending) return runtime.pending
+    const prepared = await prepareProjectSession(
+      runtime.cwd,
+      runtime.info.trust.decision === 'trusted',
+    )
+    runtime.pending = prepared
+    runtime.settingsManager = prepared.trust.settingsManager
+    return prepared
+  }
+
+  /** 解析文件查询的可见根：仅会话/选中工作区成员，退化为空白页固定 cwd。 */
+  const fileSearchRootsOf = async (input: HarnessFileSearchInput): Promise<FileSearchRoot[]> => {
+    let workspaceId = input.workspaceId
+    let cwd = input.workspacePath
+    if (input.threadId) {
+      const live = records.get(input.threadId)
+      if (live) {
+        workspaceId ??= live.workspaceId
+        cwd ??= live.workspacePath
+      } else {
+        const info = await findSessionInfo(input.threadId)
+        if (!info) throw new Error(`Unknown thread: ${input.threadId}`)
+        cwd ??= info.cwd
+        workspaceId ??= workspaceStore.sessionWorkspace(storeId, info.id)
+      }
+    }
+    const workspace = workspaceId ? workspaceSnapshotOf(workspaceId) : null
+    if (workspace) {
+      return workspace.roots.map((root) => ({
+        alias: root.alias,
+        path: root.path,
+        projectName: projectNameOf(root.path),
+        workspaceName: workspace.name,
+      }))
+    }
+    if (!cwd) throw new Error('文件查询需要会话、工作区或固定起始目录')
+    return [{ path: cwd, projectName: projectNameOf(cwd) }]
+  }
+
   /** 保存决定后立即装配；保留本次显式来源与保存路径供页面展示。 */
   const decideProject = async (input: HarnessProjectTrustInput): Promise<HarnessProjectInfo> => {
     const check = await inspectProjectPath(input.path)
@@ -1034,24 +1347,58 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   // 启动引导：先准备启动项目（未知信任时只装配用户资源），再注册 provider。
   // 该 loader 留给首个会话复用；needs-trust 时跳过联网目录刷新。
-  let startupRuntime: ProjectRuntime | undefined
+  //
+  // 若装配期扩展发起阻断式 UI 请求（project_trust/session_start），不能在这里
+  // 等待浏览器：HTTP 必须先可用。于是让位给宿主交互通道，装配继续在后台完成；
+  // 同一 cwd 的后续 getProject/首次会话会复用同一个进行中的装配，不重复执行。
+  let resolvedDefault = resolveDefaultModel({
+    modelRuntime,
+    cwd: workspacePath,
+    agentDir,
+    ...(options.model ? { model: options.model } : {}),
+  })
+  const startupGeneration = generation
+  const startupAssembly = loadProjectRuntime(workspacePath)
+  let startupBlocked = false
+  let resolveStartupBlocked: () => void = () => {}
+  const startupBlockedSignal = new Promise<void>((resolveBlocked) => {
+    resolveStartupBlocked = resolveBlocked
+  })
+  const unsubscribeStartupInteraction = interactions.subscribe((snapshot) => {
+    if (snapshot.requests.length === 0) return
+    startupBlocked = true
+    resolveStartupBlocked()
+  })
+
+  const finishStartupAssembly = async (runtime: ProjectRuntime): Promise<void> => {
+    if (generation !== startupGeneration) return
+    resolvedDefault = runtime.defaultModel
+    if (startRefresh && runtime.info.status !== 'needs-trust') await refreshCatalog()
+  }
+
   try {
-    startupRuntime = await loadProjectRuntime(workspacePath)
+    const outcome = await Promise.race([
+      startupAssembly.then((runtime) => ({ kind: 'done' as const, runtime })),
+      startupBlockedSignal.then(() => ({ kind: 'blocked' as const })),
+    ])
+    if (outcome.kind === 'done') {
+      await finishStartupAssembly(outcome.runtime)
+    } else if (startupBlocked) {
+      // 装配仍在等待用户应答：完成后再回填默认模型与诊断。
+      void startupAssembly
+        .then((runtime) => finishStartupAssembly(runtime))
+        .catch((error: unknown) => {
+          if (generation !== startupGeneration) return
+          diagnostics.push(`启动项目装配（${workspacePath}）：${String(error)}`)
+          safeDiagnostics.add('assembly-warning')
+        })
+    }
   } catch (error) {
     diagnostics.push(`启动项目装配（${workspacePath}）：${String(error)}`)
     safeDiagnostics.add('assembly-warning')
+  } finally {
+    unsubscribeStartupInteraction()
   }
-  if (startRefresh && startupRuntime?.info.status !== 'needs-trust') {
-    await refreshCatalog()
-  }
-  const resolvedDefault =
-    startupRuntime?.defaultModel ??
-    resolveDefaultModel({
-      modelRuntime,
-      cwd: workspacePath,
-      agentDir,
-      ...(options.model ? { model: options.model } : {}),
-    })
 
   /** 整个存储作用域（默认空间或平铺覆盖）的跨 cwd 列表缓存，按作用域目录区分。 */
   const scopeCatalogCache = new Map<
@@ -1247,6 +1594,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       id: record.threadId,
       status: runStatus(record),
       compactionActive: session.isCompacting,
+      ...(session.isCompacting && record.compactionReason
+        ? { compactionReason: record.compactionReason }
+        : {}),
+      autoCompactionEnabled: record.settingsManager.getCompactionEnabled(),
+      scopedModelKeys: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),
+      modelCatalogRevision,
+      ...(model?.input ? { modelInput: [...model.input] } : {}),
       retryActive: session.isRetrying,
       retryAttempt: session.retryAttempt,
       workspacePath: record.workspacePath,
@@ -1366,12 +1720,238 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
   }
 
+  /** 把宿主内部的 Shell 运行态投影为 JSON-safe 协议形状（不含 done/执行器）。 */
+  const bashViewOf = (run: UserBashRun): HarnessBashRun => ({
+    id: run.id,
+    command: run.command,
+    excludeFromContext: run.excludeFromContext,
+    cwd: run.cwd,
+    status: run.status,
+    output: run.output,
+    outputTruncated: run.outputTruncated,
+    startedAt: run.startedAt,
+    ...(run.result ? { result: run.result } : {}),
+  })
+
+  /**
+   * Shell 完成且已持久化为 bashExecution 消息后，释放运行态。
+   *
+   * `recordBashResult` 在运行中会把消息缓冲到运行结算后才落盘，因此完成卡
+   * 需要保留到消息真正出现，然后由快照取代，避免重复展示或空洞。
+   */
+  const releasePersistedBash = (record: ThreadRecord): void => {
+    const run = record.bash
+    if (run?.status === 'complete' && run.recorded && !record.session.hasPendingBashMessages) {
+      record.bash = undefined
+    }
+  }
+
+  /** 压缩运行态（快照与 UI 共用；失败原因成功后清除）。 */
+  const compactionPhaseOf = (record: ThreadRecord) => ({
+    active: record.session.isCompacting,
+    ...(record.compactionReason ? { reason: record.compactionReason } : {}),
+    ...(record.lastCompactionError ? { error: record.lastCompactionError } : {}),
+  })
+
+  // ---- 运行期扩展 UI 状态（线程快照权威） ----
+
+  /** 每次状态变化广播权威快照；断开重连即以快照补齐。 */
+  const emitHostUiSnapshot = (record: ThreadRecord): void => {
+    if (record.retired) return
+    emit(record, { type: 'host_ui_update', hostUi: hostUiViewOf(record) })
+  }
+
+  const notifyHostUi = (
+    record: ThreadRecord,
+    message: string,
+    type: HarnessHostUiNotification['type'],
+  ): void => {
+    record.hostUi.notificationCounter += 1
+    record.hostUi.notifications = [
+      ...record.hostUi.notifications,
+      {
+        id: `${record.threadId}:notify:${record.hostUi.notificationCounter}`,
+        message,
+        type,
+        createdAt: Date.now(),
+      },
+    ].slice(-20)
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiStatus = (record: ThreadRecord, key: string, text: string | undefined): void => {
+    const current = record.hostUi.statuses.get(key)
+    if (text === undefined) {
+      if (current === undefined) return
+      record.hostUi.statuses.delete(key)
+    } else {
+      if (current === text) return
+      record.hostUi.statuses.set(key, text)
+    }
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiWidget = (
+    record: ThreadRecord,
+    key: string,
+    lines: string[] | undefined,
+    placement: HarnessHostUiWidgetPlacement,
+  ): void => {
+    const current = record.hostUi.widgets.get(key)
+    if (lines === undefined) {
+      if (!current) return
+      record.hostUi.widgets.delete(key)
+    } else {
+      if (
+        current &&
+        current.placement === placement &&
+        current.lines.length === lines.length &&
+        current.lines.every((line, index) => line === lines[index])
+      ) {
+        return
+      }
+      record.hostUi.widgets.set(key, { lines: [...lines], placement })
+    }
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiTitle = (record: ThreadRecord, title: string): void => {
+    if (record.hostUi.title === title) return
+    // 扩展标题只作为提示，不改 Pi 会话名称，也不改 document.title。
+    record.hostUi.title = title
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiWorkingMessage = (record: ThreadRecord, message: string | undefined): void => {
+    if (record.hostUi.workingMessage === message) return
+    record.hostUi.workingMessage = message
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiWorkingVisible = (record: ThreadRecord, visible: boolean): void => {
+    if (record.hostUi.workingVisible === visible) return
+    record.hostUi.workingVisible = visible
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiHiddenThinkingLabel = (record: ThreadRecord, label: string | undefined): void => {
+    if (record.hostUi.hiddenThinkingLabel === label) return
+    record.hostUi.hiddenThinkingLabel = label
+    emitHostUiSnapshot(record)
+  }
+
+  /** 终端专属能力：记录可见的不支持说明，不执行扩展传入的工厂。 */
+  const reportUnsupportedHostUi = (record: ThreadRecord, method: string): void => {
+    if (record.hostUi.unsupportedReported.has(method)) return
+    record.hostUi.unsupportedReported.add(method)
+    notifyHostUi(record, `扩展 UI 能力 ${method} 在 GUI 宿主中不支持，已跳过。`, 'warning')
+  }
+
+  /** 调用方窗口的草稿镜像（仅内存，不持久化）。 */
+  const callerDraftOf = (threadId: string): string => {
+    const callerId = callerContext.getStore()
+    if (!callerId) return ''
+    return editorMirrors.get(editorMirrorKey(threadId, callerId)) ?? ''
+  }
+
+  const rememberCallerDraft = (threadId: string, callerId: string, text: string): void => {
+    editorMirrors.set(editorMirrorKey(threadId, callerId), text)
+  }
+
+  /**
+   * 扩展写输入框。
+   *
+   * 有调用方窗口时标记定向；无调用方（后台扩展）时保留 callerId 缺失，
+   * 由任一窗口主动接受。同时更新调用方镜像，供同一命令链的 getEditorText。
+   */
+  const writeHostUiEditor = (record: ThreadRecord, text: string, mode: 'set' | 'paste'): void => {
+    const callerId = callerContext.getStore()
+    if (callerId) {
+      const key = editorMirrorKey(record.threadId, callerId)
+      const current = editorMirrors.get(key) ?? ''
+      // paste 没有光标位置信息；镜像按末尾追加以保持同步可读。
+      editorMirrors.set(key, mode === 'paste' ? `${current}${text}` : text)
+    }
+    const previous = record.hostUi.editorDirective
+    const mergePaste = mode === 'paste' && previous !== undefined && previous.callerId === callerId
+    record.hostUi.notificationCounter += 1
+    record.hostUi.editorDirective = {
+      id: `${record.threadId}:editor:${record.hostUi.notificationCounter}`,
+      text: mergePaste ? `${previous.text}${text}` : text,
+      mode: mergePaste ? previous.mode : mode,
+      ...(callerId ? { callerId } : {}),
+      createdAt: Date.now(),
+    }
+    emitHostUiSnapshot(record)
+  }
+
+  const setHostUiCommandTarget = (
+    record: ThreadRecord,
+    action: HarnessHostUiCommandTarget['action'],
+    threadId: string,
+    message: string,
+    title?: string,
+    editorText?: string,
+  ): void => {
+    const callerId = callerContext.getStore()
+    record.hostUi.notificationCounter += 1
+    record.hostUi.commandTarget = {
+      id: `${record.threadId}:target:${record.hostUi.notificationCounter}`,
+      action,
+      threadId,
+      ...(title ? { title } : {}),
+      ...(callerId ? { callerId } : {}),
+      ...(editorText !== undefined ? { editorText } : {}),
+      message,
+      createdAt: Date.now(),
+    }
+    emitHostUiSnapshot(record)
+  }
+
+  /** 投影为协议形状；全空时返回 undefined，避免每个快照携带空对象。 */
+  const hostUiViewOf = (record: ThreadRecord): HarnessThreadHostUi | undefined => {
+    const ui = record.hostUi
+    const statuses = [...ui.statuses.entries()].map(([key, text]) => ({ key, text }))
+    const widgets = [...ui.widgets.entries()].map(([key, value]) => ({ key, ...value }))
+    if (
+      statuses.length === 0 &&
+      widgets.length === 0 &&
+      ui.notifications.length === 0 &&
+      ui.title === undefined &&
+      ui.workingMessage === undefined &&
+      ui.workingVisible === undefined &&
+      ui.hiddenThinkingLabel === undefined &&
+      !ui.editorDirective &&
+      !ui.commandTarget
+    ) {
+      return undefined
+    }
+    return structuredClone({
+      statuses,
+      widgets,
+      notifications: ui.notifications,
+      ...(ui.title !== undefined ? { title: ui.title } : {}),
+      ...(ui.workingMessage !== undefined ? { workingMessage: ui.workingMessage } : {}),
+      ...(ui.workingVisible !== undefined ? { workingVisible: ui.workingVisible } : {}),
+      ...(ui.hiddenThinkingLabel !== undefined
+        ? { hiddenThinkingLabel: ui.hiddenThinkingLabel }
+        : {}),
+      ...(ui.editorDirective ? { editorDirective: ui.editorDirective } : {}),
+      ...(ui.commandTarget ? { commandTarget: ui.commandTarget } : {}),
+    })
+  }
+
   const snapshotOf = (record: ThreadRecord): HarnessThreadSnapshot => {
+    // 已持久化的 Shell 结果不再以运行态重复出现。
+    releasePersistedBash(record)
     const pending = record.uiBridge.pending()
+    const hostUi = hostUiViewOf(record)
     return {
       metadata: metadataOf(record),
       messages: isolateMessages(record.session.messages),
       messageEntryIds: messageEntryIds(record.sessionManager, record.session.messages),
+      ...(record.bash ? { bash: bashViewOf(record.bash) } : {}),
+      compaction: compactionPhaseOf(record),
       readiness: getModelReadiness(
         modelRuntime,
         record.session.model
@@ -1384,6 +1964,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ),
       seq: record.seq,
       ...(pending.length ? { hostUiRequests: pending } : {}),
+      ...(hostUi ? { hostUi } : {}),
       ...(record.lastError ? { lastError: record.lastError } : {}),
     }
   }
@@ -1422,9 +2003,14 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (record.retired) throw new ThreadStructureBusyError('会话正在关闭，不能修改结构')
     if (record.structure) throw new ThreadStructureBusyError()
     if (record.session.isCompacting) throw new ThreadStructureBusyError('会话正在压缩，请稍后重试')
+    // 用户 Shell 直接产生副作用；结构操作（含压缩/分叉/导航）不得越过它，
+    // 否则可能在命令执行中切换上下文或分支。
+    if (record.bash?.status === 'running' || record.session.isBashRunning) {
+      throw new ThreadStructureBusyError('用户 Shell 正在执行，请先取消或等待完成')
+    }
     if (
       !options.allowRunning &&
-      (record.session.isStreaming || record.currentRun !== undefined || record.inFlight.size > 0)
+      (record.session.isStreaming || record.currentRun !== undefined || hasOtherInFlight(record))
     ) {
       throw new ThreadStructureBusyError('会话正在运行或发送中，请先停止后再修改结构')
     }
@@ -1441,8 +2027,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       settled,
       markSettled,
       cancel: () => {
-        // 只有分支摘要可以中断；普通导航/标签是短操作，收尾时等待其结束。
+        // 收尾可中断长操作：分支摘要与压缩；普通导航/标签是短操作，等待其结束。
         if (kind === 'navigate') record.session.abortBranchSummary()
+        if (kind === 'compact') record.session.abortCompaction()
       },
     }
     record.structure = operation
@@ -1484,6 +2071,17 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     event: Parameters<Parameters<AgentSession['subscribe']>[0]>[0],
   ): void {
     if (event.type === 'turn_start') record.turnIndex += 1
+    // 压缩运行态：原因从事件维护，失败原因在成功后清除（取消不算失败）。
+    if (event.type === 'compaction_start') {
+      record.compactionReason = event.reason
+      record.lastCompactionAborted = false
+    }
+    if (event.type === 'compaction_end') {
+      record.lastCompactionAborted = event.aborted
+      // 取消不算失败；成功会自然清空为 undefined。
+      record.lastCompactionError = event.aborted ? undefined : event.errorMessage
+      record.compactionReason = undefined
+    }
     if (event.type === 'session_info_changed') invalidateCatalog(record.workspacePath)
     // 新会话的 JSONL 直到首条用户消息才真正落盘；空会话创建后列表缓存可能
     // 仍是旧结果。首条用户消息开始时清一次目录缓存，让后续列表看到文件与标题。
@@ -1628,12 +2226,31 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
     throwIfOpenCancelled(opts.signal, openedGeneration)
 
+    // 查询时缓存的 loader 可能早于用户设置保存；消费前重读设置，资源不重复装配。
+    await prepared.trust.settingsManager.reload()
     // 新会话：显式模型 > 目标项目默认模型；冷打开不传，由 SDK 从会话记录恢复。
-    const newSessionModel = opts.model ?? project.runtime.defaultModel.model
+    const currentDefault = resolveDefaultModel({
+      modelRuntime,
+      cwd: projectCwd,
+      agentDir,
+      ...(options.model ? { model: options.model } : {}),
+      settingsManager: prepared.trust.settingsManager,
+    })
+    const newSessionModel = opts.model ?? currentDefault.model
+    // 新会话/冷打开都读取已保存的用户默认范围（与 CLI 同口径）：
+    // 范围是会话内存状态，不写入 Pi 会话记录；影响模型循环与选择器候选。
+    const savedScopePatterns = prepared.trust.settingsManager.getEnabledModels()
+    const savedScope = savedScopePatterns?.length
+      ? await resolveScopePatterns(savedScopePatterns)
+      : { scopedModels: [], diagnostics: [] }
+    for (const diagnostic of savedScope.diagnostics) {
+      diagnostics.push(`模型范围（${projectCwd}）：${diagnostic.message}`)
+    }
     const { session, modelFallbackMessage } = await createAgentSessionFromServices({
       services,
       sessionManager,
       ...(opts.isNew && newSessionModel ? { model: newSessionModel } : {}),
+      ...(savedScope.scopedModels.length ? { scopedModels: savedScope.scopedModels } : {}),
       ...(opts.sessionStartEvent ? { sessionStartEvent: opts.sessionStartEvent } : {}),
     })
     // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
@@ -1664,6 +2281,19 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       sessionManager,
       settingsManager: prepared.trust.settingsManager,
       uiBridge: undefined as unknown as HostUiBridge,
+      hostUi: {
+        statuses: new Map(),
+        widgets: new Map(),
+        notifications: [],
+        notificationCounter: 0,
+        unsupportedReported: new Set(),
+        title: undefined,
+        workingMessage: undefined,
+        workingVisible: undefined,
+        hiddenThinkingLabel: undefined,
+        editorDirective: undefined,
+        commandTarget: undefined,
+      },
       unsubscribe: () => {},
       listeners: new Set(),
       seq: 0,
@@ -1678,6 +2308,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       resourceLoader: prepared.trust.resourceLoader,
       inFlight: new Set(),
       currentRun: undefined,
+      bash: undefined,
+      compactionReason: undefined,
+      lastCompactionError: undefined,
+      lastCompactionAborted: false,
       admission: undefined,
       admissionWaiters: new Set(),
       startingSend: undefined,
@@ -1686,6 +2320,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       structure: undefined,
     }
 
+    /** 装配期请求的宿主作用域：record 发布前也允许另一窗口发现/应答。 */
+    const startupScope: HarnessHostInteractionScope = {
+      kind: 'session',
+      sessionId: threadId,
+      cwd: projectCwd,
+    }
     const uiBridge = createHostUiBridge({
       nextRequestId: () => `${threadId}:ui:${record.seq}:${Math.random().toString(36).slice(2, 8)}`,
       currentToolCallId: () => {
@@ -1699,8 +2339,37 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         emit(record, { type: 'extension_ui_resolved', requestId })
       },
       onNotify: (message, type) => {
-        // 装配期的自动忽略等提示：记入诊断（无订阅者时也能被应用看到）。
-        if (type !== 'info') diagnostics.push(`Host UI（${cwd}）：${message}`)
+        notifyHostUi(
+          record,
+          message,
+          type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info',
+        )
+      },
+      onStatus: (key, text) => setHostUiStatus(record, key, text),
+      onWidget: (key, lines, placement) => setHostUiWidget(record, key, lines, placement),
+      onTitle: (title) => setHostUiTitle(record, title),
+      onWorkingMessage: (message) => setHostUiWorkingMessage(record, message),
+      onWorkingVisible: (visible) => setHostUiWorkingVisible(record, visible),
+      onHiddenThinkingLabel: (label) => setHostUiHiddenThinkingLabel(record, label),
+      getEditorText: () => callerDraftOf(threadId),
+      onEditorWrite: (text, mode) => writeHostUiEditor(record, text, mode),
+      onUnsupported: (method) => reportUnsupportedHostUi(record, method),
+      startup: {
+        ask: (request, options) =>
+          interactions.ask(request, startupScope, {
+            ...options,
+            signal:
+              opts.signal && options?.signal
+                ? AbortSignal.any([opts.signal, options.signal])
+                : (opts.signal ?? options?.signal),
+          }),
+        dismissAll: () => interactions.cancelScope(startupScope),
+        notify: (message, type) =>
+          interactions.notify(
+            startupScope,
+            message,
+            type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info',
+          ),
       },
     })
     record.uiBridge = uiBridge
@@ -1711,12 +2380,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
     }
 
-    // 装配期：session_start handler 发起的阻断请求立即结算（record 尚未发布）。
+    // 装配期：session_start handler 的阻断请求进入宿主交互域（另一通道可应答）。
     uiBridge.setStartup(true)
+
+    const onOpenAbort = () => uiBridge.dismissAll()
+    opts.signal?.addEventListener('abort', onOpenAbort, { once: true })
 
     try {
       await session.bindExtensions({
         uiContext: uiBridge.ui,
+        // 与 CLI RPC 一致：扩展据此判断非终端环境，不尝试 TUI 专属界面。
+        mode: 'rpc',
+        commandContextActions: commandActionsFor(record),
+        shutdownHandler: () => {
+          throw new UnsupportedHostCommandActionError('shutdown')
+        },
         onError: (error) => {
           record.lastError = error.error
           emit(record, { type: 'error', error: error.error })
@@ -1726,6 +2404,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       uiBridge.dismissAll()
       session.dispose()
       throw error
+    } finally {
+      opts.signal?.removeEventListener('abort', onOpenAbort)
     }
 
     if (openWasCancelled(opts.signal, openedGeneration)) {
@@ -1777,9 +2457,185 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (session.sessionFile) recordsBySessionFile.set(session.sessionFile, record)
     // record 已发布：绑定守卫的目标会话，后续阻断请求输送到订阅者。
     prepared.guard.record = record
+    // 离开装配期：清掉 handler 未 await 的遗留请求，避免线程通道出现重复。
     uiBridge.setStartup(false)
     return record
   }
+
+  /**
+   * 把新/已打开的 record 包装成 SDK 期望的替换会话上下文。
+   *
+   * 基础上下文由新会话自己的 ExtensionRunner 生成（绑定到该会话的
+   * commandContextActions），再补上 RPC 模式提供的发送方法。
+   */
+  const replacedContextOf = (target: ThreadRecord): ReplacedSessionContext => {
+    const base = target.session.extensionRunner.createCommandContext()
+    const context = Object.defineProperties({}, Object.getOwnPropertyDescriptors(base)) as Record<
+      string,
+      unknown
+    >
+    context.sendMessage = (
+      message: Parameters<AgentSession['sendCustomMessage']>[0],
+      options?: Parameters<AgentSession['sendCustomMessage']>[1],
+    ) => target.session.sendCustomMessage(message, options)
+    context.sendUserMessage = (
+      content: Parameters<AgentSession['sendUserMessage']>[0],
+      options?: Parameters<AgentSession['sendUserMessage']>[1],
+    ) => target.session.sendUserMessage(content, options)
+    return context as unknown as ReplacedSessionContext
+  }
+
+  /** 会话目标提示：只写入发起会话的快照，父 live record 不替换。 */
+  const announceCommandTarget = (
+    source: ThreadRecord,
+    action: HarnessHostUiCommandTarget['action'],
+    target: ThreadRecord,
+    message: string,
+    editorText?: string,
+  ): void => {
+    setHostUiCommandTarget(
+      source,
+      action,
+      target.threadId,
+      message,
+      metadataOf(target).title,
+      editorText,
+    )
+  }
+
+  /** `ctx.newSession()`：设置初始化内容与血缘后绑定独立会话，保留父 record。 */
+  const commandNewSession = async (
+    source: ThreadRecord,
+    options?: CommandNewSessionOptions,
+  ): Promise<{ cancelled: boolean }> => {
+    const before = await source.session.extensionRunner.emit({
+      type: 'session_before_switch',
+      reason: 'new',
+    })
+    if (before?.cancel || source.retired) return { cancelled: true }
+    const dir = resolveSessionDirFor(source.workspacePath).dir
+    assertSessionFileInScope(join(dir, '.huan-scope-check'), source.workspacePath)
+    const manager = SessionManager.create(source.workspacePath, dir, {
+      ...(options?.parentSession ? { parentSession: options.parentSession } : {}),
+    })
+    await options?.setup?.(manager)
+    if (source.retired) return { cancelled: true }
+    const target = await openSession(manager, source.workspacePath, {
+      isNew: true,
+      ...(source.workspaceId ? { workspaceId: source.workspaceId } : {}),
+      ...(source.session.model ? { model: source.session.model } : {}),
+      thinkingLevel: source.session.thinkingLevel,
+      sessionStartEvent: {
+        type: 'session_start',
+        reason: 'new',
+        ...(source.session.sessionFile ? { previousSessionFile: source.session.sessionFile } : {}),
+      },
+    })
+    try {
+      if (source.retired) {
+        await abandonRecord(target)
+        return { cancelled: true }
+      }
+      if (source.workspaceId) {
+        await workspaceStore.assignSession({
+          storeId,
+          sessionId: target.threadId,
+          workspaceId: source.workspaceId,
+        })
+      }
+    } catch (error) {
+      await abandonRecord(target)
+      throw error
+    }
+    announceCommandTarget(source, 'newSession', target, '扩展已新建独立会话')
+    if (options?.withSession) await options.withSession(replacedContextOf(target))
+    return { cancelled: false }
+  }
+
+  /** `ctx.fork()`：复用独立 fork 语义；父会话与历史不变。 */
+  const commandFork = async (
+    source: ThreadRecord,
+    entryId: string,
+    options?: Parameters<ExtensionCommandContextActions['fork']>[1],
+  ): Promise<{ cancelled: boolean }> => {
+    const result = await forkThreadNow(source.threadId, {
+      entryId,
+      position: options?.position ?? 'before',
+    })
+    if (result.status === 'cancelled') return { cancelled: true }
+    if (result.status !== 'created' || !result.threadId) {
+      throw new Error(result.message ?? `分叉失败：${result.status}`)
+    }
+    const target = records.get(result.threadId)
+    if (!target) throw new Error('分叉会话已创建但未取得运行记录')
+    announceCommandTarget(source, 'fork', target, '扩展已创建独立分叉会话', result.selectedText)
+    if (options?.withSession) await options.withSession(replacedContextOf(target))
+    return { cancelled: false }
+  }
+
+  /** `ctx.navigateTree()`：走宿主既有结构闸门/摘要语义，不绕过队列恢复。 */
+  const commandNavigateTree = async (
+    source: ThreadRecord,
+    targetId: string,
+    options?: Parameters<ExtensionCommandContextActions['navigateTree']>[1],
+  ): Promise<{ cancelled: boolean }> => {
+    const result = await navigateThreadTreeNow(source.threadId, {
+      targetId,
+      expectedRevision: sessionTreeRevision(source.sessionManager),
+      ...(options?.summarize !== undefined ? { summarize: options.summarize } : {}),
+      ...(options?.customInstructions !== undefined
+        ? { customInstructions: options.customInstructions }
+        : {}),
+      ...(options?.replaceInstructions !== undefined
+        ? { replaceInstructions: options.replaceInstructions }
+        : {}),
+    })
+    if (result.status === 'cancelled') return { cancelled: true }
+    if (result.status !== 'applied') {
+      throw new Error(result.message ?? `会话树导航失败：${result.status}`)
+    }
+    announceCommandTarget(source, 'navigateTree', source, '扩展已切换会话树落点', result.editorText)
+    return { cancelled: false }
+  }
+
+  /** `ctx.switchSession()`：把目标文件作为独立会话打开，不替换当前 record。 */
+  const commandSwitchSession = async (
+    source: ThreadRecord,
+    sessionPath: string,
+    options?: Parameters<ExtensionCommandContextActions['switchSession']>[1],
+  ): Promise<{ cancelled: boolean }> => {
+    const file = resolve(sessionPath)
+    const before = await source.session.extensionRunner.emit({
+      type: 'session_before_switch',
+      reason: 'resume',
+      targetSessionFile: file,
+    })
+    if (before?.cancel) return { cancelled: true }
+    const scope = assertSessionFileInScope(file, source.workspacePath)
+    // 先只读打开获取 sessionId（不传 cwdOverride，否则 SDK 会跳过 header 并新建 ID）。
+    const manager = SessionManager.open(file, scope.dir)
+    const targetId = manager.getSessionId()
+    invalidateCatalog(source.workspacePath)
+    const target = await ensureOpen(targetId)
+    if (target.threadId !== source.threadId) {
+      announceCommandTarget(source, 'switchSession', target, '扩展已切换到另一个独立会话')
+      if (options?.withSession) await options.withSession(replacedContextOf(target))
+    }
+    return { cancelled: false }
+  }
+
+  /** 扩展命令上下文动作（与 SDK RPC 模式同形）。 */
+  const commandActionsFor = (record: ThreadRecord): ExtensionCommandContextActions => ({
+    waitForIdle: () => record.session.waitForIdle(),
+    newSession: (options) => commandNewSession(record, options),
+    fork: (entryId, options) => commandFork(record, entryId, options),
+    navigateTree: (targetId, options) => commandNavigateTree(record, targetId, options),
+    switchSession: (sessionPath, options) => commandSwitchSession(record, sessionPath, options),
+    reload: async () => {
+      // 资源重载属于配置阶段；不得用空成功冒充已重载。
+      throw new UnsupportedHostCommandActionError('reload')
+    },
+  })
 
   const openWasCancelled = (signal: AbortSignal | undefined, openedGeneration: number) =>
     signal?.aborted === true || openedGeneration !== generation
@@ -1947,6 +2803,25 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     return admission
   }
 
+  /** 提交前守卫：已知内置 slash 不能作为普通 prompt 进入模型。 */
+  const assertNotReservedCommand = (content: string): void => {
+    const command = builtinCommandNameOf(content)
+    if (command) throw new ReservedBuiltinCommandError(command)
+  }
+
+  /**
+   * 提交前图片能力校验。
+   *
+   * 以当前 live session 的模型元数据为准；模型缺失或未声明 image 都拒绝。
+   * 拒绝发生在预检之前，不产生模型请求，也不写会话历史。
+   */
+  const assertImagesSupported = (record: ThreadRecord, input: HarnessSendMessageInput): void => {
+    if (!input.attachments?.some((attachment) => attachment.type === 'image')) return
+    const model = record.session.model
+    if (model?.input?.includes('image')) return
+    throw new ImageInputUnsupportedError(model?.provider, model?.id)
+  }
+
   /**
    * 发送一次 prompt，返回「输入已被接受」的承诺（不等待运行结束）。
    *
@@ -1964,8 +2839,14 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     record: ThreadRecord,
     input: HarnessSendMessageInput,
     isCancelled: () => boolean,
-  ): Promise<void> => {
+  ): Promise<HarnessSendMessageResult> => {
     assertActive()
+    // 提交前同步调用方窗口的草稿镜像（扩展 getEditorText 的同步来源）。
+    const callerId = callerContext.getStore()
+    if (callerId) rememberCallerDraft(record.threadId, callerId, input.content)
+    // 内置命令与图片能力都在登记发送前同步拒绝，避免进入 SDK 预检。
+    assertNotReservedCommand(input.content)
+    assertImagesSupported(record, input)
     // 与结构操作互斥：在登记任何在途发送之前同步检查，结构操作占窗后
     // 这里明确报 busy，不会在 await 后潜入预检。
     if (record.structure) throw new ThreadStructureBusyError()
@@ -1991,7 +2872,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         emit(record, { type: 'agent_end', cancelledBeforeStart: true })
         record.inFlight.delete(inFlight)
         inFlight.markFinished()
-        return
+        return { disposition: 'cancelled' }
       }
       if (record.structure) {
         // 结构操作（如运行中重命名）在等待期间占窗：明确拒绝，不进入预检。
@@ -2013,18 +2894,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 预检承诺：接受（含入队）或被拒绝时结算一次。
       let settlePreflight: (error?: unknown) => void = () => {}
       let preflightSettled = false
-      const accepted = new Promise<void>((resolve, reject) => {
+      const accepted = new Promise<HarnessSendMessageResult>((resolve, reject) => {
         settlePreflight = (error) => {
           if (preflightSettled) return
           preflightSettled = true
           if (error) reject(error)
-          else resolve()
+          else resolve({ disposition: disposition ?? 'handled' })
         }
       })
 
       // 运行中 Pi 要求显式声明排队语义；默认 followUp。
       const streamingBehavior =
         input.streamingBehavior ?? (record.session.isStreaming ? 'followUp' : undefined)
+      // 提交点处置：'handled' 不会产生运行事件，需要补一次权威快照，
+      // 否则客户端的乐观输入和侧栏标题会一直停留在未确认状态。
+      let disposition: 'started' | 'queued' | 'handled' | undefined
 
       // 用 AsyncLocalStorage 绑定本次发送：输入守卫据此精确认领（不用文本匹配）。
       // `prompting` 在后台继续（接受语义：不等待运行结束）；其失败已在 catch 内处理。
@@ -2033,7 +2917,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
           .prompt(input.content, {
             ...(input.attachments?.length ? { images: input.attachments } : {}),
             ...(streamingBehavior ? { streamingBehavior } : {}),
-            preflightResult: (disposition) => {
+            preflightResult: (dispositionArg) => {
               // 提交点拒绝（已退休 / 已取消）：此刻放行会让 SDK 继续进入
               // `_runAgentPrompt()` 启动运行。
               // - 退休：宿主已退订，无 agent_start 可兜底；
@@ -2043,6 +2927,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
               if (record.retired) throw new Error('Harness session is retired')
               if (isCancelled() || inFlight.cancelled) throw new Error('Harness send was cancelled')
               inFlight.accepted = true
+              disposition = dispositionArg
               settlePreflight()
               // 取消意图统一记入发送级标记。
               if (isCancelled()) inFlight.cancelled = true
@@ -2082,7 +2967,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       )
 
       try {
-        await accepted
+        const result = await accepted
+        if (result.disposition === 'handled') emitSnapshot(record)
+        return result
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         record.lastError = message
@@ -2220,7 +3107,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       if (
         record.session.isStreaming ||
         record.currentRun !== undefined ||
-        record.inFlight.size > 0
+        hasOtherInFlight(record)
       ) {
         if (input.stopRunning !== true) {
           return finalize({
@@ -2412,6 +3299,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     }
   }
 
+  /**
+   * 冷读的自动压缩开关（用户级设置，不加载项目设置）。
+   *
+   * 与热会话同一显示口径：重启后未打开会话也能看到当前用户默认值。
+   */
+  const coldAutoCompactionEnabled = (cwd: string | undefined): boolean | undefined => {
+    try {
+      return SettingsManager.create(cwd?.trim() || workspacePath, agentDir, {
+        projectTrusted: false,
+      }).getCompactionEnabled()
+    } catch {
+      return undefined
+    }
+  }
+
   // ---- 独立分支（fork / clone） ----
   const errorText = (error: unknown): string =>
     error instanceof Error && error.message ? error.message : String(error)
@@ -2475,7 +3377,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         record.session.isStreaming ||
         record.session.isCompacting ||
         record.currentRun !== undefined ||
-        record.inFlight.size > 0
+        hasOtherInFlight(record)
       ) {
         return finalize({ status: 'busy', message: '会话正在运行，请先停止后再分叉' })
       }
@@ -3055,6 +3957,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 0) 进入收尾：不再接受新运行，并唤醒等待闸门的发送使其退出。
       record.retired = true
       wakeAdmissionWaiters(record)
+      // 0.4) 取消并等待用户 Shell 结束（外部副作用不可撤销，但必须释放清理）。
+      await abortUserBashForRetire(record)
       // 0.5) 取消并排空结构操作（导航摘要可中止），不能在退休 record 上继续提交。
       await cancelAndDrainStructure(record)
       // 丢弃 SDK 缓冲的延迟动作（否则收尾后仍可能启动运行）。
@@ -3079,6 +3983,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 保留 agent 级兜底订阅：局部批次可能在收尾后才启动（见字段注释）。
       records.delete(threadId)
       recordsBySessionFile.delete(sessionFile)
+      forgetEditorMirrors(threadId)
     }
     // 删除同样限于当前存储作用域（防止作用域外路径被作用到）。
     assertSessionFileInScope(sessionFile, cwd)
@@ -3127,6 +4032,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const abandonRecord = async (record: ThreadRecord): Promise<void> => {
     record.retired = true
     wakeAdmissionWaiters(record)
+    await abortUserBashForRetire(record)
     await cancelAndDrainStructure(record)
     discardDeferredRuns(record.session)
     for (const pending of record.inFlight) pending.cancelled = true
@@ -3139,7 +4045,532 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     record.unsubscribe()
     records.delete(record.threadId)
     if (record.session.sessionFile) recordsBySessionFile.delete(record.session.sessionFile)
+    forgetEditorMirrors(record.threadId)
   }
+
+  /** 作用域模式去重（保持输入顺序）；空字符串忽略。 */
+  const normalizePatterns = (patterns: readonly string[]): string[] => {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const pattern of patterns) {
+      const value = pattern.trim()
+      if (!value || seen.has(value)) continue
+      seen.add(value)
+      result.push(value)
+    }
+    return result
+  }
+
+  /**
+   * 用公开解析器把范围模式解析为会话可用的 scoped models。
+   *
+   * 解析失败不阻断会话打开：返回空范围（= 全部）并附诊断；不得静默丢弃
+   * 用户配置而不提示。
+   */
+  const resolveScopePatterns = async (
+    patterns: readonly string[],
+  ): Promise<{
+    scopedModels: Awaited<ReturnType<typeof resolveModelScopeWithDiagnostics>>['scopedModels']
+    diagnostics: HarnessModelScopeDiagnostic[]
+  }> => {
+    const cleaned = normalizePatterns(patterns)
+    if (cleaned.length === 0) return { scopedModels: [], diagnostics: [] }
+    try {
+      const result = await resolveModelScopeWithDiagnostics(cleaned, modelRuntime, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      return {
+        scopedModels: result.scopedModels,
+        diagnostics: result.diagnostics.map((diagnostic) => ({
+          code: diagnostic.code,
+          message: diagnostic.message,
+          pattern: diagnostic.pattern,
+        })),
+      }
+    } catch (error) {
+      diagnostics.push(`模型范围解析：${errorText(error)}`)
+      safeDiagnostics.add('assembly-warning')
+      return {
+        scopedModels: [],
+        diagnostics: [
+          {
+            code: 'no-match',
+            pattern: cleaned.join(', '),
+            message: '模型范围解析失败，本次按全部可用模型处理',
+          },
+        ],
+      }
+    }
+  }
+
+  /** 当前会话范围（空 = 全部）与已保存用户默认。 */
+  const modelScopeOf = async (record: ThreadRecord): Promise<HarnessModelScope> => {
+    const scoped = record.session.scopedModels
+    // 展示的是「用户默认」（agentDir 全局）；项目设置覆盖不伪装成用户默认。
+    const saved = record.settingsManager
+      .getGlobalSettings()
+      .enabledModels?.filter((item) => typeof item === 'string')
+    // 已保存默认的解析诊断只在读取时计算（可能含 no-match/ambiguous），不影响会话。
+    const savedResolution = saved?.length ? await resolveScopePatterns(saved) : undefined
+    return {
+      patterns: scoped.map((item) => `${item.model.provider}/${item.model.id}`),
+      models: scoped.map((item) => ({
+        provider: item.model.provider,
+        modelId: item.model.id,
+        ...(item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}),
+      })),
+      diagnostics: savedResolution?.diagnostics ?? [],
+      ...(saved?.length ? { savedPatterns: saved } : {}),
+    }
+  }
+
+  let settingsWrites: Promise<unknown> = Promise.resolve()
+  const withSettingsWrite = <T>(action: () => Promise<T>): Promise<T> => {
+    const pending = settingsWrites.then(action)
+    settingsWrites = pending.catch(() => {})
+    return pending
+  }
+
+  /**
+   * 用独立管理器保存用户设置，失败不改 live 会话缓存。
+   * SDK 按修改字段合并磁盘并持有文件锁；串行提交后再同步各会话。
+   */
+  const writeGlobalSetting = async (
+    record: ThreadRecord,
+    label: string,
+    apply: (manager: SettingsManager) => void,
+    verify: () => Promise<boolean>,
+  ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    assertActive()
+    if (record.retired) return { ok: false, message: '会话正在关闭，设置未保存' }
+    const manager = SettingsManager.create(record.workspacePath, agentDir, {
+      projectTrusted: false,
+    })
+    // 先清掉之前积压的写盘错误，避免误归因到本次设置。
+    for (const stale of manager.drainErrors()) {
+      diagnostics.push(`${label}（旧错误）${record.workspacePath}：${String(stale.error)}`)
+    }
+    try {
+      apply(manager)
+      await manager.flush()
+    } catch (error) {
+      diagnostics.push(`${label}（${record.workspacePath}）：${errorText(error)}`)
+    }
+    const errors = manager.drainErrors()
+    for (const error of errors) {
+      diagnostics.push(`${label}（${record.workspacePath}）：${String(error.error)}`)
+    }
+    const persisted = errors.length === 0 ? await verify().catch(() => false) : false
+    if (persisted) return { ok: true }
+    return {
+      ok: false,
+      message: `${label}保存失败或未能确认，请检查用户设置文件（settings.json）。`,
+    }
+  }
+
+  /** 读取 agentDir 用户设置原文（校验写盘结果用）；坏文件按不可确认处理。 */
+  const readUserSettings = async (): Promise<Record<string, unknown> | undefined> => {
+    try {
+      const text = await readFile(join(agentDir, 'settings.json'), 'utf8')
+      const parsed: unknown = JSON.parse(text)
+      return parsed !== null && typeof parsed === 'object'
+        ? (parsed as Record<string, unknown>)
+        : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 全局设置变更后同步其他已打开会话的设置缓存并广播快照。
+   *
+   * 每个 live session 有独立的 SettingsManager；不刷新则旧会话仍显示旧值。
+   */
+  const syncSettingsCaches = async (source: ThreadRecord): Promise<void> => {
+    for (const other of [...records.values()]) {
+      if (other.retired) continue
+      try {
+        // 先排空其他会话自己的待写入，避免 reload 丢弃尚未落盘的修改。
+        await other.settingsManager.flush()
+        await other.settingsManager.reload()
+      } catch (error) {
+        diagnostics.push(`设置同步（${other.workspacePath}）：${errorText(error)}`)
+      }
+      emitSnapshot(other)
+    }
+    emitSnapshot(source)
+  }
+
+  /** 把 Pi 的 BashResult 投影为协议结果摘要。 */
+  const bashResultOf = (result: {
+    exitCode: number | undefined
+    cancelled: boolean
+    truncated: boolean
+    fullOutputPath?: string
+  }): HarnessBashResult => ({
+    ...(result.exitCode !== undefined ? { exitCode: result.exitCode } : {}),
+    cancelled: result.cancelled,
+    truncated: result.truncated,
+    ...(result.fullOutputPath ? { fullOutputPath: result.fullOutputPath } : {}),
+    endedAt: new Date().toISOString(),
+  })
+
+  /** 截断有界输出并返回被丢弃的字符数。 */
+  const boundBashOutput = (run: UserBashRun): number => {
+    if (run.output.length <= BASH_OUTPUT_MAX_CHARS) return 0
+    const dropped = run.output.length - BASH_OUTPUT_MAX_CHARS
+    run.output = run.output.slice(dropped)
+    run.outputTruncated = true
+    return dropped
+  }
+
+  /**
+   * 直接执行用户 Shell（`!` / `!!`）。
+   *
+   * 与 CLI 同口径：先发 `user_bash` 扩展事件；扩展给出完整结果时按
+   * `recordBashResult` 语义入历史，否则本地执行；扩展报错时不回退执行。
+   * 扩展事件 await 之前先同步登记启动占位，防止并发启动第二条 Shell；
+   * 运行态（输出/取消/快照）在占位转为正式运行后立即可见。
+   */
+  const runThreadBashNow = async (
+    threadId: string,
+    input: { command: string; excludeFromContext?: boolean },
+  ): Promise<HarnessBashStartResult> => {
+    assertActive()
+    const command = input.command
+    if (!command.trim()) return { status: 'failed', message: '命令不能为空' }
+    const record = await ensureOpen(threadId)
+    const busy = (): HarnessBashStartResult | undefined => {
+      if (record.retired) return { status: 'failed', message: '会话正在关闭，无法执行 Shell' }
+      if (record.bash?.status === 'running' || record.session.isBashRunning) {
+        return { status: 'busy', message: '当前会话已有一条用户 Shell 在执行，请先取消或等待完成' }
+      }
+      if (record.structure || record.session.isCompacting) {
+        return { status: 'busy', message: '会话结构操作或压缩进行中，请稍后再执行 Shell' }
+      }
+      return undefined
+    }
+    const blocked = busy()
+    if (blocked) return blocked
+
+    const excludeFromContext = input.excludeFromContext === true
+    let markDone: () => void = () => {}
+    const done = new Promise<void>((resolve) => {
+      markDone = resolve
+    })
+    const run: UserBashRun = {
+      id: `bash:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+      command,
+      excludeFromContext,
+      cwd: record.workspacePath,
+      status: 'running',
+      output: '',
+      outputTruncated: false,
+      startedAt: new Date().toISOString(),
+      cancelRequested: false,
+      recorded: false,
+      done,
+    }
+    record.bash = run
+    emit(record, { type: 'bash_start', run: bashViewOf(run) })
+
+    const onChunk = (chunk: string): void => {
+      if (record.bash !== run) return
+      run.output += chunk
+      const dropped = boundBashOutput(run)
+      emit(record, { type: 'bash_output', id: run.id, delta: chunk, dropped })
+    }
+
+    // 后台执行：RPC 返回 started 即「已登记」，不等待命令结束。
+    void (async () => {
+      let result: HarnessBashResult
+      try {
+        // 先发布运行态再等待扩展：启动 HTTP 不阻塞于交互，取消可覆盖钩子窗口。
+        const extensionResult = await record.session.extensionRunner.emitUserBash({
+          type: 'user_bash',
+          command,
+          excludeFromContext,
+          cwd: record.workspacePath,
+        })
+        if (run.cancelRequested || record.retired || disposed) {
+          result = {
+            cancelled: true,
+            truncated: false,
+            endedAt: new Date().toISOString(),
+          }
+        } else if (extensionResult?.result) {
+          const custom = extensionResult.result
+          record.session.recordBashResult(command, custom, { excludeFromContext })
+          run.recorded = true
+          result = bashResultOf(custom)
+          run.output = custom.output
+          run.outputTruncated = false
+        } else {
+          const sdkResult = await record.session.executeBash(command, onChunk, {
+            excludeFromContext,
+            id: run.id,
+            ...(extensionResult?.operations ? { operations: extensionResult.operations } : {}),
+          })
+          run.recorded = true
+          result = bashResultOf(sdkResult)
+          // 完成态以 SDK 的清理/截断后输出为准（同时消除实时缓冲差异）。
+          run.output = sdkResult.output
+          run.outputTruncated = false
+        }
+      } catch (error) {
+        result = {
+          cancelled: false,
+          truncated: false,
+          endedAt: new Date().toISOString(),
+          error: errorText(error),
+        }
+      }
+      boundBashOutput(run)
+      run.status = 'complete'
+      run.result = result
+      if (record.bash === run) {
+        emit(record, { type: 'bash_end', run: bashViewOf(run) })
+        // 历史消息在运行中会被 SDK 缓冲到结算后落盘；快照保留完成卡直到那时。
+        emitSnapshot(record)
+      }
+      markDone()
+    })()
+
+    return { status: 'started', run: bashViewOf(run) }
+  }
+
+  /** 取消当前用户 Shell（不影响模型运行）。 */
+  const abortThreadBashNow = (threadId: string): HarnessBashAbortResult => {
+    const record = records.get(threadId)
+    if (record?.bash?.status !== 'running') return { status: 'idle' }
+    record.bash.cancelRequested = true
+    record.session.abortBash()
+    record.uiBridge.dismissAll()
+    return { status: 'requested' }
+  }
+
+  /** 收尾：取消并等待正在运行的 Shell（有上限，不阻塞删除/销毁）。 */
+  const abortUserBashForRetire = async (record: ThreadRecord): Promise<void> => {
+    // 扩展直接调用 executeBash 启动的 Shell 也按会话级状态兜底中止。
+    if (record.session.isBashRunning) record.session.abortBash()
+    const run = record.bash
+    if (run?.status !== 'running') return
+    run.cancelRequested = true
+    record.uiBridge.dismissAll()
+    await withTimeout(run.done, RETIRE_ABORT_TIMEOUT_MS, 'Shell 命令').catch(() => {})
+  }
+
+  /**
+   * 手动压缩。必须在任何 await 之前占用结构闸门：压缩期间发送/导航/分叉
+   * 一律明确 busy，不越过正在改写的上下文。
+   */
+  const compactThreadNow = async (
+    threadId: string,
+    input?: { customInstructions?: string },
+  ): Promise<HarnessCompactionOutcome> => {
+    assertActive()
+    const record = await ensureOpen(threadId)
+    let operation: StructureOperation
+    try {
+      operation = beginStructure(record, 'compact')
+    } catch (error) {
+      if (error instanceof ThreadStructureBusyError) {
+        return { status: 'busy', message: error.message }
+      }
+      throw error
+    }
+    try {
+      const customInstructions = input?.customInstructions?.trim()
+      const result = await record.session.compact(
+        customInstructions ? customInstructions : undefined,
+      )
+      return {
+        status: 'compacted',
+        ...(result.tokensBefore !== undefined ? { tokensBefore: result.tokensBefore } : {}),
+        ...(result.estimatedTokensAfter !== undefined
+          ? { estimatedTokensAfter: result.estimatedTokensAfter }
+          : {}),
+      }
+    } catch (error) {
+      if (record.lastCompactionAborted) {
+        return { status: 'cancelled', message: '压缩已取消，原始消息树保持不变' }
+      }
+      // 优先使用 SDK compaction_end 的错误文案（含 "Compaction failed" 前缀），
+      // 其次是 compact() 抛出的原始错误。
+      return { status: 'failed', message: record.lastCompactionError ?? errorText(error) }
+    } finally {
+      releaseStructure(record, operation)
+    }
+  }
+
+  /** 取消进行中的压缩（手动或自动）。 */
+  const abortThreadCompactionNow = (threadId: string): HarnessCompactionAbortResult => {
+    const record = records.get(threadId)
+    if (!record?.session.isCompacting) return { status: 'idle' }
+    record.session.abortCompaction()
+    return { status: 'requested' }
+  }
+
+  /** 保存自动压缩开关（用户全局设置）并同步所有 live 会话的缓存。 */
+  const setAutoCompactionNow = async (
+    threadId: string,
+    enabled: boolean,
+  ): Promise<HarnessAutoCompactionUpdateResult> => {
+    assertActive()
+    const record = await ensureOpen(threadId)
+    const written = await writeGlobalSetting(
+      record,
+      '自动压缩设置',
+      (manager) => {
+        manager.setCompactionEnabled(enabled)
+      },
+      async () => {
+        const settings = await readUserSettings()
+        const compaction =
+          settings?.compaction !== null && typeof settings?.compaction === 'object'
+            ? (settings.compaction as { enabled?: unknown })
+            : undefined
+        return compaction?.enabled === enabled
+      },
+    )
+    if (!written.ok) return { status: 'failed', message: written.message }
+    await syncSettingsCaches(record)
+    const effective = record.settingsManager.getCompactionEnabled()
+    return {
+      status: 'saved',
+      enabled: effective,
+      scope: 'global',
+      ...(effective === enabled
+        ? {}
+        : {
+            overridden: true,
+            message: '用户默认已保存，但项目设置覆盖了该开关，当前会话仍按项目设置生效。',
+          }),
+    }
+  }
+
+  /** 更新会话模型范围；保存用户默认是独立显式操作。 */
+  const setThreadModelScopeNow = async (
+    threadId: string,
+    input: HarnessModelScopeUpdateInput,
+  ): Promise<HarnessModelScopeUpdateResult> => {
+    assertActive()
+    const record = await ensureOpen(threadId)
+    const patterns = normalizePatterns(input.patterns)
+    const operation = beginStructure(record, 'model')
+    try {
+      const resolved = await resolveScopePatterns(patterns)
+      assertActive()
+      if (record.retired) throw new ThreadStructureBusyError('会话正在关闭')
+      // 非空模式但没有任何匹配：保持会话原范围（不静默扩大为全部），并如实诊断。
+      if (patterns.length > 0 && resolved.scopedModels.length === 0) {
+        return {
+          ...(await modelScopeOf(record)),
+          diagnostics: resolved.diagnostics,
+          persistence: 'skipped',
+          message: '没有匹配的模型，会话范围未修改；请检查模式或先刷新模型目录。',
+        }
+      }
+      record.session.setScopedModels(
+        resolved.scopedModels.map((item) => ({
+          model: item.model,
+          ...(item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}),
+        })),
+      )
+      let persistence: HarnessModelScopeUpdateResult['persistence'] = 'skipped'
+      let message: string | undefined
+      if (input.saveAsDefault === true) {
+        const written = await writeGlobalSetting(
+          record,
+          '用户默认模型范围',
+          (manager) => {
+            manager.setEnabledModels(patterns.length > 0 ? patterns : undefined)
+          },
+          async () => {
+            const settings = await readUserSettings()
+            const saved = settings?.enabledModels
+            if (patterns.length === 0) return saved === undefined
+            return (
+              Array.isArray(saved) &&
+              saved.length === patterns.length &&
+              saved.every((item, index) => item === patterns[index])
+            )
+          },
+        )
+        if (written.ok) {
+          persistence = 'saved'
+          await syncSettingsCaches(record)
+        } else {
+          persistence = 'failed'
+          message = '会话范围已生效，但用户默认保存失败；新会话仍按原配置解析。'
+        }
+      }
+      const scope = await modelScopeOf(record)
+      return {
+        ...scope,
+        diagnostics: resolved.diagnostics,
+        persistence,
+        ...(message ? { message } : {}),
+      }
+    } finally {
+      releaseStructure(record, operation)
+    }
+  }
+
+  /**
+   * 显式刷新模型目录（共享 modelRuntime）。
+   *
+   * 必须显式指定会话或固定起始目录：不使用窗口当前工作区替代 live cwd。
+   * 不重建 live session、不发起付费模型请求；失败时返回缓存目录与失败 provider。
+   */
+  const refreshModelsNow = async (
+    input: HarnessModelRefreshInput,
+  ): Promise<HarnessModelRefreshResult> => {
+    assertActive()
+    if (input.threadId) {
+      await ensureOpen(input.threadId)
+    } else {
+      const path = input.workspacePath?.trim()
+      if (!path || !isAbsolute(path)) {
+        throw new Error('模型目录刷新需要指定会话或绝对起始目录')
+      }
+      const check = await inspectProjectPath(path)
+      if (check.error) throw new Error('模型目录刷新的起始目录不可用')
+    }
+    // 同一时刻只跑一次联网刷新，避免重复请求 provider 目录。
+    if (!catalogRefreshInFlight) {
+      catalogRefreshInFlight = (async () => {
+        let failedProviders: string[] = []
+        try {
+          const result = await withTimeout(
+            modelRuntime.refresh({ allowNetwork: true }),
+            refreshTimeoutMs,
+            '模型目录刷新',
+          )
+          failedProviders = [...result.errors.keys()]
+          for (const [provider, error] of result.errors) {
+            diagnostics.push(`模型目录刷新（${provider}）：${error.message}`)
+          }
+          if (failedProviders.length) safeDiagnostics.add('catalog-refresh-failed')
+        } catch (error) {
+          diagnostics.push(`模型目录刷新失败：${errorText(error)}`)
+          safeDiagnostics.add('catalog-refresh-failed')
+          // 超时/异常时无法区分 provider：整体标记失败（UI 显示为刷新未完成）。
+          failedProviders = ['*']
+        }
+        modelCatalogRevision += 1
+        for (const record of records.values()) emitSnapshot(record)
+        return { models: listModelCatalog(modelRuntime), failedProviders }
+      })().finally(() => {
+        catalogRefreshInFlight = undefined
+      })
+    }
+    return catalogRefreshInFlight
+  }
+
+  /** 进行中的目录刷新（共享，避免并发重复联网）。 */
+  let modelCatalogRevision = 0
+  let catalogRefreshInFlight: Promise<HarnessModelRefreshResult> | undefined
 
   const client: HarnessClient = {
     async getHostInfo() {
@@ -3346,8 +4777,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return listRecentProjects()
     },
 
-    async createThread(input?: HarnessCreateThreadInput) {
+    async createThread(input?: HarnessCreateThreadInput, createOptions?: { callerId?: string }) {
+      if (createOptions?.callerId && callerContext.getStore() !== createOptions.callerId) {
+        return callerContext.run(createOptions.callerId, () => client.createThread(input))
+      }
       assertActive()
+      if (input?.initialMessage) assertNotReservedCommand(input.initialMessage.content)
       if (!workspaceStore.healthy) {
         throw new WorkspaceStateUnavailableError(
           workspaceStore.integrity === 'ok' ? 'unreadable' : workspaceStore.integrity,
@@ -3384,6 +4819,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         project.runtime.defaultModel.info.readiness.state === 'unavailable-model'
       ) {
         throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
+      }
+      // 首条消息的图片能力在创建会话前检查，避免先产生空会话再拒绝。
+      if (input?.initialMessage?.attachments?.some((item) => item.type === 'image')) {
+        const initialModel = explicitModel ?? project.runtime.defaultModel.model
+        if (!initialModel?.input?.includes('image')) {
+          throw new ImageInputUnsupportedError(initialModel?.provider, initialModel?.id)
+        }
       }
       const sessionDir = resolveSessionDirFor(cwd).dir
       // 尚未生成文件名，先检查目录中的探针路径；父目录链接也不得越过默认空间。
@@ -3425,6 +4867,56 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     async getThreadDetails(threadId: string) {
       assertActive()
       return threadDetailsOf(threadId)
+    },
+
+    async listCommands(input?: {
+      threadId?: string
+      workspacePath?: string
+    }): Promise<HarnessCommandCatalog> {
+      assertActive()
+      if (input?.threadId) {
+        const record = await ensureOpen(input.threadId)
+        return commandCatalogFromSession(record.session)
+      }
+      if (input?.workspacePath) {
+        const prepared = await peekProjectSession(input.workspacePath)
+        return commandCatalogFromLoader(
+          prepared.trust.resourceLoader,
+          prepared.trust.settingsManager,
+        )
+      }
+      throw new Error('命令目录需要会话或固定起始目录')
+    },
+
+    async getCommandArgumentCompletions(
+      input: HarnessCommandArgumentInput,
+    ): Promise<readonly HarnessCommandArgumentCompletion[]> {
+      assertActive()
+      if (input.threadId) {
+        const record = await ensureOpen(input.threadId)
+        return commandArgumentsFromSession(record.session, input.name, input.prefix)
+      }
+      if (input.workspacePath) {
+        const prepared = await peekProjectSession(input.workspacePath)
+        return commandArgumentsFromLoader(prepared.trust.resourceLoader, input.name, input.prefix)
+      }
+      return []
+    },
+
+    async searchFiles(
+      input: HarnessFileSearchInput,
+      options?: { signal?: AbortSignal },
+    ): Promise<HarnessFileSearchResult> {
+      assertActive()
+      const roots = await fileSearchRootsOf(input)
+      return searchWorkspaceFiles(
+        roots,
+        {
+          ...(input.query !== undefined ? { query: input.query } : {}),
+          ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        },
+        options?.signal,
+      )
     },
 
     async getThreadTree(threadId: string): Promise<HarnessThreadTree> {
@@ -3479,27 +4971,30 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return withImportLock(() => importThreadNow(input))
     },
 
-    async sendMessage(threadId, input) {
+    async sendMessage(threadId, input, options?: HarnessSendMessageOptions) {
       assertActive()
-      const token: StartingSend = { cancelled: false }
-      let tokens = startingSends.get(threadId)
-      if (!tokens) {
-        tokens = new Set()
-        startingSends.set(threadId, tokens)
-      }
-      tokens.add(token)
-      try {
-        const record = await ensureOpen(threadId)
-        if (token.cancelled) {
-          emit(record, { type: 'agent_end', cancelledBeforeStart: true })
-          return
+      // 调用方窗口上下文沿 prompt/工具异步链传播；命令处理与工具可据此定向。
+      return callerContext.run(options?.callerId, async () => {
+        const token: StartingSend = { cancelled: false }
+        let tokens = startingSends.get(threadId)
+        if (!tokens) {
+          tokens = new Set()
+          startingSends.set(threadId, tokens)
         }
-        // 取消判断合并两个来源：冷打开窗口的 token 与 record 上的在途取消标记。
-        await send(record, input, () => token.cancelled)
-      } finally {
-        tokens.delete(token)
-        if (tokens.size === 0) startingSends.delete(threadId)
-      }
+        tokens.add(token)
+        try {
+          const record = await ensureOpen(threadId)
+          if (token.cancelled) {
+            emit(record, { type: 'agent_end', cancelledBeforeStart: true })
+            return { disposition: 'cancelled' }
+          }
+          // 取消判断合并两个来源：冷打开窗口的 token 与 record 上的在途取消标记。
+          return await send(record, input, () => token.cancelled)
+        } finally {
+          tokens.delete(token)
+          if (tokens.size === 0) startingSends.delete(threadId)
+        }
+      })
     },
 
     async cancelRun(threadId) {
@@ -3533,6 +5028,42 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       const record = records.get(threadId)
       if (!record) return { steering: [], followUp: [] }
       return record.session.clearQueue()
+    },
+
+    async runThreadBash(threadId, input) {
+      return runThreadBashNow(threadId, input)
+    },
+
+    async abortThreadBash(threadId) {
+      assertActive()
+      return abortThreadBashNow(threadId)
+    },
+
+    async compactThread(threadId, input) {
+      return compactThreadNow(threadId, input)
+    },
+
+    async abortThreadCompaction(threadId) {
+      assertActive()
+      return abortThreadCompactionNow(threadId)
+    },
+
+    async setAutoCompaction(threadId, enabled) {
+      return withSettingsWrite(() => setAutoCompactionNow(threadId, enabled))
+    },
+
+    async getThreadModelScope(threadId) {
+      assertActive()
+      const record = await ensureOpen(threadId)
+      return modelScopeOf(record)
+    },
+
+    async setThreadModelScope(threadId, input) {
+      return withSettingsWrite(() => setThreadModelScopeNow(threadId, input))
+    },
+
+    async refreshModels(input) {
+      return refreshModelsNow(input)
     },
 
     async getAvailableModels(input) {
@@ -3642,6 +5173,44 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       records.get(threadId)?.uiBridge.resolve(response)
     },
 
+    async getHostInteractions(): Promise<HarnessHostInteractionSnapshot> {
+      assertActive()
+      return interactions.snapshot()
+    },
+
+    subscribeHostInteractions(listener) {
+      if (disposed) return () => {}
+      return interactions.subscribe((snapshot) => {
+        listener({ type: 'snapshot', seq: snapshot.seq, snapshot })
+      })
+    },
+
+    async respondToHostInteraction(response: HarnessHostUiResponse) {
+      assertActive()
+      return { accepted: interactions.respond(response) }
+    },
+
+    async consumeHostUiDirective(threadId, directiveId, options) {
+      assertActive()
+      const record = records.get(threadId)
+      if (!record) return false
+      let changed = false
+      const directive = record.hostUi.editorDirective
+      if (directive?.id === directiveId) {
+        if (directive.callerId && directive.callerId !== options?.callerId) return false
+        record.hostUi.editorDirective = undefined
+        changed = true
+      }
+      if (record.hostUi.commandTarget?.id === directiveId) {
+        const callerId = record.hostUi.commandTarget.callerId
+        if (callerId && callerId !== options?.callerId) return false
+        record.hostUi.commandTarget = undefined
+        changed = true
+      }
+      if (changed) emitHostUiSnapshot(record)
+      return changed
+    },
+
     subscribe(threadId, listener, subOptions) {
       // 损坏元数据仅允许冷读，订阅也不能隐式装配项目代码。
       if (!workspaceStore.healthy) {
@@ -3735,6 +5304,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ),
       leafId: sessionManager.getLeafId(),
       treeRevision: sessionTreeRevision(sessionManager),
+      ...(() => {
+        const enabled = coldAutoCompactionEnabled(info.cwd)
+        return enabled === undefined ? {} : { autoCompactionEnabled: enabled }
+      })(),
       ...workspaceMetadata,
     }
     return { sessionManager, branch, context, contextUsage, metadata }
@@ -3811,13 +5384,16 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       if (disposed) return
       disposed = true
       generation += 1
+      // 先结算所有宿主级启动请求，解除 project/session 装配等待。
+      interactions.dispose()
       for (const pending of pendingOpens.values()) pending.controller.abort()
       pendingOpens.clear()
       for (const record of [...records.values()]) {
         // 进入收尾：不再接受新运行；唤醒等待闸门的发送（随后被取消并排空）。
         record.retired = true
         wakeAdmissionWaiters(record)
-        // 先取消并排空结构操作（摘要/导航），再中止运行与收尾。
+        // 先取消用户 Shell 与结构操作（摘要/导航），再中止运行与收尾。
+        await abortUserBashForRetire(record)
         await cancelAndDrainStructure(record)
         // 丢弃 SDK 缓冲的延迟动作（否则收尾后仍可能启动运行）。
         discardDeferredRuns(record.session)
@@ -3840,6 +5416,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       }
       records.clear()
       recordsBySessionFile.clear()
+      editorMirrors.clear()
     },
     diagnostics: () => [...diagnostics],
   }

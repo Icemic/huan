@@ -66,6 +66,56 @@ describe('threadState（线程状态 reducer）', () => {
     expect(s.loadState).toBe('loaded')
   })
 
+  it('快照携带扩展 UI 状态；缺失时清空', () => {
+    const hostUi = {
+      statuses: [{ key: 's', text: '值' }],
+      widgets: [{ key: 'w', lines: ['行'], placement: 'belowEditor' as const }],
+      notifications: [{ id: 'n1', message: '通知', type: 'info' as const, createdAt: 1 }],
+      title: '扩展标题',
+      editorDirective: {
+        id: 'd1',
+        text: '文本',
+        mode: 'set' as const,
+        callerId: 'window-a',
+        createdAt: 1,
+      },
+    }
+    const withState = apply(
+      createHarnessThreadState('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: { metadata: { id: 't1', status: 'idle' }, messages: [], hostUi },
+      }),
+    )
+    expect(withState.hostUi).toEqual(hostUi)
+    const cleared = apply(
+      withState,
+      ev({ type: 'snapshot', snapshot: { metadata: { id: 't1', status: 'idle' }, messages: [] } }),
+    )
+    expect(cleared.hostUi).toBeUndefined()
+  })
+
+  it('扩展状态增量不清空流式消息与工具运行态', () => {
+    const message = assistant([{ type: 'text', text: '正在生成' }])
+    const initial = apply(
+      createHarnessThreadState('t1'),
+      ev({ type: 'agent_start' }),
+      ev({ type: 'message_start', message }),
+    )
+    const next = apply(
+      initial,
+      ev({
+        type: 'host_ui_update',
+        hostUi: { statuses: [{ key: 's', text: '进行中' }], widgets: [], notifications: [] },
+      }),
+    )
+    expect(next.messages).toBe(initial.messages)
+    expect(next.streamingMessageIndex).toBe(initial.streamingMessageIndex)
+    expect(next.toolExecutions).toBe(initial.toolExecutions)
+    expect(next.runStatus).toBe('running')
+    expect(next.hostUi?.statuses[0]?.text).toBe('进行中')
+  })
+
   it('改名事件同步显式名称，清空后回到首条消息标题', () => {
     let state = apply(
       createHarnessThreadState('t1'),
@@ -273,7 +323,10 @@ describe('threadState（线程状态 reducer）', () => {
       ev({ type: 'compaction_start', reason: 'threshold' }),
     )
     expect(s.compaction).toEqual({ active: true, reason: 'threshold' })
-    s = apply(s, ev({ type: 'compaction_end', aborted: false, willRetry: false }))
+    s = apply(
+      s,
+      ev({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false }),
+    )
     expect(s.compaction.active).toBe(false)
 
     s = apply(s, ev({ type: 'auto_retry_start', attempt: 2, delayMs: 500 }))
@@ -339,7 +392,7 @@ describe('threadState（线程状态 reducer）', () => {
 
     s = apply(
       s,
-      ev({ type: 'compaction_end', aborted: false, willRetry: false }),
+      ev({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false }),
       ev({ type: 'auto_retry_end', success: true }),
     )
     expect(s.metadata).toMatchObject({
@@ -593,5 +646,107 @@ describe('threadState（线程状态 reducer）', () => {
     expect(s.streamingMessageIndex).toBeUndefined()
     expect(Object.keys(s.toolExecutions)).toHaveLength(0)
     expect(s.runStatus).toBe('running')
+  })
+})
+
+describe('用户 Shell 与压缩运行态', () => {
+  const bashRun = {
+    id: 'bash:1',
+    command: 'echo hi',
+    excludeFromContext: false,
+    cwd: '/workspace',
+    status: 'running' as const,
+    output: '',
+    outputTruncated: false,
+    startedAt: '2026-08-18T00:00:00.000Z',
+  }
+
+  it('bash 事件追加、截断前缀与应用完成态', () => {
+    let s = apply(createHarnessThreadState('t1'), ev({ type: 'bash_start', run: bashRun }))
+    expect(s.bash).toEqual(bashRun)
+
+    s = apply(s, ev({ type: 'bash_output', id: 'bash:1', delta: 'hello ', dropped: 0 }))
+    s = apply(s, ev({ type: 'bash_output', id: 'bash:1', delta: 'world', dropped: 2 }))
+    expect(s.bash?.output).toBe('llo world')
+    expect(s.bash?.outputTruncated).toBe(true)
+
+    // 其他运行的输出不影响当前状态。
+    s = apply(s, ev({ type: 'bash_output', id: 'bash:2', delta: 'x', dropped: 0 }))
+    expect(s.bash?.output).toBe('llo world')
+
+    const complete = {
+      ...bashRun,
+      status: 'complete' as const,
+      output: 'llo world\n',
+      result: {
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+        endedAt: '2026-08-18T00:00:01.000Z',
+      },
+    }
+    s = apply(s, ev({ type: 'bash_end', run: complete }))
+    expect(s.bash).toEqual(complete)
+
+    // 权威快照缺少 bash 即清除（持久化后不再重复展示）。
+    s = apply(
+      s,
+      ev({ type: 'snapshot', snapshot: { metadata: { id: 't1', status: 'idle' }, messages: [] } }),
+    )
+    expect(s.bash).toBeUndefined()
+  })
+
+  it('快照携带的 Shell 运行态与压缩错误可见', () => {
+    const s = apply(
+      createHarnessThreadState('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: { id: 't1', status: 'idle', autoCompactionEnabled: false },
+          messages: [],
+          bash: bashRun,
+          compaction: { active: false, error: 'Compaction failed: x' },
+        },
+      }),
+    )
+    expect(s.bash).toEqual(bashRun)
+    expect(s.compaction).toEqual({ active: false, error: 'Compaction failed: x' })
+    expect(s.metadata.autoCompactionEnabled).toBe(false)
+  })
+
+  it('压缩结束保留失败原因；取消与成功清除错误', () => {
+    let s = apply(
+      createHarnessThreadState('t1'),
+      ev({ type: 'compaction_start', reason: 'manual' }),
+    )
+    s = apply(
+      s,
+      ev({
+        type: 'compaction_end',
+        reason: 'manual',
+        aborted: false,
+        willRetry: false,
+        errorMessage: 'Compaction failed: 合成失败',
+      }),
+    )
+    expect(s.compaction).toEqual({ active: false, error: 'Compaction failed: 合成失败' })
+
+    s = apply(s, ev({ type: 'compaction_start', reason: 'manual' }))
+    s = apply(s, ev({ type: 'compaction_end', reason: 'manual', aborted: true, willRetry: false }))
+    expect(s.compaction).toEqual({ active: false })
+
+    s = apply(s, ev({ type: 'compaction_start', reason: 'manual' }))
+    s = apply(
+      s,
+      ev({
+        type: 'compaction_end',
+        reason: 'manual',
+        aborted: false,
+        willRetry: false,
+        tokensBefore: 100,
+        estimatedTokensAfter: 20,
+      }),
+    )
+    expect(s.compaction).toEqual({ active: false })
   })
 })

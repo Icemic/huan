@@ -8,6 +8,7 @@ import { Trans } from '@lingui/react/macro'
 import { FolderCogIcon, GitForkIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { RuntimeOperationsPanel } from './runtime-operations'
 import { clearForkThreadRequest, useForkThreadRequest } from './session-fork-bridge'
 import { ForkThreadDialog } from './session-fork-dialog'
 import { SessionTreeDialog } from './session-tree-dialog'
@@ -82,6 +83,7 @@ export function SessionContextBar() {
         <SessionTreeDialog />
         <CloneSessionButton />
         <ForkDialogHost />
+        <RuntimeOperationsPanel />
       </div>
     )
   }
@@ -116,6 +118,7 @@ export function SessionContextBar() {
           <SessionTreeDialog />
           <CloneSessionButton />
           <ForkDialogHost />
+          <RuntimeOperationsPanel />
           <Button
             variant="ghost"
             size="sm"

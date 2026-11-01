@@ -30,6 +30,9 @@
  *   POST   /threads/:id/workspace   → HarnessAssignThreadResult  (body: { workspaceId })
  *   GET    /threads/:id             → HarnessThreadSnapshot
  *   GET    /threads/:id/details     → HarnessThreadDetails       (只读详情与累计统计)
+ *   GET    /commands                → HarnessCommandCatalog      (?threadId= 或 ?workspacePath=)
+ *   POST   /commands/arguments      → HarnessCommandArgumentCompletion[]
+ *   POST   /files                   → HarnessFileSearchResult
  *   GET    /threads/:id/tree        → HarnessThreadTree          (按需读取会话树)
  *   POST   /threads/:id/tree/navigate → HarnessTreeNavigateResult
  *   POST   /threads/:id/tree/label  → HarnessTreeLabelResult
@@ -46,7 +49,15 @@
  *   GET    /projects/info?path=     → HarnessProjectInfo
  *   GET    /projects/trust-summary?path= → HarnessProjectInfo     (只读信任摘要)
  *   POST   /projects/trust          → HarnessProjectInfo          (body: { path, trusted, remember? })
+ *   POST   /threads/:id/bash        → HarnessBashStartResult       (body: { command, excludeFromContext? })
+ *   POST   /threads/:id/bash/abort  → HarnessBashAbortResult
+ *   POST   /threads/:id/compact     → HarnessCompactionOutcome     (body: { customInstructions? })
+ *   POST   /threads/:id/compact/abort → HarnessCompactionAbortResult
+ *   POST   /threads/:id/auto-compaction → HarnessAutoCompactionUpdateResult (body: { enabled })
+ *   GET    /threads/:id/model-scope → HarnessModelScope
+ *   POST   /threads/:id/model-scope → HarnessModelScopeUpdateResult (body: { patterns, saveAsDefault? })
  *   GET    /models                  → HarnessModelInfo[]
+ *   POST   /models/refresh          → HarnessModelRefreshResult    (body: { threadId?, workspacePath? })
  *   POST   /threads/:id/model       → 204                        (body: { provider, modelId })
  *   POST   /threads/:id/thinking    → 204                        (body: { level })
  *   POST   /threads/:id/archive     → 204
@@ -57,16 +68,33 @@
  */
 
 import type {
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashStartResult,
   HarnessClient,
   HarnessClientEvent,
+  HarnessCommandArgumentCompletion,
+  HarnessCommandArgumentInput,
+  HarnessCommandCatalog,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
+  HarnessFileSearchInput,
+  HarnessFileSearchResult,
   HarnessHostInfo,
+  HarnessHostInteractionAnswer,
+  HarnessHostInteractionEvent,
   HarnessHostUiResponse,
   HarnessModelInfo,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeUpdateResult,
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
   HarnessRecentProject,
   HarnessSendMessageInput,
+  HarnessSendMessageOptions,
+  HarnessSendMessageResult,
   HarnessThinkingLevel,
   HarnessThreadForkInput,
   HarnessThreadForkResult,
@@ -86,8 +114,13 @@ import type {
   HarnessWorkspaceMutationResult,
 } from '@huan/protocol'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
-import { createHarnessEventStreamConnection, isTerminalStreamError } from './event-source.js'
 import {
+  createHarnessEventStreamConnection,
+  createHarnessSseDecoder,
+  isTerminalStreamError,
+} from './event-source.js'
+import {
+  isHostInteractionSnapshot,
   isThreadDetails,
   isThreadForkResult,
   isThreadImportPreview,
@@ -108,6 +141,8 @@ export interface HarnessHttpClientOptions {
   fetchImpl?: typeof fetch
   /** 应用于每个请求的额外头（如鉴权）。 */
   headers?: Record<string, string>
+  /** 调用方窗口标识；发送消息时经 `x-huan-caller` 头传递（不进入会话记录）。 */
+  callerId?: string
   /**
    * SSE 流错误。其后会重连，除非是解码器限制错误——那会结束流并向监听者
    * 发送一条 error 事件。
@@ -125,11 +160,46 @@ const trimTrailingSlash = (value: string): string =>
   value.endsWith('/') ? value.slice(0, -1) : value
 
 /** 对任何非 2xx 响应抛出可诊断错误（含响应体）。 */
+/**
+ * 宿主 HTTP 错误（保留状态码与类型化错误码）。
+ *
+ * 运行时据此把“请求未被接受”的 4xx 重新包成 assistant-ui 的
+ * MessageNotSentError，让输入框恢复文字与附件；5xx 不自动重投。
+ */
+export class HarnessHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly command?: string,
+  ) {
+    super(message)
+    this.name = 'HarnessHttpError'
+  }
+}
+
+/** 对任何非 2xx 响应抛出可诊断错误（含响应体与受控错误码）。 */
 const assertOk = async (response: Response): Promise<void> => {
   if (response.ok) return
   const body = await response.text().catch(() => '')
-  throw new Error(
+  let code: string | undefined
+  let command: string | undefined
+  if (body) {
+    try {
+      const parsed: unknown = JSON.parse(body)
+      if (isRecord(parsed)) {
+        if (typeof parsed.error === 'string') code = parsed.error
+        if (typeof parsed.command === 'string') command = parsed.command
+      }
+    } catch {
+      // 非 JSON 错误体仍按文本报告。
+    }
+  }
+  throw new HarnessHttpError(
     `Pi HTTP request failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`,
+    response.status,
+    code,
+    command,
   )
 }
 
@@ -313,7 +383,14 @@ const isModelInfo = (value: unknown): value is HarnessModelInfo =>
   typeof value.provider === 'string' &&
   value.provider.length > 0 &&
   typeof value.modelId === 'string' &&
-  value.modelId.length > 0
+  value.modelId.length > 0 &&
+  (value.name === undefined || typeof value.name === 'string') &&
+  (value.supportsThinking === undefined || typeof value.supportsThinking === 'boolean') &&
+  (value.availableThinkingLevels === undefined ||
+    (Array.isArray(value.availableThinkingLevels) &&
+      value.availableThinkingLevels.every((level) => typeof level === 'string'))) &&
+  (value.input === undefined ||
+    (Array.isArray(value.input) && value.input.every((item) => typeof item === 'string')))
 
 const parseModelListResponse = (value: unknown): HarnessModelInfo[] => {
   if (!Array.isArray(value)) {
@@ -329,6 +406,245 @@ const parseModelListResponse = (value: unknown): HarnessModelInfo[] => {
     }
   }
   return value
+}
+
+const isCommandSourceInfo = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  typeof value.source === 'string' &&
+  (value.scope === 'user' || value.scope === 'project' || value.scope === 'temporary') &&
+  (value.origin === 'package' || value.origin === 'top-level') &&
+  (value.baseDir === undefined || typeof value.baseDir === 'string')
+
+const isResourceCommand = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.name === 'string' &&
+  (value.description === undefined || typeof value.description === 'string') &&
+  (value.argumentHint === undefined || typeof value.argumentHint === 'string') &&
+  (value.source === 'extension' || value.source === 'prompt' || value.source === 'skill') &&
+  isCommandSourceInfo(value.sourceInfo) &&
+  typeof value.supportsArguments === 'boolean' &&
+  (value.shadowedBy === undefined ||
+    value.shadowedBy === 'extension' ||
+    value.shadowedBy === 'prompt' ||
+    value.shadowedBy === 'skill')
+
+const parseCommandCatalogResponse = (value: unknown): HarnessCommandCatalog => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.commands) ||
+    !value.commands.every(isResourceCommand) ||
+    typeof value.skillCommandsEnabled !== 'boolean' ||
+    !Array.isArray(value.diagnostics) ||
+    !value.diagnostics.every((item) => typeof item === 'string')
+  ) {
+    throw invalidResponse('listing commands', 'expected a valid command catalog.')
+  }
+  return value as HarnessCommandCatalog
+}
+
+const parseCommandArgumentsResponse = (
+  value: unknown,
+): readonly HarnessCommandArgumentCompletion[] => {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.value === 'string' &&
+        typeof item.label === 'string' &&
+        (item.description === undefined || typeof item.description === 'string'),
+    )
+  ) {
+    throw invalidResponse(
+      'completing command arguments',
+      'expected an array of argument completions.',
+    )
+  }
+  return value as readonly HarnessCommandArgumentCompletion[]
+}
+
+const parseFileSearchResponse = (value: unknown): HarnessFileSearchResult => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.files) ||
+    !value.files.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.path === 'string' &&
+        typeof item.reference === 'string' &&
+        typeof item.relativePath === 'string' &&
+        (item.kind === 'file' || item.kind === 'directory') &&
+        (item.alias === undefined || typeof item.alias === 'string') &&
+        (item.workspaceName === undefined || typeof item.workspaceName === 'string'),
+    ) ||
+    typeof value.truncated !== 'boolean'
+  ) {
+    throw invalidResponse('searching files', 'expected a valid file search result.')
+  }
+  return value as HarnessFileSearchResult
+}
+
+const parseSendMessageResult = (value: unknown): HarnessSendMessageResult => {
+  if (
+    !isRecord(value) ||
+    (value.disposition !== 'started' &&
+      value.disposition !== 'queued' &&
+      value.disposition !== 'handled' &&
+      value.disposition !== 'cancelled')
+  ) {
+    throw invalidResponse('sending a message', 'expected a valid send disposition.')
+  }
+  return { disposition: value.disposition }
+}
+
+const isBashRunPayload = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.command === 'string' &&
+  typeof value.excludeFromContext === 'boolean' &&
+  typeof value.cwd === 'string' &&
+  (value.status === 'running' || value.status === 'complete') &&
+  typeof value.output === 'string' &&
+  typeof value.outputTruncated === 'boolean' &&
+  typeof value.startedAt === 'string' &&
+  (value.result === undefined ||
+    (isRecord(value.result) &&
+      (value.result.exitCode === undefined || typeof value.result.exitCode === 'number') &&
+      typeof value.result.cancelled === 'boolean' &&
+      typeof value.result.truncated === 'boolean' &&
+      (value.result.fullOutputPath === undefined ||
+        typeof value.result.fullOutputPath === 'string') &&
+      typeof value.result.endedAt === 'string' &&
+      (value.result.error === undefined || typeof value.result.error === 'string')))
+
+const parseBashStartResponse = (value: unknown): HarnessBashStartResult => {
+  if (!isRecord(value)) throw invalidResponse('starting a shell command', 'expected an object.')
+  if (value.status === 'started') {
+    if (!isBashRunPayload(value.run)) {
+      throw invalidResponse('starting a shell command', 'expected a valid bash run.')
+    }
+    return value as HarnessBashStartResult
+  }
+  if ((value.status === 'busy' || value.status === 'failed') && typeof value.message === 'string') {
+    return value as HarnessBashStartResult
+  }
+  throw invalidResponse('starting a shell command', 'expected status started, busy or failed.')
+}
+
+const parseBashAbortResponse = (value: unknown): HarnessBashAbortResult => {
+  if (isRecord(value) && (value.status === 'requested' || value.status === 'idle')) {
+    return value as HarnessBashAbortResult
+  }
+  throw invalidResponse('aborting a shell command', 'expected status requested or idle.')
+}
+
+const parseCompactionOutcome = (value: unknown): HarnessCompactionOutcome => {
+  if (!isRecord(value) || typeof value.status !== 'string') {
+    throw invalidResponse('compacting a thread', 'expected an object with a status.')
+  }
+  if (value.status === 'compacted') {
+    if (
+      (value.tokensBefore !== undefined && typeof value.tokensBefore !== 'number') ||
+      (value.estimatedTokensAfter !== undefined && typeof value.estimatedTokensAfter !== 'number')
+    ) {
+      throw invalidResponse('compacting a thread', 'expected numeric token counts.')
+    }
+    return value as HarnessCompactionOutcome
+  }
+  if (value.status === 'cancelled') {
+    if (value.message !== undefined && typeof value.message !== 'string') {
+      throw invalidResponse('compacting a thread', 'expected a string message.')
+    }
+    return value as HarnessCompactionOutcome
+  }
+  if ((value.status === 'busy' || value.status === 'failed') && typeof value.message === 'string') {
+    return value as HarnessCompactionOutcome
+  }
+  throw invalidResponse('compacting a thread', 'expected a known compaction outcome.')
+}
+
+const isCompactionAbortResult = (value: unknown): value is HarnessCompactionAbortResult =>
+  isRecord(value) && (value.status === 'requested' || value.status === 'idle')
+
+const parseAutoCompactionResponse = (value: unknown): HarnessAutoCompactionUpdateResult => {
+  if (!isRecord(value)) {
+    throw invalidResponse('updating auto compaction', 'expected an object.')
+  }
+  if (value.status === 'saved') {
+    if (typeof value.enabled !== 'boolean' || value.scope !== 'global') {
+      throw invalidResponse('updating auto compaction', 'expected enabled and global scope.')
+    }
+    if (value.overridden !== undefined && typeof value.overridden !== 'boolean') {
+      throw invalidResponse('updating auto compaction', 'expected boolean overridden.')
+    }
+    if (value.message !== undefined && typeof value.message !== 'string') {
+      throw invalidResponse('updating auto compaction', 'expected a string message.')
+    }
+    return value as HarnessAutoCompactionUpdateResult
+  }
+  if (value.status === 'failed' && typeof value.message === 'string') {
+    return value as HarnessAutoCompactionUpdateResult
+  }
+  throw invalidResponse('updating auto compaction', 'expected saved or failed.')
+}
+
+const isModelScopeModel = (value: unknown): boolean =>
+  isRecord(value) && typeof value.provider === 'string' && typeof value.modelId === 'string'
+
+const isModelScopeDiagnostic = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.code === 'no-match' ||
+    value.code === 'invalid-thinking-level' ||
+    value.code === 'ambiguous') &&
+  typeof value.message === 'string' &&
+  typeof value.pattern === 'string'
+
+const parseModelScopeResponse = (value: unknown): HarnessModelScope => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.patterns) ||
+    !value.patterns.every((item) => typeof item === 'string') ||
+    !Array.isArray(value.models) ||
+    !value.models.every(isModelScopeModel) ||
+    !Array.isArray(value.diagnostics) ||
+    !value.diagnostics.every(isModelScopeDiagnostic) ||
+    (value.savedPatterns !== undefined &&
+      (!Array.isArray(value.savedPatterns) ||
+        !value.savedPatterns.every((item) => typeof item === 'string')))
+  ) {
+    throw invalidResponse('reading a model scope', 'expected a valid model scope.')
+  }
+  return value as HarnessModelScope
+}
+
+const parseModelScopeUpdateResponse = (value: unknown): HarnessModelScopeUpdateResult => {
+  parseModelScopeResponse(value)
+  if (!isRecord(value)) throw invalidResponse('updating a model scope', 'expected an object.')
+  if (
+    value.persistence !== 'saved' &&
+    value.persistence !== 'failed' &&
+    value.persistence !== 'skipped'
+  ) {
+    throw invalidResponse('updating a model scope', 'expected a persistence marker.')
+  }
+  if (value.message !== undefined && typeof value.message !== 'string') {
+    throw invalidResponse('updating a model scope', 'expected a string message.')
+  }
+  return value as HarnessModelScopeUpdateResult
+}
+
+const parseModelRefreshResponse = (value: unknown): HarnessModelRefreshResult => {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.models) ||
+    !value.models.every(isModelInfo) ||
+    !Array.isArray(value.failedProviders) ||
+    !value.failedProviders.every((item) => typeof item === 'string')
+  ) {
+    throw invalidResponse('refreshing models', 'expected models and failedProviders.')
+  }
+  return value as HarnessModelRefreshResult
 }
 
 /** 校验 GUI 实际读取的宿主字段；诊断只接受约定代码，不展示任意扩展文案。 */
@@ -369,7 +685,7 @@ const isHostInfo = (value: unknown): value is HarnessHostInfo => {
  * 运行时与模型选择器之间共享。
  */
 export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}): HarnessClient => {
-  const { baseUrl = '/api/pi', fetchImpl = fetch, headers } = options
+  const { baseUrl = '/api/pi', fetchImpl = fetch, headers, callerId } = options
   const { onStreamError, reconnectDelay, maxStreamLineLength, maxStreamEventLength } = options
 
   const base = trimTrailingSlash(baseUrl)
@@ -377,15 +693,23 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
 
   const jsonHeaders = { 'content-type': 'application/json', ...headers }
 
-  const send = (url: string, method: string, body?: unknown) =>
-    fetchImpl(url, {
+  const send = (
+    url: string,
+    method: string,
+    body?: unknown,
+    requestOptions?: { signal?: AbortSignal; headers?: Record<string, string> },
+  ) => {
+    const requestHeaders = {
+      ...(body !== undefined ? jsonHeaders : (headers ?? {})),
+      ...(requestOptions?.headers ?? {}),
+    }
+    return fetchImpl(url, {
       method,
-      ...(body !== undefined
-        ? { headers: jsonHeaders, body: JSON.stringify(body) }
-        : headers
-          ? { headers }
-          : {}),
+      ...(requestOptions?.signal ? { signal: requestOptions.signal } : {}),
+      ...(Object.keys(requestHeaders).length > 0 ? { headers: requestHeaders } : {}),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     })
+  }
 
   /**
    * 订阅线程事件。
@@ -448,6 +772,74 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
     }
   }
 
+  const subscribeHostInteractions: HarnessClient['subscribeHostInteractions'] = (listener) => {
+    let closed = false
+    const controller = new AbortController()
+    const sseDecoder = createHarnessSseDecoder({
+      maxLineLength: maxStreamLineLength,
+      maxEventLength: maxStreamEventLength,
+    })
+    const textDecoder = new TextDecoder()
+    const wait = reconnectDelay ?? (() => new Promise<void>((resolve) => setTimeout(resolve, 1000)))
+
+    const run = async () => {
+      while (!closed) {
+        try {
+          const response = await fetchImpl(`${base}/interactions/events`, {
+            headers: { ...(headers ?? {}), accept: 'text/event-stream' },
+            signal: controller.signal,
+          })
+          if (!response.ok || !response.body) {
+            throw new Error(`Host interaction stream failed with status ${response.status}`)
+          }
+          const reader = response.body.getReader()
+          try {
+            while (!closed) {
+              const { value, done } = await reader.read()
+              if (done) break
+              const chunk = textDecoder.decode(value, { stream: true })
+              for (const frame of sseDecoder.push(chunk)) {
+                if (frame.event === 'ping' || frame.data === '') continue
+                let parsed: unknown
+                try {
+                  parsed = JSON.parse(frame.data)
+                } catch {
+                  continue
+                }
+                if (
+                  isRecord(parsed) &&
+                  parsed.type === 'snapshot' &&
+                  isHostInteractionSnapshot(parsed.snapshot)
+                ) {
+                  const event: HarnessHostInteractionEvent = {
+                    type: 'snapshot',
+                    seq: parsed.snapshot.seq,
+                    snapshot: parsed.snapshot,
+                  }
+                  void invokeUserCallback('huan-react', 'onHostInteraction', listener, event)
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock()
+          }
+        } catch (error) {
+          if (closed || controller.signal.aborted) break
+          onStreamError?.(error)
+          if (isTerminalStreamError(error)) break
+        }
+        if (closed) break
+        await wait()
+      }
+    }
+
+    void run()
+    return () => {
+      closed = true
+      controller.abort()
+    }
+  }
+
   return {
     getHostInfo: async () => {
       const value = await readJson(await send(`${base}/host`, 'GET'), 'fetching host information')
@@ -455,6 +847,55 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         throw invalidResponse('fetching host information', 'expected valid host information.')
       return value
     },
+
+    getHostInteractions: async () => {
+      const value = await readJson(
+        await send(`${base}/interactions`, 'GET'),
+        'fetching host interactions',
+      )
+      if (!isHostInteractionSnapshot(value)) {
+        throw invalidResponse(
+          'fetching host interactions',
+          'expected a valid interaction snapshot.',
+        )
+      }
+      return value
+    },
+
+    subscribeHostInteractions,
+
+    respondToHostInteraction: async (response) => {
+      const value = await readJson(
+        await send(`${base}/interactions/respond`, 'POST', { response }),
+        'responding to a host interaction',
+      )
+      if (!isRecord(value) || typeof value.accepted !== 'boolean') {
+        throw invalidResponse(
+          'responding to a host interaction',
+          'expected an object with boolean "accepted".',
+        )
+      }
+      return { accepted: value.accepted } as HarnessHostInteractionAnswer
+    },
+
+    consumeHostUiDirective: async (threadId, directiveId, consumeOptions) => {
+      const value = await readJson(
+        await send(
+          `${threadUrl(threadId)}/host-ui/consume`,
+          'POST',
+          { id: directiveId },
+          {
+            headers: { 'x-huan-caller': consumeOptions?.callerId ?? callerId ?? '' },
+          },
+        ),
+        'consuming a host UI directive',
+      )
+      if (!isRecord(value) || typeof value.accepted !== 'boolean') {
+        throw invalidResponse('consuming a host UI directive', 'expected boolean accepted.')
+      }
+      return value.accepted
+    },
+
     listWorkspaces: async () => {
       const value = await readJson(await send(`${base}/workspaces`, 'GET'), 'listing workspaces')
       if (!isWorkspaceCatalog(value)) {
@@ -521,9 +962,14 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
       )
     },
 
-    createThread: async (input) =>
+    createThread: async (input, createOptions) =>
       parseThreadSnapshotResponse(
-        await readJson(await send(`${base}/threads`, 'POST', input ?? {}), 'creating a thread'),
+        await readJson(
+          await send(`${base}/threads`, 'POST', input ?? {}, {
+            headers: { 'x-huan-caller': createOptions?.callerId ?? callerId ?? '' },
+          }),
+          'creating a thread',
+        ),
         'creating a thread',
       ),
 
@@ -633,13 +1079,145 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
       return value as HarnessThreadImportResult
     },
 
-    sendMessage: async (threadId, input: HarnessSendMessageInput) => {
-      await assertOk(await send(`${threadUrl(threadId)}/messages`, 'POST', { input }))
+    listCommands: async (input) => {
+      const params = new URLSearchParams()
+      if (input?.threadId) params.set('threadId', input.threadId)
+      if (input?.workspacePath) params.set('workspacePath', input.workspacePath)
+      const query = params.size ? `?${params.toString()}` : ''
+      return parseCommandCatalogResponse(
+        await readJson(await send(`${base}/commands${query}`, 'GET'), 'listing commands'),
+      )
     },
+
+    getCommandArgumentCompletions: async (
+      input: HarnessCommandArgumentInput,
+      options?: { signal?: AbortSignal },
+    ) =>
+      parseCommandArgumentsResponse(
+        await readJson(
+          await send(
+            `${base}/commands/arguments`,
+            'POST',
+            input,
+            options?.signal ? { signal: options.signal } : undefined,
+          ),
+          'completing command arguments',
+        ),
+      ),
+
+    searchFiles: async (input: HarnessFileSearchInput, options?: { signal?: AbortSignal }) =>
+      parseFileSearchResponse(
+        await readJson(
+          await send(
+            `${base}/files`,
+            'POST',
+            input,
+            options?.signal ? { signal: options.signal } : undefined,
+          ),
+          'searching files',
+        ),
+      ),
+
+    sendMessage: async (
+      threadId,
+      input: HarnessSendMessageInput,
+      sendOptions?: HarnessSendMessageOptions,
+    ) =>
+      parseSendMessageResult(
+        await readJson(
+          await send(
+            `${threadUrl(threadId)}/messages`,
+            'POST',
+            { input },
+            callerId || sendOptions?.callerId
+              ? { headers: { 'x-huan-caller': sendOptions?.callerId ?? callerId ?? '' } }
+              : undefined,
+          ),
+          'sending a message',
+        ),
+      ),
 
     cancelRun: async (threadId) => {
       await assertOk(await send(`${threadUrl(threadId)}/cancel`, 'POST'))
     },
+
+    runThreadBash: async (threadId, input) =>
+      parseBashStartResponse(
+        await readJson(
+          await send(`${threadUrl(threadId)}/bash`, 'POST', {
+            command: input.command,
+            ...(input.excludeFromContext === true ? { excludeFromContext: true } : {}),
+          }),
+          'starting a shell command',
+        ),
+      ),
+
+    abortThreadBash: async (threadId) =>
+      parseBashAbortResponse(
+        await readJson(
+          await send(`${threadUrl(threadId)}/bash/abort`, 'POST'),
+          'aborting a shell command',
+        ),
+      ),
+
+    compactThread: async (threadId, input) =>
+      parseCompactionOutcome(
+        await readJson(
+          await send(`${threadUrl(threadId)}/compact`, 'POST', {
+            ...(input?.customInstructions ? { customInstructions: input.customInstructions } : {}),
+          }),
+          'compacting a thread',
+        ),
+      ),
+
+    abortThreadCompaction: async (threadId) => {
+      const value = await readJson(
+        await send(`${threadUrl(threadId)}/compact/abort`, 'POST'),
+        'aborting compaction',
+      )
+      if (!isCompactionAbortResult(value)) {
+        throw invalidResponse('aborting compaction', 'expected status requested or idle.')
+      }
+      return value
+    },
+
+    setAutoCompaction: async (threadId, enabled) =>
+      parseAutoCompactionResponse(
+        await readJson(
+          await send(`${threadUrl(threadId)}/auto-compaction`, 'POST', { enabled }),
+          'updating auto compaction',
+        ),
+      ),
+
+    getThreadModelScope: async (threadId) =>
+      parseModelScopeResponse(
+        await readJson(
+          await send(`${threadUrl(threadId)}/model-scope`, 'GET'),
+          'reading a model scope',
+        ),
+      ),
+
+    setThreadModelScope: async (threadId, input) =>
+      parseModelScopeUpdateResponse(
+        await readJson(
+          await send(`${threadUrl(threadId)}/model-scope`, 'POST', {
+            patterns: [...input.patterns],
+            ...(input.saveAsDefault === true ? { saveAsDefault: true } : {}),
+          }),
+          'updating a model scope',
+        ),
+      ),
+
+    refreshModels: async (input) =>
+      parseModelRefreshResponse(
+        await readJson(
+          await send(`${base}/models/refresh`, 'POST', {
+            ...(input?.threadId ? { threadId: input.threadId } : {}),
+            ...(input?.workspacePath ? { workspacePath: input.workspacePath } : {}),
+          }),
+          'refreshing models',
+        ),
+      ),
 
     clearQueue: async (threadId) =>
       parseClearQueueResponse(

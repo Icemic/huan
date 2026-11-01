@@ -4,11 +4,21 @@ import type {
   ThreadMessageLike,
 } from '@assistant-ui/react'
 import type {
+  HarnessAutoCompactionUpdateResult,
+  HarnessBashAbortResult,
+  HarnessBashRun,
+  HarnessBashStartResult,
   HarnessClient,
+  HarnessCompactionAbortResult,
+  HarnessCompactionOutcome,
   HarnessContextUsage,
   HarnessCreateThreadInput,
   HarnessHostUiRequest,
   HarnessHostUiResponse,
+  HarnessModelRefreshResult,
+  HarnessModelScope,
+  HarnessModelScopeUpdateInput,
+  HarnessModelScopeUpdateResult,
   HarnessRuntimeReadiness,
   HarnessThinkingLevel,
   HarnessThreadMetadata,
@@ -62,6 +72,8 @@ export interface HarnessRuntimeExtras {
   allHostUiRequests: readonly HarnessHostUiRequest[]
   queue: HarnessThreadState['queue']
   compaction: HarnessThreadState['compaction']
+  /** 用户 Shell（`!` / `!!`）的实时/刚完成状态。 */
+  bash: HarnessBashRun | undefined
   retry: HarnessThreadState['retry']
   lastError: string | undefined
   /**
@@ -86,7 +98,21 @@ export interface HarnessRuntimeExtras {
   cancelThreadTreeNavigation: () => Promise<HarnessTreeCancelResult>
   setModel: (input: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: HarnessThinkingLevel) => Promise<void>
+  /** 直接执行用户 Shell；`excludeFromContext` 对应 `!!`。 */
+  runBash: (input: {
+    command: string
+    excludeFromContext?: boolean
+  }) => Promise<HarnessBashStartResult>
+  abortBash: () => Promise<HarnessBashAbortResult>
+  compact: (input?: { customInstructions?: string }) => Promise<HarnessCompactionOutcome>
+  abortCompaction: () => Promise<HarnessCompactionAbortResult>
+  setAutoCompaction: (enabled: boolean) => Promise<HarnessAutoCompactionUpdateResult>
+  getModelScope: () => Promise<HarnessModelScope>
+  setModelScope: (input: HarnessModelScopeUpdateInput) => Promise<HarnessModelScopeUpdateResult>
+  refreshModels: (input?: { workspacePath?: string }) => Promise<HarnessModelRefreshResult>
   respondToHostUiRequest: (response: HarnessHostUiResponse) => Promise<void>
+  /** 消费会话级 Host UI 指令（编辑器文本/命令目标）；成功后从快照移除。 */
+  consumeHostUiDirective: (directiveId: string) => Promise<boolean>
   respondToToolApproval: (id: string, approved: boolean) => Promise<void>
   resumeToolCall: (toolCallId: string, payload: HarnessInterruptAnswer) => Promise<void>
 }

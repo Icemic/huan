@@ -1,6 +1,8 @@
 import {
   IMPORT_UPLOAD_MAX_BYTES,
+  ImageInputUnsupportedError,
   ProjectTrustRequiredError,
+  ReservedBuiltinCommandError,
   ThreadStructureBusyError,
   WorkspaceConflictError,
   WorkspaceNotFoundError,
@@ -12,7 +14,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { ServerConfig } from './config.js'
 import { registerHostRoutes } from './host-routes.js'
-import { createEventsRoute } from './sse.js'
+import { createEventsRoute, createHostInteractionEventsRoute } from './sse.js'
 
 /**
  * 上传请求体的宽松上限：文本本身按 20MiB 限制，JSON 转义/包装需要少量余量。
@@ -69,6 +71,23 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     }
     if (error instanceof ThreadStructureBusyError) {
       return c.json({ error: 'thread-structure-busy', message: error.message }, 409)
+    }
+    if (error instanceof ReservedBuiltinCommandError) {
+      return c.json(
+        { error: 'reserved-builtin-command', command: error.command, message: error.message },
+        409,
+      )
+    }
+    if (error instanceof ImageInputUnsupportedError) {
+      return c.json(
+        {
+          error: 'image-input-unsupported',
+          provider: error.provider,
+          modelId: error.modelId,
+          message: error.message,
+        },
+        415,
+      )
     }
     return c.json({ error: 'internal-error' }, 500)
   })
@@ -189,7 +208,7 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   app.post('/api/pi/threads', async (c) => {
     const body = await c.req.json().catch(() => ({}))
-    return c.json(await piClient.createThread(body))
+    return c.json(await piClient.createThread(body, { callerId: c.req.header('x-huan-caller') }))
   })
 
   app.get('/api/pi/threads/:id', async (c) => {
@@ -199,6 +218,81 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
   // 只读详情：受同一 Host/Origin/凭证中间件保护，不订阅、不隐式激活冷会话。
   app.get('/api/pi/threads/:id/details', async (c) => {
     return c.json(await piClient.getThreadDetails(c.req.param('id')))
+  })
+
+  // 资源命令目录：会话优先；空白页必须显式给固定起始目录。
+  app.get('/api/pi/commands', async (c) => {
+    const threadId = c.req.query('threadId') ?? undefined
+    const workspacePath = c.req.query('workspacePath') ?? undefined
+    if (!threadId && !workspacePath) return c.json({ error: 'invalid-command-input' }, 400)
+    return c.json(
+      await piClient.listCommands({
+        ...(threadId ? { threadId } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
+      }),
+    )
+  })
+
+  // 扩展参数补全：按需调用，空结果表示该命令没有补全。
+  app.post('/api/pi/commands/arguments', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      threadId?: unknown
+      workspacePath?: unknown
+      name?: unknown
+      prefix?: unknown
+    }
+    if (
+      typeof body.name !== 'string' ||
+      !body.name ||
+      typeof body.prefix !== 'string' ||
+      (body.threadId !== undefined && typeof body.threadId !== 'string') ||
+      (body.workspacePath !== undefined && typeof body.workspacePath !== 'string')
+    ) {
+      return c.json({ error: 'invalid-command-input' }, 400)
+    }
+    return c.json(
+      await piClient.getCommandArgumentCompletions(
+        {
+          name: body.name,
+          prefix: body.prefix,
+          ...(typeof body.threadId === 'string' ? { threadId: body.threadId } : {}),
+          ...(typeof body.workspacePath === 'string' ? { workspacePath: body.workspacePath } : {}),
+        },
+        { signal: c.req.raw.signal },
+      ),
+    )
+  })
+
+  // 文件引用：只返回路径/类型；请求中止会停止宿主侧目录遍历。
+  app.post('/api/pi/files', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      threadId?: unknown
+      workspaceId?: unknown
+      workspacePath?: unknown
+      query?: unknown
+      limit?: unknown
+    }
+    if (
+      (body.threadId !== undefined && typeof body.threadId !== 'string') ||
+      (body.workspaceId !== undefined && typeof body.workspaceId !== 'string') ||
+      (body.workspacePath !== undefined && typeof body.workspacePath !== 'string') ||
+      (body.query !== undefined && typeof body.query !== 'string') ||
+      (body.limit !== undefined && (typeof body.limit !== 'number' || !Number.isFinite(body.limit)))
+    ) {
+      return c.json({ error: 'invalid-file-input' }, 400)
+    }
+    return c.json(
+      await piClient.searchFiles(
+        {
+          ...(typeof body.threadId === 'string' ? { threadId: body.threadId } : {}),
+          ...(typeof body.workspaceId === 'string' ? { workspaceId: body.workspaceId } : {}),
+          ...(typeof body.workspacePath === 'string' ? { workspacePath: body.workspacePath } : {}),
+          ...(typeof body.query === 'string' ? { query: body.query } : {}),
+          ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
+        },
+        { signal: c.req.raw.signal },
+      ),
+    )
   })
 
   // 会话树：按需读取；冷树不装配项目扩展。
@@ -370,8 +464,10 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   app.post('/api/pi/threads/:id/messages', async (c) => {
     const { input } = await c.req.json()
-    await piClient.sendMessage(c.req.param('id'), input)
-    return c.body(null, 204)
+    const callerId = c.req.header('x-huan-caller')?.trim()
+    return c.json(
+      await piClient.sendMessage(c.req.param('id'), input, callerId ? { callerId } : undefined),
+    )
   })
 
   app.post('/api/pi/threads/:id/cancel', async (c) => {
@@ -383,9 +479,108 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     return c.json(await piClient.clearQueue(c.req.param('id')))
   })
 
+  // 直接 Shell（! / !!）：返回 started 即已登记，输出经 bash_* 事件同步。
+  app.post('/api/pi/threads/:id/bash', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      command?: unknown
+      excludeFromContext?: unknown
+    }
+    if (
+      typeof body.command !== 'string' ||
+      (body.excludeFromContext !== undefined && typeof body.excludeFromContext !== 'boolean')
+    ) {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    return c.json(
+      await piClient.runThreadBash(c.req.param('id'), {
+        command: body.command,
+        ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
+      }),
+    )
+  })
+
+  app.post('/api/pi/threads/:id/bash/abort', async (c) => {
+    return c.json(await piClient.abortThreadBash(c.req.param('id')))
+  })
+
+  // 手动压缩：失败/取消都返回可识别 status，原始历史由宿主保留。
+  app.post('/api/pi/threads/:id/compact', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { customInstructions?: unknown }
+    if (body.customInstructions !== undefined && typeof body.customInstructions !== 'string') {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    return c.json(
+      await piClient.compactThread(c.req.param('id'), {
+        ...(typeof body.customInstructions === 'string'
+          ? { customInstructions: body.customInstructions }
+          : {}),
+      }),
+    )
+  })
+
+  app.post('/api/pi/threads/:id/compact/abort', async (c) => {
+    return c.json(await piClient.abortThreadCompaction(c.req.param('id')))
+  })
+
+  // 自动压缩开关：保存到当前 agentDir 用户设置；写盘失败如实返回 failed。
+  app.post('/api/pi/threads/:id/auto-compaction', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown }
+    if (typeof body.enabled !== 'boolean') {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    return c.json(await piClient.setAutoCompaction(c.req.param('id'), body.enabled))
+  })
+
+  app.get('/api/pi/threads/:id/model-scope', async (c) => {
+    return c.json(await piClient.getThreadModelScope(c.req.param('id')))
+  })
+
+  app.post('/api/pi/threads/:id/model-scope', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      patterns?: unknown
+      saveAsDefault?: unknown
+    }
+    if (
+      !Array.isArray(body.patterns) ||
+      !body.patterns.every((item) => typeof item === 'string') ||
+      (body.saveAsDefault !== undefined && typeof body.saveAsDefault !== 'boolean')
+    ) {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    return c.json(
+      await piClient.setThreadModelScope(c.req.param('id'), {
+        patterns: body.patterns as string[],
+        ...(body.saveAsDefault === true ? { saveAsDefault: true } : {}),
+      }),
+    )
+  })
+
   app.get('/api/pi/models', async (c) => {
     const workspacePath = c.req.query('workspacePath') ?? undefined
     return c.json(await piClient.getAvailableModels({ workspacePath }))
+  })
+
+  // 显式目录刷新：必须带会话或固定起始目录，不使用隐式窗口工作区。
+  app.post('/api/pi/models/refresh', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      threadId?: unknown
+      workspacePath?: unknown
+    }
+    if (body.threadId !== undefined && (typeof body.threadId !== 'string' || !body.threadId)) {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    if (
+      body.workspacePath !== undefined &&
+      (typeof body.workspacePath !== 'string' || !body.workspacePath)
+    ) {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    return c.json(
+      await piClient.refreshModels({
+        ...(typeof body.threadId === 'string' ? { threadId: body.threadId } : {}),
+        ...(typeof body.workspacePath === 'string' ? { workspacePath: body.workspacePath } : {}),
+      }),
+    )
   })
 
   app.post('/api/pi/threads/:id/model', async (c) => {
@@ -420,6 +615,25 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     await piClient.respondToHostUiRequest(c.req.param('id'), response)
     return c.body(null, 204)
   })
+
+  // 消费会话级 Host UI 指令（编辑器文本/命令目标）；幂等，未知 ID 也成功。
+  app.post('/api/pi/threads/:id/host-ui/consume', async (c) => {
+    const { id } = await c.req.json().catch(() => ({ id: undefined }))
+    if (typeof id !== 'string' || !id) return c.json({ error: 'invalid-directive-id' }, 400)
+    return c.json({
+      accepted: await piClient.consumeHostUiDirective(c.req.param('id'), id, {
+        callerId: c.req.header('x-huan-caller'),
+      }),
+    })
+  })
+
+  // 宿主级交互：启动装配期也可查询/应答，不依赖选中会话。
+  app.get('/api/pi/interactions', async (c) => c.json(await piClient.getHostInteractions()))
+  app.post('/api/pi/interactions/respond', async (c) => {
+    const { response } = await c.req.json()
+    return c.json(await piClient.respondToHostInteraction(response))
+  })
+  app.get('/api/pi/interactions/events', createHostInteractionEventsRoute(piClient))
 
   // SSE 事件流：快照优先（?snapshot=false 跳过）；断开只退订，不中止运行。
   app.get('/api/pi/threads/:id/events', createEventsRoute(piClient))

@@ -27,6 +27,9 @@ const KNOWN_HARNESS_CLIENT_EVENT_TYPES = {
   queue_update: true,
   compaction_start: true,
   compaction_end: true,
+  bash_start: true,
+  bash_output: true,
+  bash_end: true,
   entry_appended: true,
   auto_retry_start: true,
   auto_retry_end: true,
@@ -34,6 +37,7 @@ const KNOWN_HARNESS_CLIENT_EVENT_TYPES = {
   thinking_level_changed: true,
   context_usage: true,
   extension_ui_request: true,
+  host_ui_update: true,
   extension_ui_resolved: true,
   error: true,
 } satisfies Record<HarnessClientEventBody['type'], true>

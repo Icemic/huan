@@ -94,6 +94,7 @@ vi.mock('./thread-controller.js', async (importOriginal) => {
 })
 
 import { ExportedMessageRepository, MessageNotSentError } from '@assistant-ui/react'
+import { HarnessHttpError } from '../client/http-client.js'
 import type { HarnessThreadControllerLike } from './thread-controller.js'
 import { createHarnessThreadState, type HarnessThreadState } from './thread-state.js'
 import {
@@ -230,6 +231,44 @@ describe('useHarnessRuntime error callbacks', () => {
       }),
     ).rejects.toBe(notSent)
     expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('turns rejected 4xx sends into MessageNotSentError and still reports the reason', async () => {
+    mocks.state = createHarnessThreadState('t1')
+    mocks.repository = ExportedMessageRepository.fromArray([])
+    const rejected = new HarnessHttpError(
+      '内置命令 /model 必须经 GUI 入口执行',
+      409,
+      'reserved-builtin-command',
+      'model',
+    )
+    mocks.controller.sendMessage.mockRejectedValueOnce(rejected)
+    const onError = vi.fn()
+
+    const App = () => {
+      useHarnessRuntime({
+        client: {} as HarnessClient,
+        onError,
+        initialThreadId: 't1',
+      })
+      return null
+    }
+
+    root = createRoot(document.createElement('div'))
+    await act(async () => root!.render(createElement(App)))
+
+    const adapter = mocks.adapters.at(-1)!
+    const result = adapter.onNew({
+      role: 'user',
+      createdAt: new Date(0),
+      metadata: { custom: {} },
+      parentId: null,
+      sourceId: null,
+      runConfig: undefined,
+      content: [{ type: 'text', text: '/model' }],
+    })
+    await expect(result).rejects.toBeInstanceOf(MessageNotSentError)
+    expect(onError).toHaveBeenCalledWith(rejected)
   })
 
   it('does not report cancelled queue sends', async () => {

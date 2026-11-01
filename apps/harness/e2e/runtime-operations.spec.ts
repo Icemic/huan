@@ -1,0 +1,304 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { APIRequestContext, Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import {
+  assistantMessages,
+  configureStream,
+  controlInfo,
+  createProject,
+  createWorkspaceApi,
+  DEFAULT_REPLY,
+  disconnectClients,
+  openApp,
+  resetStream,
+  selectModel,
+  sendMessage,
+  startNewSession,
+  threadListItem,
+} from './helpers.js'
+
+test.describe.configure({ mode: 'serial' })
+
+let browserErrors: string[] = []
+
+test.beforeEach(async ({ context }) => {
+  browserErrors = []
+  context.on('page', (page) => {
+    page.on('pageerror', (error) => browserErrors.push(error.message))
+    page.on('console', (message) => {
+      if (message.type() === 'error') browserErrors.push(message.text())
+    })
+  })
+})
+
+test.afterEach(async ({ request }) => {
+  await resetStream(request)
+  expect(browserErrors).toEqual([])
+})
+
+const panel = (page: Page) => page.getByRole('dialog', { name: '运行操作' })
+
+async function openPanel(page: Page) {
+  await page.getByRole('button', { name: '运行操作', exact: true }).click()
+  const dialog = panel(page)
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function closePanel(page: Page) {
+  await panel(page).getByRole('button', { name: '关闭' }).click()
+  await expect(panel(page)).toHaveCount(0)
+}
+
+/** 新建一个只含一个项目的隔离工作区，避免跨用例的归属/信任互相影响。 */
+async function prepareWorkspace(request: APIRequestContext, label: string): Promise<string> {
+  const run = Date.now().toString(36)
+  const project = await createProject(request, `${label}-${run}`)
+  const workspaceName = `${label}工作区-${run}`
+  await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+  return workspaceName
+}
+
+/** 在当前会话发送一条长消息，确保会话文件存在且压缩有可摘要历史。 */
+async function sendLongMessage(page: Page, text: string): Promise<void> {
+  await sendMessage(page, `${text} ${'上下文历史'.repeat(24)}`)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+}
+
+/** 读取隔离用户空间里的 settings.json（临时目录，仅供断言保存结果）。 */
+async function readAgentSettings(request: APIRequestContext) {
+  const info = await controlInfo(request)
+  return JSON.parse(await readFile(join(info.agentDir, 'settings.json'), 'utf8')) as {
+    compaction?: { enabled?: boolean }
+    enabledModels?: string[]
+  }
+}
+
+test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const workspaceName = await prepareWorkspace(request, 'Shell')
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  const title = `Shell-${run}`
+  await sendMessage(page, title)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(threadListItem(page, title)).toBeVisible()
+
+  // `!`：实时输出在面板内可见，完成后历史卡片可展开阅读。
+  const dialog = await openPanel(page)
+  await dialog
+    .getByRole('textbox', { name: 'Shell 命令' })
+    .fill(`printf 'shell-live-${run}'; sleep 5; printf -- '-done\\n'`)
+  await dialog.getByRole('button', { name: '运行 Shell' }).click()
+  await expect(dialog.getByText('运行中', { exact: true })).toBeVisible()
+  await expect(dialog.locator('[data-slot="huan-shell-output"]')).toContainText(`shell-live-${run}`)
+  await closePanel(page)
+
+  // 空闲会话完成后立即持久化，运行卡由历史卡片取代（不重复展示）。
+  const includeCard = page.locator('[data-slot="huan-bash-message"]').last()
+  await expect(includeCard).toContainText(`printf 'shell-live-${run}'`, { timeout: 10_000 })
+  await expect(includeCard).toContainText('退出码 0')
+  await expect(includeCard).not.toContainText('不进入上下文')
+  await includeCard.locator('summary').click()
+  await expect(includeCard).toContainText(`shell-live-${run}-done`)
+
+  // `!!`：选择排除上下文后，历史卡片明确标注。
+  const second = await openPanel(page)
+  await second.getByRole('combobox', { name: 'Shell 上下文' }).click()
+  await page.getByRole('option', { name: '不进入上下文（!!）' }).click()
+  await second.getByRole('textbox', { name: 'Shell 命令' }).fill(`echo excluded-${run}`)
+  await second.getByRole('button', { name: '运行 Shell' }).click()
+  await closePanel(page)
+
+  const excludeCard = page.locator('[data-slot="huan-bash-message"]').last()
+  await expect(excludeCard).toContainText(`echo excluded-${run}`)
+  await expect(excludeCard).toContainText('不进入上下文')
+  await expect(excludeCard).toContainText('退出码 0')
+})
+
+test('Shell 双窗实时、断线重连与独立取消', async ({ page, context, request }) => {
+  const run = Date.now().toString(36)
+  // 第二个窗口默认活动工作区是宿主启动工作区；显式用它以保证会话可见。
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+  const title = `Shell双窗-${run}`
+  await sendMessage(page, title)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(threadListItem(page, title)).toBeVisible()
+
+  const second = await context.newPage()
+  await openApp(second)
+  await threadListItem(second, title).click()
+  await expect(second.locator('[data-slot="aui_user-message-root"]').first()).toContainText(title)
+
+  const dialog = await openPanel(page)
+  const command = `sleep 30 # ${run}`
+  await dialog.getByRole('textbox', { name: 'Shell 命令' }).fill(command)
+  await dialog.getByRole('button', { name: '运行 Shell' }).click()
+  await expect(dialog.getByText('运行中', { exact: true })).toBeVisible()
+
+  // 另一窗口无需刷新即可看到同一运行状态。
+  const secondDialog = await openPanel(second)
+  await expect(secondDialog.getByText(command)).toBeVisible()
+  await expect(secondDialog.getByText('运行中', { exact: true })).toBeVisible()
+
+  // 断开事件流后，重连快照仍保留运行中的 Shell 状态。
+  await disconnectClients(request)
+  await page.waitForTimeout(500)
+  await expect(secondDialog.getByText('运行中', { exact: true })).toBeVisible()
+
+  // 取消 Shell 不影响模型运行（当前空闲）；取消结果持久化为历史卡片，
+  // 两个窗口都收到同一完成态（空闲会话不保留重复的运行卡）。
+  await secondDialog.getByRole('button', { name: '取消 Shell' }).click()
+  await closePanel(second)
+  await closePanel(page)
+  const cancelledFirst = page.locator('[data-slot="huan-bash-message"]').last()
+  const cancelledSecond = second.locator('[data-slot="huan-bash-message"]').last()
+  await expect(cancelledFirst).toContainText('已取消')
+  await expect(cancelledSecond).toContainText('已取消')
+  await expect(cancelledSecond).toContainText(command)
+  await second.close()
+})
+
+test('手动压缩成功、自动压缩保存与取消后恢复', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const workspaceName = await prepareWorkspace(request, '压缩')
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendLongMessage(page, `压缩一-${run}`)
+  await sendLongMessage(page, `压缩二-${run}`)
+  await sendLongMessage(page, `压缩三-${run}`)
+
+  const dialog = await openPanel(page)
+  await dialog.getByRole('textbox', { name: '压缩指令' }).fill('保留关键决策')
+  await dialog.getByRole('button', { name: '压缩上下文' }).click()
+  await expect(dialog.getByRole('status')).toContainText('压缩完成')
+  await closePanel(page)
+  await expect(page.locator('[data-slot="huan-compaction-summary"]').last()).toBeVisible()
+
+  // 自动压缩默认开启（隔离 settings.json），切换后写入用户设置并影响新会话。
+  const autoDialog = await openPanel(page)
+  await expect(autoDialog.getByRole('button', { name: '自动压缩' })).toContainText('开')
+  await autoDialog.getByRole('button', { name: '自动压缩' }).click()
+  await expect(autoDialog.getByRole('button', { name: '自动压缩' })).toContainText('关')
+  await closePanel(page)
+  expect((await readAgentSettings(request)).compaction?.enabled).toBe(false)
+
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  const secondTitle = `自动压缩继承-${run}`
+  await sendMessage(page, secondTitle)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  const inherited = await openPanel(page)
+  await expect(inherited.getByRole('button', { name: '自动压缩' })).toContainText('关')
+  await closePanel(page)
+
+  // 手动压缩取消：新会话凑够可压缩历史，再挂起摘要请求后取消。
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendLongMessage(page, `取消一-${run}`)
+  await sendLongMessage(page, `取消二-${run}`)
+  await sendLongMessage(page, `取消三-${run}`)
+  await configureStream(request, ['不会使用的摘要'])
+  const cancelDialog = await openPanel(page)
+  await cancelDialog.getByRole('button', { name: '压缩上下文' }).click()
+  await expect(cancelDialog.getByText(/压缩中（手动）/)).toBeVisible()
+  await cancelDialog.getByRole('button', { name: '取消压缩' }).click()
+  await expect(cancelDialog.getByRole('status')).toContainText('压缩已取消')
+  await closePanel(page)
+  await resetStream(request)
+
+  // 取消后可继续正常对话（不通过 reload 掩盖状态传播）。
+  const recovery = `取消后恢复-${run}`
+  await sendMessage(page, recovery)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(page.locator('[data-slot="aui_user-message-root"]').last()).toContainText(recovery)
+
+  // 还原用户设置，避免影响后续浏览器用例。
+  const restore = await openPanel(page)
+  await restore.getByRole('button', { name: '自动压缩' }).click()
+  await expect(restore.getByRole('button', { name: '自动压缩' })).toContainText('开')
+  await closePanel(page)
+})
+
+test('模型目录刷新、范围保存与 Thinking max / input 能力', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const workspaceName = await prepareWorkspace(request, '范围')
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  const title = `范围-${run}`
+  await sendMessage(page, title)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+
+  const dialog = await openPanel(page)
+  const modelA = dialog.getByRole('button', { name: '会话模型 huan-test/test-model-a' })
+  const modelB = dialog.getByRole('button', { name: '会话模型 huan-test/test-model-b' })
+  await expect(modelA).toBeVisible()
+  // input 能力透传：A 声明图像输入，B 只有文本。
+  await expect(modelA).toContainText('图像')
+  await expect(modelB).not.toContainText('图像')
+
+  await dialog.getByRole('button', { name: '刷新目录' }).click()
+  await expect(dialog.getByRole('status')).toContainText('模型目录已刷新')
+
+  // 只改会话范围：新会话仍读取原有全部范围。
+  await modelB.click()
+  await dialog.getByRole('button', { name: '保存会话范围' }).click()
+  await expect(dialog.getByRole('status')).toContainText('会话范围已应用到当前会话')
+  await closePanel(page)
+
+  const composer = page.locator('[data-slot="aui_composer-shell"]')
+  await composer.getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: 'Test Model B huan-test' })).toHaveAttribute(
+    'data-disabled',
+    '',
+  )
+  await page.keyboard.press('Escape')
+
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  const secondTitle = `范围新会话-${run}`
+  await sendMessage(page, secondTitle)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  const fresh = await openPanel(page)
+  await expect(
+    fresh.getByRole('button', { name: '会话模型 huan-test/test-model-b' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+
+  // 只选 B 并显式保存为用户默认：写盘并影响未来会话。
+  await fresh.getByRole('button', { name: '会话模型 huan-test/test-model-a' }).click()
+  await fresh.getByRole('button', { name: '同时保存为用户默认' }).click()
+  await fresh.getByRole('button', { name: '保存会话范围' }).click()
+  await expect(fresh.getByRole('status')).toContainText('会话范围已应用并保存为用户默认')
+  await closePanel(page)
+  expect((await readAgentSettings(request)).enabledModels).toEqual(['huan-test/test-model-b'])
+
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  const thirdTitle = `范围继承-${run}`
+  await sendMessage(page, thirdTitle)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  const inherited = await openPanel(page)
+  await expect(
+    inherited.getByRole('button', { name: '会话模型 huan-test/test-model-a' }),
+  ).toHaveAttribute('aria-pressed', 'false')
+  await expect(
+    inherited.getByRole('button', { name: '会话模型 huan-test/test-model-b' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await closePanel(page)
+
+  // Thinking max：模型声明了 max 时出现在选择器中，并可随草稿应用到会话。
+  await composer.getByRole('combobox').click()
+  await page.getByRole('radio', { name: 'max', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await sendMessage(page, `thinking-max-${run}`)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await composer.getByRole('combobox').click()
+  await expect(page.getByRole('radio', { name: 'max', exact: true })).toBeChecked()
+  await page.keyboard.press('Escape')
+})

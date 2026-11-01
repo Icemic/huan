@@ -8,7 +8,9 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/assistant-ui/elements/model-selector'
+import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
+import { setModelCatalogCache } from './pi-model-catalog'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
 import { useWorkspace } from './workspace-context'
 
@@ -35,7 +37,8 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
     id: `${info.provider}/${info.modelId}`,
     name: info.name ?? info.modelId,
     description: info.provider,
-    ...(info.availableThinkingLevels?.length
+    // 只有 off 的模型不显示 Thinking 控件；其余按模型声明的级别展示（含 max）。
+    ...(info.availableThinkingLevels && info.availableThinkingLevels.length > 1
       ? {
           efforts: info.availableThinkingLevels.map((level) => ({ id: level, name: level })),
         }
@@ -52,7 +55,7 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
  * 因此把选择写入草稿 store，由包装客户端在创建请求中携带（见 pi-http-client.ts），
  * 保证首条消息就使用选定模型。
  */
-export function PiModelSelector() {
+export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boolean }) {
   const { workspaces, activeWorkspaceId, startProjectFor, hostInfo } = useWorkspace()
   const metadata = useHarnessThreadState((state) => state.metadata)
   const metadataWorkspace = metadata.workspaceId
@@ -65,17 +68,30 @@ export function PiModelSelector() {
   const session = useHarnessSession()
   const extras = useHarnessExtras()
   const [models, setModels] = useState<readonly ModelOption[]>([])
+  const [open, setOpen] = useState(false)
+  const intent = usePiIntent()
+
+  // /model 与 /thinking 打开同一模型选择器；模型目录缓存也供提交前能力校验。
+  useEffect(() => {
+    if (!openOnCommand || intent?.kind !== 'model') return
+    setOpen(true)
+    clearPiIntent(intent.id)
+  }, [intent, openOnCommand])
 
   // 草稿（模块级 store，同步可读）；订阅以便展示即时反馈。
   const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
 
+  // 目录刷新代数变化时必须重读共享目录，即使固定 cwd 未变。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 宿主刷新代数是目录失效信号
   useEffect(() => {
     if (!projectPath) return
     let active = true
     harnessHttpClient
       .getAvailableModels({ workspacePath: projectPath })
       .then((infos) => {
-        if (active) setModels(toModelOptions(infos as readonly CatalogModel[]))
+        if (!active) return
+        setModelCatalogCache(infos)
+        setModels(toModelOptions(infos as readonly CatalogModel[]))
       })
       .catch(() => {
         // 目录拉取失败不阻塞 UI：选择器保持为空，具体错误由会话区呈现。
@@ -83,7 +99,7 @@ export function PiModelSelector() {
     return () => {
       active = false
     }
-  }, [projectPath])
+  }, [projectPath, metadata.modelCatalogRevision])
 
   // 会话确认后清除草稿（此后以会话自身的 config 为准）。
   const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID
@@ -120,10 +136,18 @@ export function PiModelSelector() {
     [displayKey, models, isPendingThread, draft?.thinkingLevel, extras],
   )
 
+  const scopeKeys = metadata.scopedModelKeys
+  const selectableModels =
+    !scopeKeys?.length || isPendingThread
+      ? models
+      : models.map((model) => ({ ...model, disabled: !scopeKeys.includes(model.id) }))
+
   return (
     <ModelSelectorRoot
       key={session?.id ?? PENDING_THREAD_ID}
-      models={models}
+      open={open}
+      onOpenChange={setOpen}
+      models={selectableModels}
       {...(displayKey ? { value: displayKey } : {})}
       onValueChange={onValueChange}
       effort={(isPendingThread ? draft?.thinkingLevel : session?.config?.thinkingLevel) ?? ''}

@@ -27,13 +27,14 @@ export {
 } from './client/event-source.js'
 export type { HarnessHttpClientOptions } from './client/http-client.js'
 // HTTP/SSE 客户端
-export { createHarnessHttpClient } from './client/http-client.js'
+export { createHarnessHttpClient, HarnessHttpError } from './client/http-client.js'
 // 载荷校验（供宿主侧测试与自定义传输实现复用）
 export {
   isAssistantMessage,
   isAssistantMessageDelta,
   isCompleteTranscriptMessage,
   isContextUsage,
+  isHostInteractionSnapshot,
   isHostUiRequest,
   isThreadDetails,
   isThreadMetadata,
