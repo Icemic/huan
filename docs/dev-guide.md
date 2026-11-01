@@ -36,6 +36,7 @@ pnpm lingui:compile   # 编译文案（构建链已内置，一般不需要单�
 huan/
 ├── packages/
 │   ├── protocol/   # @huan/protocol：纯 TS 类型与 schema，无运行时依赖
+│   ├── mcp/        # @huan/mcp：官方 pi-mcp 之上的 Node 集成层
 │   ├── core/       # @huan/core：Pi SDK 集成与运行时（Node）
 │   ├── react/      # @huan/react：浏览器侧运行时（reducer/Controller/hook）+ assistant-ui 适配
 │   └── history/    # @huan/history：Checkpoint/ChangeSet 契约
@@ -44,7 +45,9 @@ huan/
 └── docs/
 ```
 
-依赖方向（强制）：`apps/*` → `@huan/core` / `@huan/react` / `@huan/history` → `@huan/protocol`。`core` / `protocol` 不依赖 React；`react` 不依赖 Node。
+依赖方向（强制）：`apps/*` → `@huan/core` / `@huan/react` / `@huan/history` → `@huan/protocol`；core 可消费 `@huan/mcp`，后者依赖官方 pi-mcp / Pi SDK 公开 API，不反向依赖 core。`core` / `mcp` / `protocol` 不依赖 React；`react` 不依赖 Node。
+
+MCP 独立配置路径：用户 `<agentDir>/huan/mcp.json`、可信项目 `<cwd>/.huan/mcp.json`；凭据/日志路径为 `<agentDir>/huan/mcp-auth.json` / `mcp.log`。不自动读取、合并或修改 Pi TUI 的 MCP 文件。当前包只提供配置基础，尚未装配连接或 GUI；`.pi/mcp.json` 仍只供开发助手 Pi TUI 使用。
 
 ## 4. 开发期约定
 

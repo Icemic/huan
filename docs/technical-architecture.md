@@ -46,6 +46,7 @@ huan/
   docs/
   packages/
     protocol/               # @huan/protocol：纯 TS 类型 + schema，无运行时依赖
+    mcp/                    # @huan/mcp：官方 pi-mcp 之上的 Node 集成层
     core/                   # @huan/core：Pi SDK 集成、运行时生命周期、命令接口（Node）
     react/                  # @huan/react：浏览器侧运行时（reducer/投影/Controller/hook）+ assistant-ui 适配
     history/                # @huan/history：Checkpoint/ChangeSet 契约与关联元数据
@@ -57,7 +58,7 @@ huan/
 
 ```
 apps/harness
-  ├── @huan/core      → Pi SDK（Node）
+  ├── @huan/core      → Pi SDK（Node）+ @huan/mcp → 官方 pi-mcp / Pi SDK
   ├── @huan/react     → assistant-ui + @huan/protocol
   ├── @huan/history   → @huan/protocol
   └── @huan/protocol  → （无）
@@ -67,7 +68,7 @@ apps/harness
 - 公共包不得 import 应用内部模块；应用之间无直接代码依赖。
 - 宿主特殊接口（Electron、Tauri、未来的原生桥）只出现在应用的 `bridge/` 或独立 adapter 包中。
 
-**MCP 集成包边界（已确定设计，尚未创建包）**：新增 `packages/mcp`（`@huan/mcp`）作为 Node 集成层，由 core 消费，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；具体首期设计见[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)。
+**MCP 集成包边界**：`packages/mcp`（`@huan/mcp`）作为 Node 集成层，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。当前只交付配置基础，core 尚未消费；用户/可信项目分别读取 `<agentDir>/huan/mcp.json` / `<cwd>/.huan/mcp.json`，不自动读取、合并或修改 Pi MCP 文件，凭据/日志路径也独立。配置有界读取、逐项校验、revision 防覆盖与单进程串行原子保存；未信任项目不读原文。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；详见[独立集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)。
 
 ---
 
