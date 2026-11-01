@@ -14,6 +14,7 @@ export type PiIntentKind =
   | 'session-details'
   | 'import'
   | 'trust'
+  | 'settings'
   | 'new-session'
 
 export type PiIntent = {

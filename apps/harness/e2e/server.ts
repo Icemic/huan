@@ -6,7 +6,7 @@
  * Playwright 输出目录内创建，结束（或收到信号）时删除。
  */
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { serve } from '@hono/node-server'
 import { createHarnessHost, workspaceStateFile } from '@huan/core'
@@ -268,6 +268,47 @@ export default function () {
   }
   return c.json({ path: projectPath, name, marker })
 })
+// 设置文件读写：仅供设置面板测试读取/制造外部修改与冲突，不进入生产应用。
+const settingsTargetPath = (scope: 'user' | 'project', projectPath?: string): string =>
+  scope === 'user'
+    ? join(env.agentDir, 'settings.json')
+    : join(projectPath ?? env.workspace, '.pi', 'settings.json')
+
+const withinTestRoot = (path: string): boolean => {
+  const target = resolve(path)
+  const roots = [resolve(env.root), resolve(env.agentDir)]
+  return roots.some((root) => target === root || target.startsWith(`${root}${sep}`))
+}
+
+app.get('/__e2e__/settings-file', async (c) => {
+  const scope = c.req.query('scope') === 'project' ? 'project' : 'user'
+  const path = settingsTargetPath(scope, c.req.query('projectPath') ?? undefined)
+  if (!withinTestRoot(path)) return c.json({ error: 'outside-scope' }, 400)
+  const content = await readFile(path, 'utf8').catch(() => null)
+  return c.json({ path, content })
+})
+
+app.put('/__e2e__/settings-file', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    scope?: unknown
+    projectPath?: unknown
+    content?: unknown
+  }
+  const scope = body.scope === 'project' ? 'project' : 'user'
+  const path = settingsTargetPath(
+    scope,
+    typeof body.projectPath === 'string' ? body.projectPath : undefined,
+  )
+  if (!withinTestRoot(path)) return c.json({ error: 'outside-scope' }, 400)
+  if (typeof body.content === 'string') {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, body.content)
+  } else {
+    await rm(path, { force: true })
+  }
+  return c.body(null, 204)
+})
+
 // 外部 Pi 会话：用于验证「显式刷新重新扫描作用域」能发现宿主启动后新增的文件。
 // 刻意不经宿主 API 创建，也不写入 huan 工作区元数据（应出现在未归属分组）。
 app.post('/__e2e__/sessions', async (c) => {

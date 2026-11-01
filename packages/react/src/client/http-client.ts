@@ -32,6 +32,9 @@
  *   GET    /threads/:id/details     → HarnessThreadDetails       (只读详情与累计统计)
  *   GET    /commands                → HarnessCommandCatalog      (?threadId= 或 ?workspacePath=)
  *   POST   /commands/arguments      → HarnessCommandArgumentCompletion[]
+ *   GET    /settings                → HarnessSettingsSnapshot      (?threadId= 或 ?workspacePath=)
+ *   PUT    /settings                → HarnessSettingsSaveResult    (body: target/scope/content/expectedRevision)
+ *   GET    /resources               → HarnessResourceSnapshot      (?threadId= 或 ?workspacePath=，includeText=true 时含文本)
  *   POST   /files                   → HarnessFileSearchResult
  *   GET    /threads/:id/tree        → HarnessThreadTree          (按需读取会话树)
  *   POST   /threads/:id/tree/navigate → HarnessTreeNavigateResult
@@ -92,9 +95,15 @@ import type {
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
   HarnessRecentProject,
+  HarnessResourceQueryInput,
+  HarnessResourceSnapshot,
   HarnessSendMessageInput,
   HarnessSendMessageOptions,
   HarnessSendMessageResult,
+  HarnessSettingsSaveInput,
+  HarnessSettingsSaveResult,
+  HarnessSettingsSnapshot,
+  HarnessSettingsTargetInput,
   HarnessThinkingLevel,
   HarnessThreadForkInput,
   HarnessThreadForkResult,
@@ -121,6 +130,9 @@ import {
 } from './event-source.js'
 import {
   isHostInteractionSnapshot,
+  isResourceSnapshot,
+  isSettingsSaveResult,
+  isSettingsSnapshot,
   isThreadDetails,
   isThreadForkResult,
   isThreadImportPreview,
@@ -634,6 +646,38 @@ const parseModelScopeUpdateResponse = (value: unknown): HarnessModelScopeUpdateR
   return value as HarnessModelScopeUpdateResult
 }
 
+const parseSettingsSnapshotResponse = (
+  value: unknown,
+  operation: 'reading settings' | 'saving settings',
+): HarnessSettingsSnapshot => {
+  if (!isSettingsSnapshot(value)) {
+    throw invalidResponse(operation, 'expected a valid settings snapshot.')
+  }
+  return value
+}
+
+const parseSettingsSaveResponse = (value: unknown): HarnessSettingsSaveResult => {
+  if (!isSettingsSaveResult(value)) {
+    throw invalidResponse('saving settings', 'expected a valid settings save result.')
+  }
+  return value
+}
+
+const parseResourceSnapshotResponse = (value: unknown): HarnessResourceSnapshot => {
+  if (!isResourceSnapshot(value)) {
+    throw invalidResponse('reading resources', 'expected a valid resource snapshot.')
+  }
+  return value
+}
+
+/** 设置/资源查询串：threadId 与 workspacePath 由宿主校验互斥。 */
+const configTargetQuery = (input: HarnessSettingsTargetInput): string => {
+  const params = new URLSearchParams()
+  if (input.threadId) params.set('threadId', input.threadId)
+  if (input.workspacePath) params.set('workspacePath', input.workspacePath)
+  return params.toString()
+}
+
 const parseModelRefreshResponse = (value: unknown): HarnessModelRefreshResult => {
   if (
     !isRecord(value) ||
@@ -1077,6 +1121,32 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         throw invalidResponse('importing a thread', 'expected a valid import result.')
       }
       return value as HarnessThreadImportResult
+    },
+
+    getSettings: async (input) => {
+      const query = configTargetQuery(input)
+      const value = await readJson(
+        await send(`${base}/settings?${query}`, 'GET'),
+        'reading settings',
+      )
+      return parseSettingsSnapshotResponse(value, 'reading settings')
+    },
+
+    saveSettings: async (input: HarnessSettingsSaveInput) => {
+      const value = await readJson(await send(`${base}/settings`, 'PUT', input), 'saving settings')
+      return parseSettingsSaveResponse(value)
+    },
+
+    getResources: async (input: HarnessResourceQueryInput) => {
+      const query = configTargetQuery(input)
+      const value = await readJson(
+        await send(
+          `${base}/resources?${query}${input.includeText ? '&includeText=true' : ''}`,
+          'GET',
+        ),
+        'reading resources',
+      )
+      return parseResourceSnapshotResponse(value)
     },
 
     listCommands: async (input) => {

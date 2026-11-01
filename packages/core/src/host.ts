@@ -82,11 +82,19 @@ import type {
   HarnessProjectFailureCode,
   HarnessProjectInfo,
   HarnessProjectPathCheck,
+  HarnessProjectTrust,
   HarnessProjectTrustInput,
   HarnessRecentProject,
+  HarnessResourceQueryInput,
+  HarnessResourceSnapshot,
   HarnessSendMessageInput,
   HarnessSendMessageOptions,
   HarnessSendMessageResult,
+  HarnessSettingsSaveInput,
+  HarnessSettingsSaveResult,
+  HarnessSettingsSnapshot,
+  HarnessSettingsTarget,
+  HarnessSettingsTargetInput,
   HarnessThinkingLevel,
   HarnessThreadDetails,
   HarnessThreadForkInput,
@@ -141,6 +149,7 @@ import {
   type ProjectTrustSource,
   prepareProjectTrust,
 } from './project-trust.js'
+import { resourceSnapshotOf } from './resource-inventory.js'
 import {
   commandArgumentsFromLoader,
   commandArgumentsFromSession,
@@ -174,6 +183,20 @@ import {
 } from './session-import.js'
 import { aggregateSessionStats } from './session-stats.js'
 import { applyStoredSessionLeaf, buildSessionTree, sessionTreeRevision } from './session-tree.js'
+import {
+  byteLengthOf,
+  changedTopLevelKeys,
+  mergeSettingsFromDisk,
+  parseSettingsContent,
+  readSettingsFile,
+  restartRequiredKeys,
+  SETTINGS_CONTENT_MAX_BYTES,
+  settingsEffectiveOfManager,
+  settingsEquivalent,
+  settingsFilePaths,
+  settingsRevision,
+  writeSettingsFileAtomic,
+} from './settings-store.js'
 import { pathKey, type WorkspaceSnapshot } from './workspace-path.js'
 import {
   defaultWorkspaceId,
@@ -297,6 +320,13 @@ type ProjectRuntime = {
    * 在同一轮启动里重复执行。一个 loader 只能绑定一个 live session。
    */
   pending?: PreparedProject
+  /**
+   * 最近一次装配的 loader（只读清单用）。
+   *
+   * 空白页查询设置/资源时复用该装配结果，不重新执行扩展；热会话优先使用
+   * 正在服务该会话的 loader，见 `resourceInventoryNow`。
+   */
+  lastLoader?: { loader: ResourceLoader; settings: SettingsManager }
 }
 
 /**
@@ -1092,6 +1122,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       }),
       pending: prepared,
     }
+    runtime.lastLoader = {
+      loader: prepared.trust.resourceLoader,
+      settings: prepared.trust.settingsManager,
+    }
     projectRuntimes.set(runtime.cwd, runtime)
     return runtime
   }
@@ -1213,6 +1247,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ...(options.model ? { model: options.model } : {}),
       settingsManager: prepared.trust.settingsManager,
     })
+    runtime.lastLoader = {
+      loader: prepared.trust.resourceLoader,
+      settings: prepared.trust.settingsManager,
+    }
     return { runtime, prepared }
   }
 
@@ -1239,6 +1277,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     )
     runtime.pending = prepared
     runtime.settingsManager = prepared.trust.settingsManager
+    runtime.lastLoader = {
+      loader: prepared.trust.resourceLoader,
+      settings: prepared.trust.settingsManager,
+    }
     return prepared
   }
 
@@ -4572,6 +4614,309 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   let modelCatalogRevision = 0
   let catalogRefreshInFlight: Promise<HarnessModelRefreshResult> | undefined
 
+  /**
+   * 解析设置/资源查询目标。
+   *
+   * 只接受会话 ID 或绝对起始目录，且两者互斥；不接受任意配置文件路径。
+   * 冷会话只按会话头解析 cwd，不构造 AgentSession。
+   */
+  const resolveConfigTarget = async (
+    input: HarnessSettingsTargetInput,
+  ): Promise<{ target: HarnessSettingsTarget; cwd: string; record?: ThreadRecord }> => {
+    const threadId = typeof input.threadId === 'string' ? input.threadId.trim() : ''
+    const requestedPath = typeof input.workspacePath === 'string' ? input.workspacePath.trim() : ''
+    if (threadId.length > 0 === requestedPath.length > 0) {
+      throw new Error('配置查询需要且只能指定会话或起始目录')
+    }
+    if (threadId) {
+      const record = records.get(threadId)
+      if (record) {
+        return {
+          target: { kind: 'session', threadId, workspacePath: record.workspacePath },
+          cwd: record.workspacePath,
+          record,
+        }
+      }
+      const info = await findSessionInfo(threadId)
+      if (!info) throw new Error(`Unknown thread: ${threadId}`)
+      // 会话头缺失 cwd 时退回宿主启动目录；不使用调用方未提供的路径。
+      const cwd = canonicalProjectPath(info.cwd || workspacePath)
+      return { target: { kind: 'session', threadId, workspacePath: cwd }, cwd }
+    }
+    if (!isAbsolute(requestedPath)) throw new Error('起始目录必须是绝对路径')
+    const check = await inspectProjectPath(requestedPath)
+    if (check.error) throw new Error('起始目录不可用')
+    return { target: { kind: 'workspace', workspacePath: check.path }, cwd: check.path }
+  }
+
+  /**
+   * 目标项目的信任结论。
+   *
+   * 优先复用已装配的项目缓存；live 会话没有缓存时以其设置管理器
+   * 实际加载的信任状态为准；其余走只读摘要（不加载项目扩展）。
+   */
+  const configTrustOf = async (
+    cwd: string,
+    record?: ThreadRecord,
+  ): Promise<HarnessProjectTrust> => {
+    const cached = projectRuntimes.get(cwd)
+    if (
+      cached &&
+      cached.info.status !== 'failed' &&
+      (cached.info.trust.requiresTrust === hasTrustRequiringProjectResources(cwd) ||
+        cached.info.trust.origin !== 'no-resources')
+    )
+      return cached.info.trust
+    if (
+      record &&
+      (!cached || cached.info.trust.requiresTrust || !hasTrustRequiringProjectResources(cwd))
+    ) {
+      const trusted = record.settingsManager.isProjectTrusted()
+      return {
+        decision: trusted ? 'trusted' : 'untrusted',
+        origin: 'none',
+        requiresTrust: hasTrustRequiringProjectResources(cwd),
+        defaultPolicy: record.settingsManager.getDefaultProjectTrust(),
+        extensionErrorCount: 0,
+      }
+    }
+    return (await inspectProjectTrust(cwd)).trust
+  }
+
+  const trustViewOf = (trust: HarnessProjectTrust) => ({
+    decision:
+      trust.decision === 'trusted'
+        ? ('trusted' as const)
+        : trust.decision === 'untrusted'
+          ? ('untrusted' as const)
+          : ('needs-trust' as const),
+    requiresTrust: trust.requiresTrust,
+    origin: trust.origin,
+  })
+
+  /** 读取用户/项目原文与磁盘合并预览；项目未信任时不读取其原文。 */
+  const settingsSnapshotOf = async (
+    target: HarnessSettingsTarget,
+    cwd: string,
+    record?: ThreadRecord,
+  ): Promise<HarnessSettingsSnapshot> => {
+    const trust = await configTrustOf(cwd, record)
+    const trusted = trust.decision === 'trusted'
+    const paths = settingsFilePaths(cwd, agentDir)
+    const [user, project] = await Promise.all([
+      readSettingsFile(paths.user, 'user'),
+      readSettingsFile(paths.project, 'project', { readable: trusted }),
+    ])
+    const effective = mergeSettingsFromDisk({
+      cwd,
+      agentDir,
+      projectTrusted: trusted,
+      files: { user, project },
+    })
+    const live = record ? settingsEffectiveOfManager(record.settingsManager, 'session') : undefined
+    return {
+      target,
+      agentDir,
+      projectTrusted: trusted,
+      trust: trustViewOf(trust),
+      files: { user, project },
+      effective,
+      ...(live ? { live } : {}),
+      ...(live ? { reloadRequired: !settingsEquivalent(live.values, effective.values) } : {}),
+    }
+  }
+
+  /**
+   * 保存设置原文。
+   *
+   * 设计约束：
+   * - 只改指定文件，内容为完整文件语义（未知字段由调用方保留）；
+   * - 先校验 JSON/schema/原型污染键，再检查 revision（乐观并发）；
+   * - 与自动压缩/模型范围写入共用 settingsWrites 队列；
+   * - 原子写入 + 回读校验，失败如实报告；
+   * - 不触碰任何 live SettingsManager 缓存（保存不等于应用）。
+   */
+  const saveSettingsNow = async (
+    input: HarnessSettingsSaveInput,
+  ): Promise<HarnessSettingsSaveResult> => {
+    assertActive()
+    const resolved = await resolveConfigTarget(input.target)
+    const trust = await configTrustOf(resolved.cwd, resolved.record)
+    const trusted = trust.decision === 'trusted'
+    const paths = settingsFilePaths(resolved.cwd, agentDir)
+    const path = input.scope === 'project' ? paths.project : paths.user
+    if (input.scope === 'project' && !trusted) {
+      return {
+        status: 'untrusted',
+        scope: input.scope,
+        path,
+        message: '项目未取得信任：不读取也不写入项目设置；用户设置仍可编辑。',
+      }
+    }
+    if (typeof input.content !== 'string') {
+      return {
+        status: 'invalid',
+        scope: input.scope,
+        path,
+        issues: [{ kind: 'parse', path: '/', message: '设置内容必须是字符串。' }],
+        message: '设置未保存：内容形状无效。',
+      }
+    }
+    const bytes = byteLengthOf(input.content)
+    if (bytes > SETTINGS_CONTENT_MAX_BYTES) {
+      return {
+        status: 'too-large',
+        scope: input.scope,
+        path,
+        limitBytes: SETTINGS_CONTENT_MAX_BYTES,
+        message: `设置文件超过上限（${SETTINGS_CONTENT_MAX_BYTES} 字节），未保存。`,
+      }
+    }
+    // revision 检查在队列内部执行：并发保存不会相互覆盖。
+    const current = await readSettingsFile(path, input.scope)
+    if (current.readError) {
+      return { status: 'failed', scope: input.scope, path, message: current.readError }
+    }
+    if (current.tooLarge) {
+      // 不返回不完整原文时无法可靠比较 revision；拒绝覆盖未知的大文件。
+      return {
+        status: 'too-large',
+        scope: input.scope,
+        path,
+        limitBytes: SETTINGS_CONTENT_MAX_BYTES,
+        message: '现有设置文件超过读取上限；为避免覆盖未知内容，请先手动处理该文件。',
+      }
+    }
+    if (current.revision !== input.expectedRevision) {
+      return {
+        status: 'conflict',
+        scope: input.scope,
+        path,
+        revision: current.revision,
+        message: '设置文件已被其他窗口或进程修改；请重新加载原文后再保存。',
+      }
+    }
+    const parsed = parseSettingsContent(input.content)
+    if (!parsed.value || parsed.issues.length > 0) {
+      return {
+        status: 'invalid',
+        scope: input.scope,
+        path,
+        issues: parsed.issues,
+        message: '设置未保存：请先修复解析或校验问题。',
+      }
+    }
+    const before =
+      current.issues.length === 0 ? parseSettingsContent(current.content).value : undefined
+    const changed = changedTopLevelKeys(before, parsed.value)
+    try {
+      await writeSettingsFileAtomic(path, input.content)
+    } catch (error) {
+      diagnostics.push(`设置写入（${path}）：${errorText(error)}`)
+      return {
+        status: 'failed',
+        scope: input.scope,
+        path,
+        message: '设置写入失败；磁盘文件保持原状。',
+      }
+    }
+    const verify = await readFile(path, 'utf8').catch(() => undefined)
+    if (verify !== input.content) {
+      return {
+        status: 'failed',
+        scope: input.scope,
+        path,
+        message: '写入后回读与提交内容不一致；请不要依赖本次保存结果。',
+      }
+    }
+    const snapshot = await settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
+    const restartKeys = restartRequiredKeys(changed)
+    const reloadRequired = changed.length > 0
+    return {
+      status: 'saved',
+      scope: input.scope,
+      path,
+      revision: settingsRevision(input.content),
+      bytes,
+      snapshot,
+      apply: {
+        persisted: true,
+        reloadRequired,
+        restartRequiredKeys: restartKeys,
+        message: !reloadRequired
+          ? '内容未变化；已确认磁盘文件与提交一致。'
+          : restartKeys.length > 0
+            ? `已保存到磁盘；需重启宿主后生效：${restartKeys.join('、')}。当前会话仍使用已加载的设置。`
+            : '已保存到磁盘；常用运行设置与资源需重载宿主后才会被会话使用。当前会话未被静默修改。',
+      },
+    }
+  }
+
+  /**
+   * 资源清单：只读取现有 loader 的公开 getter。
+   *
+   * 热会话用正在使用的 loader；空白页/冷会话复用同 cwd 的 live loader、
+   * 待消费的受信装配缓存或最近一次装配结果。除首次无缓存时按现有受信
+   * 装配路径装配一次外，不调用 reload、不重新执行扩展、不联网重扫。
+   */
+  const resourceInventoryNow = async (
+    input: HarnessResourceQueryInput,
+  ): Promise<HarnessResourceSnapshot> => {
+    assertActive()
+    const resolved = await resolveConfigTarget(input)
+    let loader: ResourceLoader
+    let settings: SettingsManager
+    let loadedFrom: 'session' | 'assembly'
+    if (resolved.record) {
+      loader = resolved.record.resourceLoader
+      settings = resolved.record.settingsManager
+      loadedFrom = 'session'
+    } else {
+      const sameCwd = [...records.values()].find(
+        (record) => !record.retired && pathKey(record.workspacePath) === pathKey(resolved.cwd),
+      )
+      const runtime = projectRuntimes.get(resolved.cwd)
+      if (sameCwd) {
+        loader = sameCwd.resourceLoader
+        settings = sameCwd.settingsManager
+        loadedFrom = 'session'
+      } else if (runtime?.pending) {
+        loader = runtime.pending.trust.resourceLoader
+        settings = runtime.pending.trust.settingsManager
+        loadedFrom = 'assembly'
+      } else if (runtime?.lastLoader) {
+        loader = runtime.lastLoader.loader
+        settings = runtime.lastLoader.settings
+        loadedFrom = 'assembly'
+      } else {
+        // 首次查询仍由正常装配路径处理信任，不复用装配前推测的结论。
+        const loaded = runtime ?? (await loadProjectRuntime(resolved.cwd))
+        const prepared =
+          loaded.pending ??
+          (await prepareProjectSession(loaded.cwd, loaded.info.trust.decision === 'trusted'))
+        loaded.pending = prepared
+        loaded.lastLoader = {
+          loader: prepared.trust.resourceLoader,
+          settings: prepared.trust.settingsManager,
+        }
+        loader = prepared.trust.resourceLoader
+        settings = prepared.trust.settingsManager
+        loadedFrom = 'assembly'
+      }
+    }
+    return resourceSnapshotOf(
+      {
+        target: resolved.target,
+        agentDir,
+        loadedFrom,
+        trust: trustViewOf(await configTrustOf(resolved.cwd, resolved.record)),
+        loader,
+        settings,
+      },
+      { includeText: input.includeText === true },
+    )
+  }
+
   const client: HarnessClient = {
     async getHostInfo() {
       assertActive()
@@ -4901,6 +5246,21 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         return commandArgumentsFromLoader(prepared.trust.resourceLoader, input.name, input.prefix)
       }
       return []
+    },
+
+    async getSettings(input) {
+      assertActive()
+      const resolved = await resolveConfigTarget(input)
+      return settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
+    },
+
+    async saveSettings(input) {
+      // 与既有自动压缩/模型范围写入共享同一队列，避免同一文件并发写。
+      return withSettingsWrite(() => saveSettingsNow(input))
+    },
+
+    async getResources(input) {
+      return resourceInventoryNow(input)
     },
 
     async searchFiles(

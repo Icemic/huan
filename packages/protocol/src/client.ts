@@ -50,6 +50,14 @@ import type {
   HarnessModelScopeUpdateResult,
 } from './runtime.js'
 import type {
+  HarnessResourceQueryInput,
+  HarnessResourceSnapshot,
+  HarnessSettingsSaveInput,
+  HarnessSettingsSaveResult,
+  HarnessSettingsSnapshot,
+  HarnessSettingsTargetInput,
+} from './settings.js'
+import type {
   HarnessClientEvent,
   HarnessCreateThreadInput,
   HarnessHostUiResponse,
@@ -133,6 +141,21 @@ export interface HarnessClient {
     threadId?: string
     workspacePath?: string
   }): Promise<HarnessCommandCatalog>
+  /**
+   * 读取用户/项目 settings.json 原文、revision、校验问题与磁盘合并预览。
+   * 会话或空白页固定起始目录二选一；项目未信任时不读取其原文。
+   */
+  getSettings(input: HarnessSettingsTargetInput): Promise<HarnessSettingsSnapshot>
+  /**
+   * 保存完整设置文件原文（乐观 revision）；只写指定文件，不改变 live 会话。
+   * 保存成功后返回磁盘合并预览与“需重载/重启”说明。
+   */
+  saveSettings(input: HarnessSettingsSaveInput): Promise<HarnessSettingsSaveResult>
+  /**
+   * 读取实际加载的指令/system prompt/扩展/skill/模板/主题/packages 与诊断。
+   * 热会话使用正在服务的 loader；不重跑扩展、不联网重扫。
+   */
+  getResources(input: HarnessResourceQueryInput): Promise<HarnessResourceSnapshot>
   /** 按需调用扩展的参数补全；不适用时返回空数组。 */
   getCommandArgumentCompletions(
     input: HarnessCommandArgumentInput,

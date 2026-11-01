@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 10（运行操作之上新增命令/文件查询、发送处置、宿主启动交互与线程UI状态/原子指令领取）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 11（新增设置文件读写、revision 冲突与资源清单；此前命令、文件查询和 Host UI 契约保持）。
 
 **UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -118,6 +118,12 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 应用拦截内置slash与!命令，core拒绝保留内置被当prompt发送，其余交Pi按扩展→input→skill→模板语义执行。资源目录/参数补全只使用公开SDK；文件搜索限工作区成员，有界BFS并按目录gitignore过滤，不读取个人全局ignore，不预读内容。图片能力在首条/普通发送前校验，4xx未接受发送恢复文字与附件；窗口文字草稿存sessionStorage，附件不持久化。
 
 宿主级交互在record发布前承接project_trust与session_start；首次订阅及重连投递seq权威快照，答复/取消/超时/销毁唯一结算。启动装配遇UI等待即先返回宿主，HTTP可用后同一装配继续，不重跑扩展。线程UI通过host_ui_update独立投递，不清空聊天流；重连快照携带当前通知/status/widget等。有调用方的编辑器指令与命令目标定向窗口，无调用方须主动应用，宿主原子领取防多窗重复；窗口保留原草稿可恢复。模式rpc；终端组件与未交付reload/shutdown显式不支持。commandContextActions使用独立record而非替换父会话，setup/血缘/取消和withSession按公开SDK接入。详见[Host UI迭代](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)。
+
+### 3.2.7 设置与资源清单
+
+设置接口仅接受会话 ID 或起始 cwd，配置路径由宿主固定为 agentDir/settings.json 和 cwd/.pi/settings.json。项目原文受信任门控；旧的“无受保护资源”缓存不能授权后来新增的配置。原文有界读取，经公开分发的 Pi settings schema 校验，SDK SettingsManager.fromStorage 只合并本次安全读取的原文。未知字段保留，SHA-256 revision 防止旧窗口覆盖；与既有设置操作共用串行写队列，同目录临时文件原子替换并回读确认。保存只改磁盘，不静默替换 live 模型、设置或资源；重载/重启要求单独说明。
+
+资源清单来自当前 live loader 或已装配缓存的公开 getters，展示来源、指令、系统提示片段、扩展/skill/模板/主题与 packages；配置全文不进入普通消息/快照。文本仅显式请求返回。具体设计见[设置与资源迭代](iteration/2026-11/2026-11-01-feat-settings-resources.md)。
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 

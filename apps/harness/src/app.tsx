@@ -11,6 +11,7 @@ import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
 import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
 import { RuntimeDataParts } from '@/components/runtime-data-parts'
 import { SessionContextBar } from '@/components/session-context-bar'
+import { SettingsResourcesDialog } from '@/components/settings-resources-dialog'
 import { ThemeSelector } from '@/components/theme-selector'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -116,7 +117,8 @@ function WorkspaceApp() {
           <span className="text-muted-foreground text-xs">
             <Trans>多项目工作区</Trans>
           </span>
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-2">
+            <SettingsResourcesDialog />
             <ThemeSelector />
           </div>
         </header>

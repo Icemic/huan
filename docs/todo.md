@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：687 项测试、49 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：718 项测试、54 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.4a 设置与资源清单（✅ 开发完成，`feat`）
+
+记录：[设置与资源](iteration/2026-11/2026-11-01-feat-settings-resources.md)
+
+- 协议 11，用户/可信项目 JSON 与常用设置、校验/冲突/原子保存、实际 loader 资源来源与文本按需查询。
+- 主 agent 修复安全有界合并、信任缓存与面板并发/草稿，亲验 718 项测试、54 条 Chromium、lint/类型/build；保存只写磁盘，当前会话等待重载。
 
 ### 输入与运行态刷新性能（✅ 开发完成，`perf`）
 

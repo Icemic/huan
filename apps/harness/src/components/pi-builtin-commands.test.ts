@@ -50,7 +50,10 @@ describe('应用命令索引合并', () => {
       shadowedBy: 'builtin',
     })
     expect(merged.some((command) => command.name === 'arminsayshi')).toBe(false)
-    expect(findAppCommand(merged, 'settings')).toMatchObject({ available: false, stage: 'g1.4' })
+    expect(findAppCommand(merged, 'settings')).toMatchObject({
+      available: true,
+      stage: 'available',
+    })
   })
 
   it('资源间同名保留遮蔽来源', () => {

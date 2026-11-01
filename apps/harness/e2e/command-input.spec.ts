@@ -36,7 +36,7 @@ test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普
   await expect(palette).toBeVisible()
   await expect(palette.getByRole('option', { name: /\/probe/ })).toBeVisible()
   await expect(palette.getByRole('option', { name: /\/model/ })).toBeVisible()
-  await expect(palette.getByRole('option', { name: /\/settings/ })).toContainText('G1.4')
+  await expect(palette.getByRole('option', { name: /\/settings/ })).not.toContainText('G1.')
   await expect(palette.getByRole('option', { name: /\/export/ })).toContainText('G1.5')
   await page.keyboard.press('Escape')
   await expect(palette).toHaveCount(0)
@@ -50,12 +50,15 @@ test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普
   await expect(messageInput(page)).toHaveValue('')
   await page.keyboard.press('Escape')
 
-  // 未实施内置命令只提示阶段与等价路径，不发送给模型。
+  // 已实施内置命令打开同一设置面板，不发送给模型；完成后回到输入框。
   await messageInput(page).fill('/settings')
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
-  await expect(page.locator('[data-slot="huan-composer-notice"]')).toContainText('G1.4')
+  const settings = page.getByRole('dialog', { name: '设置与资源' })
+  await expect(settings).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
   await expect(messageInput(page)).toHaveValue('')
 })
 

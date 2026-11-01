@@ -147,6 +147,15 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async listCommands() {
       return { commands: [], skillCommandsEnabled: false, diagnostics: [] }
     },
+    async getSettings() {
+      throw new Error('Controller 不查询设置')
+    },
+    async saveSettings() {
+      throw new Error('Controller 不保存设置')
+    },
+    async getResources() {
+      throw new Error('Controller 不查询资源')
+    },
     async getCommandArgumentCompletions() {
       return []
     },

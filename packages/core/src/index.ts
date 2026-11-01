@@ -53,6 +53,13 @@ export {
 export { IMPORT_HOST_FILE_MAX_BYTES, IMPORT_UPLOAD_MAX_BYTES } from './session-import.js'
 export { applyStoredSessionLeaf, buildSessionTree, sessionTreeRevision } from './session-tree.js'
 export {
+  parseSettingsContent,
+  SETTINGS_CONTENT_MAX_BYTES,
+  SETTINGS_FILE_MAX_BYTES,
+  settingsFilePaths,
+  settingsRevision,
+} from './settings-store.js'
+export {
   isInside,
   owningRoot,
   pathKey,

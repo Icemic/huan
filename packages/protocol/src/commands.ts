@@ -62,9 +62,8 @@ export const HARNESS_BUILTIN_COMMANDS: readonly HarnessBuiltinCommand[] = [
   { name: 'copy', description: '复制最后一条助手消息', stage: 'available' },
   {
     name: 'settings',
-    description: 'Pi 设置',
-    stage: 'g1.4',
-    availability: '设置入口在 G1.4 实施；当前可编辑用户设置文件后重启宿主。',
+    description: '打开设置与资源清单',
+    stage: 'available',
   },
   {
     name: 'login',

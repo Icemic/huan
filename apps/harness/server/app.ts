@@ -3,6 +3,7 @@ import {
   ImageInputUnsupportedError,
   ProjectTrustRequiredError,
   ReservedBuiltinCommandError,
+  SETTINGS_CONTENT_MAX_BYTES,
   ThreadStructureBusyError,
   WorkspaceConflictError,
   WorkspaceNotFoundError,
@@ -21,6 +22,9 @@ import { createEventsRoute, createHostInteractionEventsRoute } from './sse.js'
  * 超过该 Content-Length 的请求在读取正文前直接拒绝。
  */
 const IMPORT_BODY_LIMIT_BYTES = IMPORT_UPLOAD_MAX_BYTES + 4 * 1024 * 1024
+
+/** 设置保存请求体上限：完整文件 + JSON 包装余量。 */
+const SETTINGS_BODY_LIMIT_BYTES = SETTINGS_CONTENT_MAX_BYTES + 64 * 1024
 
 /** 解析导入源（路径或上传文本）；无效输入返回 undefined。 */
 function parseImportSource(value: unknown): HarnessThreadImportSource | undefined {
@@ -42,6 +46,32 @@ function parseImportSource(value: unknown): HarnessThreadImportSource | undefine
 /** 上传文本超过限制时返回统一的 413。 */
 const importTooLarge = (content: string | undefined): boolean =>
   content !== undefined && new TextEncoder().encode(content).byteLength > IMPORT_UPLOAD_MAX_BYTES
+
+/**
+ * 解析设置/资源目标：threadId 与 workspacePath 必须恰好提供一个。
+ * 返回的对象可直接作为宿主输入；两者都缺失或同时出现时为 undefined。
+ */
+function parseConfigTarget(
+  threadId: string | undefined,
+  workspacePath: string | undefined,
+): { threadId?: string; workspacePath?: string } | undefined {
+  const hasThread = typeof threadId === 'string' && threadId.trim().length > 0
+  const hasPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+  if (hasThread === hasPath) return undefined
+  return hasThread ? { threadId: threadId?.trim() } : { workspacePath: workspacePath?.trim() }
+}
+
+/** 解析设置保存请求体中的目标对象。 */
+function parseConfigTargetObject(
+  value: unknown,
+): { threadId?: string; workspacePath?: string } | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const target = value as { threadId?: unknown; workspacePath?: unknown }
+  if (target.threadId !== undefined && typeof target.threadId !== 'string') return undefined
+  if (target.workspacePath !== undefined && typeof target.workspacePath !== 'string')
+    return undefined
+  return parseConfigTarget(target.threadId, target.workspacePath)
+}
 
 /**
  * 组装宿主 HTTP 路由。
@@ -229,6 +259,78 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
       await piClient.listCommands({
         ...(threadId ? { threadId } : {}),
         ...(workspacePath ? { workspacePath } : {}),
+      }),
+    )
+  })
+
+  // 设置：目标必须显式二选一；读取不加载项目扩展（未信任时不读项目原文）。
+  app.get('/api/pi/settings', async (c) => {
+    const target = parseConfigTarget(c.req.query('threadId'), c.req.query('workspacePath'))
+    if (!target) return c.json({ error: 'invalid-config-target' }, 400)
+    return c.json(await piClient.getSettings(target))
+  })
+
+  app.use(
+    '/api/pi/settings',
+    bodyLimit({
+      maxSize: SETTINGS_BODY_LIMIT_BYTES,
+      onError: (c) => c.json({ error: 'settings-too-large' }, 413),
+    }),
+  )
+
+  // 保存：完整文件语义 + 乐观 revision；保存与应用分开，不在本请求内重载。
+  app.put('/api/pi/settings', async (c) => {
+    const declared = Number(c.req.header('content-length') ?? '0')
+    if (Number.isFinite(declared) && declared > SETTINGS_BODY_LIMIT_BYTES) {
+      return c.json({ error: 'settings-too-large' }, 413)
+    }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      target?: unknown
+      scope?: unknown
+      content?: unknown
+      expectedRevision?: unknown
+    }
+    const target = parseConfigTargetObject(body.target)
+    if (
+      !target ||
+      (body.scope !== 'user' && body.scope !== 'project') ||
+      typeof body.content !== 'string' ||
+      (body.expectedRevision !== null && typeof body.expectedRevision !== 'string')
+    ) {
+      return c.json({ error: 'invalid-settings-input' }, 400)
+    }
+    if (Buffer.byteLength(body.content, 'utf8') > SETTINGS_CONTENT_MAX_BYTES) {
+      return c.json({ error: 'settings-too-large' }, 413)
+    }
+    const result = await piClient.saveSettings({
+      target,
+      scope: body.scope,
+      content: body.content,
+      expectedRevision: body.expectedRevision,
+    })
+    if (result.status === 'conflict') {
+      return c.json({ error: 'settings-conflict', ...result }, 409)
+    }
+    if (result.status === 'untrusted') {
+      return c.json({ error: 'settings-untrusted', ...result }, 409)
+    }
+    if (result.status === 'too-large') {
+      return c.json({ error: 'settings-too-large', ...result }, 413)
+    }
+    if (result.status === 'failed') {
+      return c.json({ error: 'settings-write-failed', ...result }, 500)
+    }
+    return c.json(result)
+  })
+
+  // 资源清单：只读现有 loader；文本需显式 includeText。
+  app.get('/api/pi/resources', async (c) => {
+    const target = parseConfigTarget(c.req.query('threadId'), c.req.query('workspacePath'))
+    if (!target) return c.json({ error: 'invalid-config-target' }, 400)
+    return c.json(
+      await piClient.getResources({
+        ...target,
+        ...(c.req.query('includeText') === 'true' ? { includeText: true } : {}),
       }),
     )
   })

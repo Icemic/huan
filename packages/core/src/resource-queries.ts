@@ -51,7 +51,7 @@ type ResolvedLoaderCommand = {
 }
 
 /** 来源投影：只保留路径/来源/作用域等展示字段。 */
-function sourceInfoOf(info: SourceInfo): HarnessCommandSourceInfo {
+export function sourceInfoOf(info: SourceInfo): HarnessCommandSourceInfo {
   return {
     path: info.path,
     source: info.source,

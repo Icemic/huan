@@ -17,6 +17,9 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessHostInteractionSnapshot,
   HarnessHostUiRequest,
+  HarnessResourceSnapshot,
+  HarnessSettingsSaveResult,
+  HarnessSettingsSnapshot,
   HarnessThreadDetails,
   HarnessThreadForkResult,
   HarnessThreadImportPreview,
@@ -686,3 +689,229 @@ export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot
     value.messageEntryIds.every((entry) => entry === null || typeof entry === 'string')
   )
 }
+
+/** 设置目标守卫：会话或固定起始目录二选一。 */
+const isSettingsTarget = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.kind === 'session' || value.kind === 'workspace') &&
+  typeof value.workspacePath === 'string' &&
+  isOptionalString(value.threadId)
+
+/** 设置文件守卫：原文、revision 与问题列表。 */
+const isSettingsFile = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.scope === 'user' || value.scope === 'project') &&
+  typeof value.path === 'string' &&
+  typeof value.exists === 'boolean' &&
+  typeof value.content === 'string' &&
+  (value.revision === null || typeof value.revision === 'string') &&
+  typeof value.bytes === 'number' &&
+  typeof value.readable === 'boolean' &&
+  typeof value.tooLarge === 'boolean' &&
+  Array.isArray(value.issues) &&
+  value.issues.every(
+    (issue) =>
+      isRecord(issue) &&
+      (issue.kind === 'parse' ||
+        issue.kind === 'schema' ||
+        issue.kind === 'unsafe-key' ||
+        issue.kind === 'too-large') &&
+      typeof issue.path === 'string' &&
+      typeof issue.message === 'string',
+  ) &&
+  isOptionalString(value.readError)
+
+const isSettingsEffective = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.source === 'disk' || value.source === 'session') &&
+  isRecord(value.values) &&
+  isRecord(value.origins)
+
+const isSettingsTrust = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.decision === 'trusted' ||
+    value.decision === 'untrusted' ||
+    value.decision === 'needs-trust') &&
+  typeof value.requiresTrust === 'boolean' &&
+  typeof value.origin === 'string'
+
+/** 设置快照守卫。 */
+export const isSettingsSnapshot = (value: unknown): value is HarnessSettingsSnapshot =>
+  isRecord(value) &&
+  isSettingsTarget(value.target) &&
+  typeof value.agentDir === 'string' &&
+  typeof value.projectTrusted === 'boolean' &&
+  isSettingsTrust(value.trust) &&
+  isRecord(value.files) &&
+  isSettingsFile(value.files.user) &&
+  isSettingsFile(value.files.project) &&
+  isSettingsEffective(value.effective) &&
+  (value.live === undefined || isSettingsEffective(value.live)) &&
+  isOptionalBoolean(value.reloadRequired)
+
+/** 设置保存结果守卫。 */
+export const isSettingsSaveResult = (value: unknown): value is HarnessSettingsSaveResult => {
+  if (!isRecord(value)) return false
+  if (value.status === 'saved') {
+    return (
+      (value.scope === 'user' || value.scope === 'project') &&
+      typeof value.path === 'string' &&
+      typeof value.revision === 'string' &&
+      typeof value.bytes === 'number' &&
+      isSettingsSnapshot(value.snapshot) &&
+      isRecord(value.apply) &&
+      typeof value.apply.persisted === 'boolean' &&
+      typeof value.apply.reloadRequired === 'boolean' &&
+      isStringArray(value.apply.restartRequiredKeys) &&
+      typeof value.apply.message === 'string'
+    )
+  }
+  if (value.status === 'conflict') {
+    return (
+      (value.scope === 'user' || value.scope === 'project') &&
+      typeof value.path === 'string' &&
+      (value.revision === null || typeof value.revision === 'string') &&
+      typeof value.message === 'string'
+    )
+  }
+  if (value.status === 'invalid') {
+    return (
+      (value.scope === 'user' || value.scope === 'project') &&
+      typeof value.path === 'string' &&
+      Array.isArray(value.issues) &&
+      value.issues.every(
+        (issue) =>
+          isRecord(issue) &&
+          (issue.kind === 'parse' ||
+            issue.kind === 'schema' ||
+            issue.kind === 'unsafe-key' ||
+            issue.kind === 'too-large') &&
+          typeof issue.path === 'string' &&
+          typeof issue.message === 'string',
+      ) &&
+      typeof value.message === 'string'
+    )
+  }
+  if (value.status === 'untrusted' || value.status === 'failed') {
+    return (
+      (value.scope === 'user' || value.scope === 'project') &&
+      typeof value.path === 'string' &&
+      typeof value.message === 'string'
+    )
+  }
+  if (value.status === 'too-large') {
+    return (
+      (value.scope === 'user' || value.scope === 'project') &&
+      typeof value.path === 'string' &&
+      typeof value.limitBytes === 'number' &&
+      typeof value.message === 'string'
+    )
+  }
+  return false
+}
+
+const isResourceSourceInfo = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.path === 'string' &&
+  typeof value.source === 'string' &&
+  (value.scope === 'user' || value.scope === 'project' || value.scope === 'temporary') &&
+  (value.origin === 'package' || value.origin === 'top-level') &&
+  isOptionalString(value.baseDir)
+
+const isResourceLoadedRef = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.kind === 'extension' ||
+    value.kind === 'skill' ||
+    value.kind === 'prompt' ||
+    value.kind === 'theme') &&
+  typeof value.name === 'string' &&
+  typeof value.source === 'string' &&
+  (value.scope === 'user' || value.scope === 'project' || value.scope === 'temporary') &&
+  (value.origin === 'package' || value.origin === 'top-level') &&
+  typeof value.path === 'string'
+
+/** 资源清单守卫。 */
+export const isResourceSnapshot = (value: unknown): value is HarnessResourceSnapshot =>
+  isRecord(value) &&
+  isSettingsTarget(value.target) &&
+  typeof value.agentDir === 'string' &&
+  isSettingsTrust(value.trust) &&
+  (value.loadedFrom === 'session' || value.loadedFrom === 'assembly') &&
+  typeof value.projectResourcesLoaded === 'boolean' &&
+  isOptionalString(value.trustNote) &&
+  Array.isArray(value.instructions) &&
+  value.instructions.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.path === 'string' &&
+      typeof item.bytes === 'number' &&
+      isOptionalString(item.text) &&
+      isOptionalBoolean(item.textTruncated),
+  ) &&
+  (value.systemPrompt === undefined ||
+    (isRecord(value.systemPrompt) &&
+      typeof value.systemPrompt.bytes === 'number' &&
+      isOptionalString(value.systemPrompt.source) &&
+      isOptionalString(value.systemPrompt.text) &&
+      isOptionalBoolean(value.systemPrompt.textTruncated) &&
+      Array.isArray(value.systemPrompt.append) &&
+      value.systemPrompt.append.every(
+        (item) =>
+          isRecord(item) &&
+          typeof item.bytes === 'number' &&
+          isOptionalString(item.source) &&
+          isOptionalString(item.text) &&
+          isOptionalBoolean(item.textTruncated),
+      ))) &&
+  Array.isArray(value.extensions) &&
+  value.extensions.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.path === 'string' &&
+      typeof item.hidden === 'boolean' &&
+      isResourceSourceInfo(item.sourceInfo) &&
+      isStringArray(item.commands) &&
+      isStringArray(item.tools),
+  ) &&
+  Array.isArray(value.skills) &&
+  value.skills.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.name === 'string' &&
+      typeof item.description === 'string' &&
+      typeof item.path === 'string' &&
+      isResourceSourceInfo(item.sourceInfo) &&
+      typeof item.disableModelInvocation === 'boolean',
+  ) &&
+  Array.isArray(value.prompts) &&
+  value.prompts.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.name === 'string' &&
+      typeof item.description === 'string' &&
+      isOptionalString(item.argumentHint) &&
+      typeof item.path === 'string' &&
+      isResourceSourceInfo(item.sourceInfo),
+  ) &&
+  Array.isArray(value.themes) &&
+  value.themes.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.name === 'string' &&
+      isOptionalString(item.path) &&
+      (item.sourceInfo === undefined || isResourceSourceInfo(item.sourceInfo)),
+  ) &&
+  Array.isArray(value.packages) &&
+  value.packages.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.source === 'string' &&
+      isOptionalBoolean(item.autoload) &&
+      (item.extensions === undefined || isStringArray(item.extensions)) &&
+      (item.skills === undefined || isStringArray(item.skills)) &&
+      (item.prompts === undefined || isStringArray(item.prompts)) &&
+      (item.themes === undefined || isStringArray(item.themes)),
+  ) &&
+  Array.isArray(value.loaded) &&
+  value.loaded.every(isResourceLoadedRef) &&
+  isStringArray(value.diagnostics)

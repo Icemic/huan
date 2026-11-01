@@ -942,6 +942,9 @@ export function usePiComposer(): PiComposerController {
           return true
         case 'copy':
           return copyLastReply()
+        case 'settings':
+          requestPiIntent('settings')
+          return true
         default:
           setNotice(command.availability ?? `/${command.name} 尚无 GUI 入口。`)
           return true

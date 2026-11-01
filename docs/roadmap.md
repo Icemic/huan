@@ -15,9 +15,9 @@
 
 1. 读本文，按能力规范确定本次涉及的能力 ID。
 2. 开工前创建 `iteration/<YYYY-MM>/<YYYY-MM-DD>-<category>-<name>.md`，写清目标、范围、设计、验证、风险与回退。
-3. 执行、测试、顾问 review；阻塞意见须核实、修复、重跑验证并按需复审。变异验证按风险采用。
+3. 默认由 subagent 实施；主 agent 独立 review、直接修复并亲自验证。问题须核实、修复、重跑相关检查。
 4. 更新长期产品/架构结论，回写本文中的状态、证据、偏差与后续任务。
-5. 当前任务完成后再选择下一项；发现范围或依赖失效时，先暂停受影响工作并讨论更新计划。
+5. 每个小阶段验证与文档完成后立即本地提交，再开始下一小阶段；默认不 push。发现范围或依赖失效时，先暂停受影响工作并讨论更新计划。
 
 小型无行为维护不单建迭代。分类使用 `feat` / `perf` / `bugfix` / `refactor` / `test`。能力完成需符合规范的单项开发验收，不能以 SDK 或组件存在替代。
 
@@ -29,7 +29,7 @@
 | M1 最小闭环 | Agent 经 Pi SDK 运行并渲染 | ✅ 已完成，2026-10-16 |
 | M1.5 宿主自研 | Node 运行时归 `@huan/core` | ✅ 已完成，2026-10-18 |
 | M2 公共层固化 | 自研浏览器 Controller，移除 react-pi 依赖 | ✅ 已完成，2026-10-18 |
-| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.3 与刷新性能优化已完成；下一项 G1.4** |
+| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.4a 已完成；下一小阶段 G1.4b** |
 | M3 文件快照与审查 | 快照、ChangeSet、Diff、选择性恢复 | 延后，保留设计见 §7 |
 | M4 工作区增强 | 文件树、代码浏览、审查布局及进一步体验优化 | 延后，原生 Pi 兼容部分已迁入 G1，见 §3 |
 | M5 末语工坊接入 | Editor Bridge 与第二消费方 | 延后，见 §4 |
@@ -54,18 +54,22 @@
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
 | G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 的启动期交互已在G1.3c补齐并验收；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航已完成，SES-04 与 RUN-06 分支同步已验收（[证据](iteration/2026-10/2026-10-31-feat-session-tree.md)：主 agent 566 项测试、24 条 Chromium、类型与构建）；d fork/clone/import 已通过主 agent review与验收（598 项测试、29 条 Chromium、类型/构建/Lingui235通过，见[迭代记录](iteration/2026-10/2026-10-31-feat-session-fork-import.md)）。SES-01～SES-07、ENV-02 分支/导入与 RUN-06 分支同步开发验收完成；ENV-03启动期交互已由G1.3c独立通道补齐，见该迭代证据 |
 | G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | ✅ 开发完成；a运行操作、[b命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)、[c Host UI](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)经主agent直接review/修复，亲验38文件/685项测试、47条Chromium、lint/全部类型/build/Lingui299通过。RUN-01～05、RUN-07、MOD-01/04、RES-02/04及ENV-03启动交互验收；reload/认证/设置/MCP等仍归G1.4，终端专属组件遵循能力规范边界 |
-| G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 待启动；资源已有 SDK 装配，MCP 等内置工厂尚未注入 |
+| G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP/llama 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；下一项 b 重载/内置装配，每小阶段验证后提交 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 待启动；原生条件能力不因未配置而删项 |
 
 执行中若发现后阶段接口是前阶段的必要依赖，可先做最小依赖；跨阶段扩大范围需先更新本表和对应迭代文档，不把整个 G1 合并为一次巨型迭代。G1.2～G1.5 开工前按工作量拆成有独立出口的迭代。
 
 能力完成状态以本表为准；ENV-01、ENV-04 已完成，其余按阶段逐项验收。本表是其完成状态的维护位置。完成部分能力时，在所属阶段单元格注明具体 ID、剩余项和迭代证据，不只写“阶段进行中”。
 
-### 2.3 当前阶段：刷新性能已完成
+### 2.3 当前阶段：G1.4a 完成，下一项 b
 
-用户确认的[输入与运行态刷新性能](iteration/2026-11/2026-11-01-perf-react-subscriptions.md)已完成：侧栏按必要字段订阅、稳定运行时动作、隔离输入/Host UI 更新。主 agent 独立审阅修复后亲验 687 项测试、49 条 Chromium、lint/类型/build；250/1,000 条历史输入及流式输出不刷新无关行，生产对照中位数约 33ms。G1.4 待启动。
+G1.4a 设置/资源清单已完成，保存与应用分离。先提交 a，再实施 b 重载与内置装配；c/d 按阶段设计继续。
 
-用户确认的G1.3按[阶段设计](iteration/2026-10/2026-10-31-feat-commands-input-context.md)拆为a运行操作、b命令输入、c Host UI，均已完成开发与主agent亲验；保留598项/29条原始基线，累计685项测试/47条Chromium通过。下一项G1.4尚未启动。
+刷新性能已完成：
+
+用户确认的[输入与运行态刷新性能](iteration/2026-11/2026-11-01-perf-react-subscriptions.md)已完成：侧栏按必要字段订阅、稳定运行时动作、隔离输入/Host UI 更新。主 agent 独立审阅修复后亲验 687 项测试、49 条 Chromium、lint/类型/build；250/1,000 条历史输入及流式输出不刷新无关行，生产对照中位数约 33ms。后续按上面的 G1.4 分期推进。
+
+用户确认的G1.3按[阶段设计](iteration/2026-10/2026-10-31-feat-commands-input-context.md)拆为a运行操作、b命令输入、c Host UI，均已完成开发与主agent亲验；保留598项/29条原始基线，累计685项测试/47条Chromium通过。G1.4 分期见本节。
 
 以下为G1.2的交付背景：
 
