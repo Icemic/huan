@@ -29,7 +29,7 @@
 | M1 最小闭环 | Agent 经 Pi SDK 运行并渲染 | ✅ 已完成，2026-10-16 |
 | M1.5 宿主自研 | Node 运行时归 `@huan/core` | ✅ 已完成，2026-10-18 |
 | M2 公共层固化 | 自研浏览器 Controller，移除 react-pi 依赖 | ✅ 已完成，2026-10-18 |
-| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.4a/b 已完成；下一小阶段 G1.4c** |
+| **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **当前主线；G1.4a/b/c 已完成；G1.4d 公开管理接口待决策** |
 | M3 文件快照与审查 | 快照、ChangeSet、Diff、选择性恢复 | 延后，保留设计见 §7 |
 | M4 工作区增强 | 文件树、代码浏览、审查布局及进一步体验优化 | 延后，原生 Pi 兼容部分已迁入 G1，见 §3 |
 | M5 末语工坊接入 | Editor Bridge 与第二消费方 | 延后，见 §4 |
@@ -54,16 +54,16 @@
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
 | G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 的启动期交互已在G1.3c补齐并验收；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航已完成，SES-04 与 RUN-06 分支同步已验收（[证据](iteration/2026-10/2026-10-31-feat-session-tree.md)：主 agent 566 项测试、24 条 Chromium、类型与构建）；d fork/clone/import 已通过主 agent review与验收（598 项测试、29 条 Chromium、类型/构建/Lingui235通过，见[迭代记录](iteration/2026-10/2026-10-31-feat-session-fork-import.md)）。SES-01～SES-07、ENV-02 分支/导入与 RUN-06 分支同步开发验收完成；ENV-03启动期交互已由G1.3c独立通道补齐，见该迭代证据 |
 | G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | ✅ 开发完成；a运行操作、[b命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)、[c Host UI](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)经主agent直接review/修复，亲验38文件/685项测试、47条Chromium、lint/全部类型/build/Lingui299通过。RUN-01～05、RUN-07、MOD-01/04、RES-02/04及ENV-03启动交互验收；reload/认证/设置/MCP等仍归G1.4，终端专属组件遵循能力规范边界 |
-| G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP/llama 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；b [重载/基础内置装配完成](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)：RES-03 与 RES-05 codemode/tool-search 子项，主 agent review修复后亲验738项测试、59条Chromium、lint/类型/build；MCP 工厂与管理生命周期归 d；下一项 c 模型认证 |
+| G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP/llama 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；b [重载/基础内置装配完成](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)：RES-03 与 RES-05 codemode/tool-search 子项，主 agent review修复后亲验738项测试、59条Chromium、lint/类型/build；MCP 工厂与管理生命周期归 d；c [模型认证完成](iteration/2026-11/2026-11-02-feat-provider-auth.md)：MOD-02，主 agent review修复后亲验760项/63条、lint/类型/build；d MCP/llama管理的公开SDK接口缺口待决策 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 待启动；原生条件能力不因未配置而删项 |
 
 执行中若发现后阶段接口是前阶段的必要依赖，可先做最小依赖；跨阶段扩大范围需先更新本表和对应迭代文档，不把整个 G1 合并为一次巨型迭代。G1.2～G1.5 开工前按工作量拆成有独立出口的迭代。
 
 能力完成状态以本表为准；ENV-01、ENV-04 已完成，其余按阶段逐项验收。本表是其完成状态的维护位置。完成部分能力时，在所属阶段单元格注明具体 ID、剩余项和迭代证据，不只写“阶段进行中”。
 
-### 2.3 当前阶段：G1.4a/b 完成，下一项 c
+### 2.3 当前阶段：G1.4c 完成，d 接口决策
 
-G1.4a 设置/资源清单已完成并提交（322de27）。b 同会话重载与 codemode/tool-search 装配已完成，信任/生命周期经主 agent review修复及738项/59条验证；提交后进入 c 模型认证。MCP 工厂归 d 与凭据/连接生命周期一并验证。
+G1.4a（322de27）、b（27ce524）已提交。c 模型认证已完成并通过主 agent review/修复与760项/63条验证。d 尚未实施：Pi 1.4.0 的公开 MCP 工厂未提供管理对象，凭据存储选项引用的类也未导出；llama 工厂未公开导出。维持禁止私有深导入，需决定向上游补公开接口或允许以公开 pi-mcp/HTTP 契约维护 huan 管理层。
 
 刷新性能已完成：
 

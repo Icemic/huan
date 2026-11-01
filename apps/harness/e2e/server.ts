@@ -90,6 +90,103 @@ export default function (pi) {
 }
 `,
 )
+// 合成认证 provider：真实原生 provider + 本地 prompt/OAuth 模拟，不联网。
+// API key 与 OAuth 凭据由真实 ModelRuntime 写入临时 agentDir/auth.json。
+await writeFile(
+  join(env.agentDir, 'extensions', 'auth-probe.js'),
+  `export default function (pi) {
+  pi.registerProvider({
+    id: 'huan-auth-test',
+    name: '认证测试 Provider',
+    auth: {
+      apiKey: {
+        name: '测试 API key',
+        async login(interaction) {
+          await interaction.prompt({
+            type: 'secret',
+            message: '输入合成 API key',
+            placeholder: 'synthetic-e2e-key',
+          })
+          return { type: 'api_key', key: 'synthetic-e2e-key' }
+        },
+        async resolve({ credential }) {
+          return credential?.key
+            ? { auth: { apiKey: credential.key }, source: 'synthetic' }
+            : undefined
+        },
+      },
+      oauth: {
+        name: '测试 OAuth',
+        login: async (interaction) => {
+          const mode = await interaction.prompt({
+            type: 'select',
+            message: '选择授权方式',
+            options: [
+              { id: 'url', label: '授权链接' },
+              { id: 'device', label: '设备码' },
+            ],
+          })
+          if (mode === 'url') {
+            interaction.notify({
+              type: 'auth_url',
+              url: 'http://127.0.0.1:9/oauth',
+              instructions: '打开链接后输入测试授权码 test-code',
+            })
+          } else {
+            interaction.notify({
+              type: 'device_code',
+              userCode: 'TEST-CODE',
+              verificationUri: 'http://127.0.0.1:9/device',
+            })
+          }
+          const code = await interaction.prompt({
+            type: 'manual_code',
+            message: '输入测试授权码',
+            placeholder: 'test-code',
+          })
+          if (code !== 'test-code') throw new Error('invalid synthetic code')
+          return {
+            type: 'oauth',
+            refresh: 'synthetic-refresh',
+            access: 'synthetic-access',
+            expires: Date.now() + 3600000,
+          }
+        },
+        async refresh(credential) {
+          return credential
+        },
+        async toAuth() {
+          return { apiKey: 'synthetic-oauth' }
+        },
+      },
+    },
+    getModels() {
+      return [
+        {
+          id: 'auth-model',
+          name: '认证测试模型',
+          provider: 'huan-auth-test',
+          api: 'openai-completions',
+          baseUrl: 'http://127.0.0.1:9/v1',
+          input: ['text'],
+          reasoning: false,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          contextWindow: 32768,
+          maxTokens: 4096,
+        },
+      ]
+    },
+    stream() {
+      throw new Error('认证测试 provider 不提供聊天')
+    },
+    streamSimple() {
+      throw new Error('认证测试 provider 不提供聊天')
+    },
+  })
+}
+`,
+)
+
 await mkdir(join(env.workspace, 'docs'), { recursive: true })
 await mkdir(join(env.workspace, 'src'), { recursive: true })
 await writeFile(join(env.workspace, 'docs', '指南 文件.md'), '# 指南\n')
@@ -225,6 +322,43 @@ app.get('/__e2e__/info', (c) =>
     agentDir: env.agentDir,
   }),
 )
+
+// 认证测试专用：取消合成 provider 的在途操作并退出登录，保证用例相互独立。
+// 只作用于测试启动器注册的原生 provider，不进入生产应用。
+app.post('/__e2e__/provider-auth/reset', async (c) => {
+  const providerId = 'huan-auth-test'
+  const initial = await host.getProviderAuth()
+  for (const operation of initial.operations) {
+    if (
+      operation.providerId === providerId &&
+      operation.phase !== 'succeeded' &&
+      operation.phase !== 'failed' &&
+      operation.phase !== 'cancelled'
+    ) {
+      await host.cancelProviderAuth(operation.id)
+    }
+  }
+  const deadline = Date.now() + 3_000
+  while (Date.now() < deadline) {
+    const snapshot = await host.getProviderAuth()
+    const active = snapshot.operations.some(
+      (operation) =>
+        operation.providerId === providerId &&
+        operation.phase !== 'succeeded' &&
+        operation.phase !== 'failed' &&
+        operation.phase !== 'cancelled',
+    )
+    const provider = snapshot.providers.find((item) => item.providerId === providerId)
+    if (!active && provider && !provider.configured) return c.json({ ok: true })
+    if (!active && provider) {
+      const result = await host.logoutProvider(providerId)
+      if (result.status === 'invalid') return c.json({ ok: true })
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return c.json({ ok: false }, 500)
+})
+
 // 创建隔离项目（可选写入项目扩展探针）；路径与会话都在临时根内。
 app.post('/__e2e__/projects', async (c) => {
   const body = (await c.req.json()) as {

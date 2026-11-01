@@ -17,6 +17,11 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessHostInteractionSnapshot,
   HarnessHostUiRequest,
+  HarnessProviderAuthCancelResult,
+  HarnessProviderAuthOperation,
+  HarnessProviderAuthRespondResult,
+  HarnessProviderAuthSnapshot,
+  HarnessProviderAuthStartResult,
   HarnessReloadOperation,
   HarnessReloadResult,
   HarnessResourceSnapshot,
@@ -280,6 +285,175 @@ export const isHostInteractionSnapshot = (
   value.requests.every(isHostInteractionRequest) &&
   Array.isArray(value.notifications) &&
   value.notifications.every(isHostInteractionNotification)
+
+const isProviderAuthMethod = (value: unknown): boolean => value === 'api_key' || value === 'oauth'
+
+const isProviderAuthMethodInfo = (value: unknown): boolean =>
+  isRecord(value) &&
+  isProviderAuthMethod(value.type) &&
+  typeof value.label === 'string' &&
+  typeof value.loginable === 'boolean' &&
+  isOptionalBoolean(value.subscription)
+
+const isProviderAuthSource = (value: unknown): boolean =>
+  value === undefined ||
+  value === 'stored' ||
+  value === 'runtime' ||
+  value === 'environment' ||
+  value === 'fallback' ||
+  value === 'models-json-key' ||
+  value === 'models-json-command'
+
+const isProviderAuthProvider = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.providerId === 'string' &&
+  value.providerId.length > 0 &&
+  typeof value.name === 'string' &&
+  typeof value.configured === 'boolean' &&
+  isProviderAuthSource(value.source) &&
+  (value.storedCredentialType === undefined || isProviderAuthMethod(value.storedCredentialType)) &&
+  Array.isArray(value.methods) &&
+  value.methods.every(isProviderAuthMethodInfo) &&
+  typeof value.ambientOnly === 'boolean'
+
+const isProviderAuthLink = (value: unknown): boolean =>
+  isRecord(value) && typeof value.url === 'string' && isOptionalString(value.label)
+
+const isProviderAuthEvent = (value: unknown): boolean => {
+  if (!isRecord(value) || typeof value.eventId !== 'string' || typeof value.type !== 'string')
+    return false
+  switch (value.type) {
+    case 'info':
+      return (
+        typeof value.message === 'string' &&
+        (value.links === undefined ||
+          (Array.isArray(value.links) && value.links.every(isProviderAuthLink)))
+      )
+    case 'auth_url':
+      return typeof value.url === 'string' && isOptionalString(value.instructions)
+    case 'device_code':
+      return (
+        typeof value.userCode === 'string' &&
+        typeof value.verificationUri === 'string' &&
+        isOptionalNumber(value.intervalSeconds) &&
+        isOptionalNumber(value.expiresInSeconds)
+      )
+    case 'progress':
+      return typeof value.message === 'string'
+    default:
+      return false
+  }
+}
+
+const isProviderAuthPrompt = (value: unknown): boolean => {
+  if (
+    !isRecord(value) ||
+    typeof value.promptId !== 'string' ||
+    typeof value.message !== 'string' ||
+    !isOptionalString(value.placeholder)
+  ) {
+    return false
+  }
+  switch (value.kind) {
+    case 'text':
+    case 'secret':
+    case 'manual_code':
+      return true
+    case 'select':
+      return (
+        Array.isArray(value.options) &&
+        value.options.every(
+          (option) =>
+            isRecord(option) &&
+            typeof option.id === 'string' &&
+            typeof option.label === 'string' &&
+            isOptionalString(option.description),
+        )
+      )
+    default:
+      return false
+  }
+}
+
+const isProviderAuthFailureCode = (value: unknown): boolean =>
+  value === undefined ||
+  value === 'unsupported' ||
+  value === 'login-failed' ||
+  value === 'logout-failed' ||
+  value === 'sync-failed' ||
+  value === 'cancelled'
+
+const isProviderAuthResult = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.status === 'succeeded' || value.status === 'failed' || value.status === 'cancelled') &&
+  isProviderAuthFailureCode(value.code) &&
+  typeof value.message === 'string' &&
+  isOptionalBoolean(value.retryable) &&
+  isOptionalBoolean(value.credentialUncertain)
+
+/** 认证操作守卫：状态只接受协议列出的受控阶段。 */
+export const isProviderAuthOperation = (value: unknown): value is HarnessProviderAuthOperation =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  value.id.length > 0 &&
+  typeof value.providerId === 'string' &&
+  typeof value.providerName === 'string' &&
+  (value.kind === 'login' || value.kind === 'logout') &&
+  (value.method === undefined || isProviderAuthMethod(value.method)) &&
+  (value.phase === 'starting' ||
+    value.phase === 'waiting' ||
+    value.phase === 'prompt' ||
+    value.phase === 'verifying' ||
+    value.phase === 'cancelling' ||
+    value.phase === 'succeeded' ||
+    value.phase === 'failed' ||
+    value.phase === 'cancelled') &&
+  typeof value.startedAt === 'string' &&
+  typeof value.updatedAt === 'string' &&
+  Array.isArray(value.events) &&
+  value.events.every(isProviderAuthEvent) &&
+  (value.prompt === undefined || isProviderAuthPrompt(value.prompt)) &&
+  (value.result === undefined || isProviderAuthResult(value.result))
+
+/** 认证权威快照守卫。 */
+export const isProviderAuthSnapshot = (value: unknown): value is HarnessProviderAuthSnapshot =>
+  isRecord(value) &&
+  typeof value.seq === 'number' &&
+  typeof value.authRevision === 'number' &&
+  Array.isArray(value.providers) &&
+  value.providers.every(isProviderAuthProvider) &&
+  Array.isArray(value.operations) &&
+  value.operations.every(isProviderAuthOperation)
+
+/** 登录/退出启动结果守卫。 */
+export const isProviderAuthStartResult = (
+  value: unknown,
+): value is HarnessProviderAuthStartResult => {
+  if (!isRecord(value)) return false
+  if (value.status === 'invalid') return typeof value.message === 'string'
+  if (value.status === 'started' || value.status === 'busy') {
+    return isProviderAuthOperation(value.operation)
+  }
+  return false
+}
+
+/** 回填结果守卫。 */
+export const isProviderAuthRespondResult = (
+  value: unknown,
+): value is HarnessProviderAuthRespondResult =>
+  isRecord(value) &&
+  (value.status === 'accepted' ||
+    value.status === 'stale' ||
+    (value.status === 'invalid' && typeof value.message === 'string'))
+
+/** 取消结果守卫。 */
+export const isProviderAuthCancelResult = (
+  value: unknown,
+): value is HarnessProviderAuthCancelResult =>
+  isRecord(value) &&
+  (((value.status === 'cancelling' || value.status === 'finished') &&
+    isProviderAuthOperation(value.operation)) ||
+    value.status === 'not-found')
 
 /** 会话运行期 Host UI 状态守卫（快照可携带；缺失表示无扩展状态）。 */
 export const isThreadHostUi = (value: unknown): boolean => {

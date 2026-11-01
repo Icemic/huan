@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：738 项测试、59 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：760 项测试、63 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.4c 模型认证（✅ 开发完成，`feat`）
+
+记录：[模型认证](iteration/2026-11/2026-11-02-feat-provider-auth.md)
+
+- 协议13，指定 agentDir 内 API key/OAuth 登录、状态、回填、取消、退出与多窗接管；认证操作与普通Host UI/聊天隔离。
+- 主 agent 修复取消未结算provider锁、轮询生命周期/宿主重启与认证版本订阅，亲验760项测试、63条Chromium、lint/类型/build。
 
 ### G1.4b 资源重载与基础内置装配（✅ 开发完成，`feat`）
 

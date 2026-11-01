@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 12（新增资源重载操作/版本与嵌套工具父调用 ID；设置文件读写、revision 冲突与资源清单保持）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 13（新增独立 provider 认证操作/安全快照与回填；此前重载、设置与资源契约保持）。
 
 **UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -130,6 +130,12 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 `reloadResources` 在现有会话结构闸门内调用公开 `AgentSession.reload`，消息、分支与订阅保持不替换。旧交互与指令结算，重载启动期请求经宿主通道应答；完成状态和资源版本广播使多窗命令目录失效。loader 的公开 reload 包装与首次装配共用信任解析，仅允许本次 bootstrap 用户扩展裁决，不使用旧项目处理器。空白页只重建目标 cwd 的待消费装配，新增受保护资源重新检查信任，不影响同 cwd 的 live 会话。失败可能已关闭旧扩展，明确报告并允许修复后重试。
 
 codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，遵循 extensions 启停与 defaultTools；默认不激活，嵌套工具事件保留 parentToolCallId。MCP 工厂与凭据/管理生命周期一并接入，当前仍未注入。详见[重载迭代](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)。
+
+### 3.2.9 Provider 认证
+
+共享 ModelRuntime 承接 API key/OAuth 登录与退出；独立认证 broker 管理操作、单步回填与取消，不复用普通 Host UI。回填值只进入内存 resolver，provider 原始错误不进入日志/快照，凭据由 SDK 保存至指定 agentDir/auth.json。状态仅包含 provider、已存凭据类型、方法、授权链接/设备码与受控结果。取消先 abort，SDK 已提交成功则以成功结算；不响应取消的旧调用在真正结算前仍占用该 provider，避免后续凭据操作交错。
+
+浏览器共享认证快照轮询（活动约 1 秒、空闲约 2 秒），只需可用性的组件订阅 authRevision；无订阅者时退订。登录/退出后本地刷新目录，不自动换模型。退出不清除环境变量/models.json 或撤销远端授权。详见[认证迭代](iteration/2026-11/2026-11-02-feat-provider-auth.md)。
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 

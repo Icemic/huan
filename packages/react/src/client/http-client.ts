@@ -69,6 +69,11 @@
  *   DELETE /threads/:id             → 204（线程本就不存在时同样）
  *   POST   /threads/:id/host-ui     → 204                        (body: { response })
  *   GET    /threads/:id/events      → HarnessClientEvent 的 SSE（?snapshot=false 跳过首帧快照）
+ *   GET    /provider-auth           → HarnessProviderAuthSnapshot（客户端订阅用轮询）
+ *   POST   /provider-auth/login     → HarnessProviderAuthStartResult  (body: { providerId, method })
+ *   POST   /provider-auth/respond   → HarnessProviderAuthRespondResult (body: { operationId, promptId, value })
+ *   POST   /provider-auth/cancel    → HarnessProviderAuthCancelResult (body: { operationId })
+ *   POST   /provider-auth/logout    → HarnessProviderAuthStartResult  (body: { providerId })
  */
 
 import type {
@@ -95,6 +100,10 @@ import type {
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
+  HarnessProviderAuthCancelResult,
+  HarnessProviderAuthRespondResult,
+  HarnessProviderAuthStartResult,
+  HarnessProviderAuthStreamEvent,
   HarnessRecentProject,
   HarnessReloadResult,
   HarnessResourceQueryInput,
@@ -132,6 +141,10 @@ import {
 } from './event-source.js'
 import {
   isHostInteractionSnapshot,
+  isProviderAuthCancelResult,
+  isProviderAuthRespondResult,
+  isProviderAuthSnapshot,
+  isProviderAuthStartResult,
   isReloadResult,
   isResourceSnapshot,
   isSettingsSaveResult,
@@ -894,6 +907,62 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
     }
   }
 
+  /**
+   * 认证快照订阅。
+   *
+   * 认证事件频率低，但每个窗口都需要在登录/退出后更新模型目录与宿主状态。
+   * 这里用轻量轮询而不是独立 SSE：避免每个窗口再占一条长连接（多窗口下会
+   * 挤占浏览器同源连接上限），同时仍保持“首帧 + 后续快照”的订阅语义。
+   * 有进行中操作时 1s 轮询，空闲时 2s；断开由调用方取消计时器。
+   */
+  const subscribeProviderAuth: HarnessClient['subscribeProviderAuth'] = (listener) => {
+    let closed = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let latestSeq = -1
+
+    const poll = async () => {
+      let delay = 2_000
+      try {
+        const value = await readJson(
+          await send(`${base}/provider-auth`, 'GET'),
+          'fetching provider auth',
+        )
+        if (closed) return
+        if (!isProviderAuthSnapshot(value)) {
+          throw invalidResponse(
+            'fetching provider auth',
+            'expected a valid provider auth snapshot.',
+          )
+        }
+        if (value.seq !== latestSeq) {
+          latestSeq = value.seq
+          void invokeUserCallback('huan-react', 'onProviderAuth', listener, {
+            type: 'snapshot',
+            seq: value.seq,
+            snapshot: value,
+          } satisfies HarnessProviderAuthStreamEvent)
+        }
+        const active = value.operations.some(
+          (operation) =>
+            operation.phase !== 'succeeded' &&
+            operation.phase !== 'failed' &&
+            operation.phase !== 'cancelled',
+        )
+        if (active) delay = 1_000
+      } catch (error) {
+        if (closed) return
+        onStreamError?.(error)
+      }
+      if (!closed) timer = setTimeout(() => void poll(), delay)
+    }
+
+    void poll()
+    return () => {
+      closed = true
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   return {
     getHostInfo: async () => {
       const value = await readJson(await send(`${base}/host`, 'GET'), 'fetching host information')
@@ -917,6 +986,66 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
     },
 
     subscribeHostInteractions,
+
+    getProviderAuth: async () => {
+      const value = await readJson(
+        await send(`${base}/provider-auth`, 'GET'),
+        'fetching provider auth',
+      )
+      if (!isProviderAuthSnapshot(value)) {
+        throw invalidResponse('fetching provider auth', 'expected a valid provider auth snapshot.')
+      }
+      return value
+    },
+
+    subscribeProviderAuth,
+
+    startProviderLogin: async (input) => {
+      const value = await readJson(
+        await send(`${base}/provider-auth/login`, 'POST', input),
+        'starting provider login',
+      )
+      if (!isProviderAuthStartResult(value)) {
+        throw invalidResponse('starting provider login', 'expected a valid login start result.')
+      }
+      return value as HarnessProviderAuthStartResult
+    },
+
+    respondProviderAuthPrompt: async (input) => {
+      const value = await readJson(
+        await send(`${base}/provider-auth/respond`, 'POST', input),
+        'responding to provider auth',
+      )
+      if (!isProviderAuthRespondResult(value)) {
+        throw invalidResponse(
+          'responding to provider auth',
+          'expected a valid auth response result.',
+        )
+      }
+      return value as HarnessProviderAuthRespondResult
+    },
+
+    cancelProviderAuth: async (operationId) => {
+      const value = await readJson(
+        await send(`${base}/provider-auth/cancel`, 'POST', { operationId }),
+        'cancelling provider auth',
+      )
+      if (!isProviderAuthCancelResult(value)) {
+        throw invalidResponse('cancelling provider auth', 'expected a valid cancel result.')
+      }
+      return value as HarnessProviderAuthCancelResult
+    },
+
+    logoutProvider: async (providerId) => {
+      const value = await readJson(
+        await send(`${base}/provider-auth/logout`, 'POST', { providerId }),
+        'logging out provider',
+      )
+      if (!isProviderAuthStartResult(value)) {
+        throw invalidResponse('logging out provider', 'expected a valid logout start result.')
+      }
+      return value as HarnessProviderAuthStartResult
+    },
 
     respondToHostInteraction: async (response) => {
       const value = await readJson(

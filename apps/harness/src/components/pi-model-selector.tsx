@@ -12,6 +12,7 @@ import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
 import { setModelCatalogCache } from './pi-model-catalog'
 import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
+import { useProviderAuthRevision } from './pi-provider-auth-store'
 import { useWorkspace } from './workspace-context'
 
 type CatalogModel = {
@@ -74,6 +75,8 @@ export const PiModelSelector = memo(function PiModelSelector({
   const [models, setModels] = useState<readonly ModelOption[]>([])
   const [open, setOpen] = useState(false)
   const intent = usePiIntent()
+  // 认证完成后宿主的可用模型可能变化；认证版本作为目录失效信号。
+  const authRevision = useProviderAuthRevision()
 
   // /model 与 /thinking 打开同一模型选择器；模型目录缓存也供提交前能力校验。
   useEffect(() => {
@@ -85,7 +88,7 @@ export const PiModelSelector = memo(function PiModelSelector({
   // 草稿（模块级 store，同步可读）；订阅以便展示即时反馈。
   const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
 
-  // 目录刷新代数变化时必须重读共享目录，即使固定 cwd 未变。
+  // 目录刷新代数或认证版本变化时必须重读共享目录，即使固定 cwd 未变。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 宿主刷新代数是目录失效信号
   useEffect(() => {
     if (!projectPath) return
@@ -103,7 +106,7 @@ export const PiModelSelector = memo(function PiModelSelector({
     return () => {
       active = false
     }
-  }, [projectPath, metadata.modelCatalogRevision])
+  }, [projectPath, metadata.modelCatalogRevision, authRevision])
 
   // 会话确认后清除草稿（此后以会话自身的 config 为准）。
   const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID

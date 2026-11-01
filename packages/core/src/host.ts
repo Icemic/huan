@@ -154,6 +154,7 @@ import {
   type ProjectTrustSource,
   prepareProjectTrust,
 } from './project-trust.js'
+import { createProviderAuthBroker } from './provider-auth.js'
 import { resourceSnapshotOf } from './resource-inventory.js'
 import {
   commandArgumentsFromLoader,
@@ -4695,6 +4696,31 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   let catalogRefreshInFlight: Promise<HarnessModelRefreshResult> | undefined
 
   /**
+   * 认证 broker：操作表、回填/取消与持久化竞态全部在该模块处理。
+   * host 只提供本地安全刷新钩子，并把可用性变化广播到已有会话。
+   */
+  const providerAuth = createProviderAuthBroker({
+    runtime: modelRuntime,
+    async onAvailabilityChanged(providerId) {
+      try {
+        // 只做本地刷新（allowNetwork:false）；认证流程本身可能已经联网，
+        // 这里不再主动拉取远程目录或发起模型请求。
+        await withTimeout(
+          modelRuntime.refresh({ allowNetwork: false, providers: [providerId] }),
+          refreshTimeoutMs,
+          '认证后模型目录刷新',
+        )
+      } catch {
+        // 只保留受控诊断，不把可能含凭据的原始错误写入 UI 可读信息。
+        pushDiagnostic('认证后本地模型目录刷新失败')
+        safeDiagnostics.add('catalog-refresh-failed')
+      }
+      modelCatalogRevision += 1
+      for (const record of records.values()) emitSnapshot(record)
+    },
+  })
+
+  /**
    * 解析设置/资源查询目标。
    *
    * 只接受会话 ID 或绝对起始目录，且两者互斥；不接受任意配置文件路径。
@@ -5937,6 +5963,38 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return interactions.snapshot()
     },
 
+    async getProviderAuth() {
+      assertActive()
+      // 每次查询都重读凭据元数据（不解析密钥）；外部 Pi 改动也能及时发现。
+      await providerAuth.refresh()
+      return providerAuth.snapshot()
+    },
+
+    subscribeProviderAuth(listener) {
+      if (disposed) return () => {}
+      return providerAuth.subscribe(listener)
+    },
+
+    async startProviderLogin(input) {
+      assertActive()
+      return providerAuth.startLogin(input.providerId, input.method)
+    },
+
+    async respondProviderAuthPrompt(input) {
+      assertActive()
+      return providerAuth.respond(input)
+    },
+
+    async cancelProviderAuth(operationId) {
+      assertActive()
+      return providerAuth.cancel(operationId)
+    },
+
+    async logoutProvider(providerId) {
+      assertActive()
+      return providerAuth.logout(providerId)
+    },
+
     subscribeHostInteractions(listener) {
       if (disposed) return () => {}
       return interactions.subscribe((snapshot) => {
@@ -6143,8 +6201,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       if (disposed) return
       disposed = true
       generation += 1
-      // 先结算所有宿主级启动请求，解除 project/session 装配等待。
+      // 先结算所有宿主级启动请求与认证流程，解除 project/session 装配等待。
       interactions.dispose()
+      await providerAuth.dispose()
       for (const pending of pendingOpens.values()) pending.controller.abort()
       pendingOpens.clear()
       for (const record of [...records.values()]) {

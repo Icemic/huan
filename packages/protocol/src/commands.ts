@@ -68,15 +68,14 @@ export const HARNESS_BUILTIN_COMMANDS: readonly HarnessBuiltinCommand[] = [
   {
     name: 'login',
     description: '配置 provider 认证',
-    argumentHint: '<provider>',
-    stage: 'g1.4',
-    availability: '认证入口在 G1.4 实施；当前可在 Pi 中完成认证后重启宿主。',
+    argumentHint: '[provider]',
+    stage: 'available',
   },
   {
     name: 'logout',
-    description: '移除 provider 认证',
-    stage: 'g1.4',
-    availability: '认证入口在 G1.4 实施；当前可在 Pi 中完成认证后重启宿主。',
+    description: '移除 provider 已存认证',
+    argumentHint: '[provider]',
+    stage: 'available',
   },
   {
     name: 'llama',

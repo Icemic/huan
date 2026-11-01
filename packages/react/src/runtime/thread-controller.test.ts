@@ -102,6 +102,24 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     subscribeHostInteractions() {
       return () => {}
     },
+    async getProviderAuth() {
+      return { seq: 0, authRevision: 0, providers: [], operations: [] }
+    },
+    subscribeProviderAuth() {
+      return () => {}
+    },
+    async startProviderLogin() {
+      return { status: 'invalid', message: '测试客户端不支持认证' }
+    },
+    async respondProviderAuthPrompt() {
+      return { status: 'stale' }
+    },
+    async cancelProviderAuth() {
+      return { status: 'not-found' }
+    },
+    async logoutProvider() {
+      return { status: 'invalid', message: '测试客户端不支持认证' }
+    },
     async respondToHostInteraction() {
       return { accepted: true }
     },

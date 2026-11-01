@@ -181,6 +181,17 @@ const commandMatches = (command: AppCommand, prefix: string): boolean => {
   )
 }
 
+/** 名称匹配优先于描述匹配，避免短前缀（如 /pro）被描述里的词抢先选中。 */
+const commandMatchRank = (command: AppCommand, prefix: string): number => {
+  const needle = prefix.trim().toLowerCase()
+  const name = command.name.toLowerCase()
+  if (!needle) return 0
+  if (name === needle) return 0
+  if (name.startsWith(needle)) return 1
+  if (name.includes(needle)) return 2
+  return 3
+}
+
 const commandItems = (
   commands: readonly AppCommand[],
   prefix: string,
@@ -191,6 +202,8 @@ const commandItems = (
     .filter((command) => commandMatches(command, prefix))
     .sort((left, right) => {
       if (left.available !== right.available) return left.available ? -1 : 1
+      const rank = commandMatchRank(left, prefix) - commandMatchRank(right, prefix)
+      if (rank !== 0) return rank
       return left.name.localeCompare(right.name)
     })
     .slice(0, 40)
@@ -897,6 +910,34 @@ export function usePiComposer(): PiComposerController {
     }
   }, [aui])
 
+  /**
+   * /login 与 /logout 打开同一认证面板；带参数时先按宿主 provider 目录验证，
+   * 未知 ID 只在本提示中展示，不作为 prompt 发给模型。
+   */
+  const runProviderAuthCommand = useCallback(
+    async (mode: 'login' | 'logout', args: string): Promise<boolean> => {
+      const providerId = args.trim()
+      if (providerId) {
+        try {
+          const snapshot = await harnessHttpClient.getProviderAuth()
+          if (!snapshot.providers.some((provider) => provider.providerId === providerId)) {
+            setNotice(`未知 provider：${providerId}。该 ID 不会发送给模型。`)
+            return false
+          }
+        } catch {
+          setNotice('无法读取 provider 列表，请检查宿主连接。')
+          return false
+        }
+      }
+      requestPiIntent('provider-auth', {
+        ...(providerId ? { provider: providerId } : {}),
+        mode,
+      })
+      return true
+    },
+    [],
+  )
+
   /** 执行一个内置命令；返回 true 表示输入已处理（可清空输入框）。 */
   const runBuiltinCommand = useCallback(
     async (command: AppCommand, args: string): Promise<boolean> => {
@@ -987,6 +1028,10 @@ export function usePiComposer(): PiComposerController {
         case 'settings':
           requestPiIntent('settings')
           return true
+        case 'login':
+          return runProviderAuthCommand('login', args)
+        case 'logout':
+          return runProviderAuthCommand('logout', args)
         case 'reload':
           return runReloadCommand()
         default:
@@ -1002,6 +1047,7 @@ export function usePiComposer(): PiComposerController {
       isPending,
       runModelCommand,
       runNameCommand,
+      runProviderAuthCommand,
       runReloadCommand,
       runThinkingCommand,
     ],

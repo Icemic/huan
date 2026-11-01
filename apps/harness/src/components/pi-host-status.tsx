@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { harnessHttpClient } from './pi-http-client'
 import { PiModelSelector } from './pi-model-selector'
+import { useProviderAuthRevision } from './pi-provider-auth-store'
 
 const sourceLabel = (source: HarnessConfigSource) => {
   switch (source) {
@@ -27,9 +28,11 @@ export function PiHostStatus() {
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  // 认证/退出后重新读取 readiness；不自动切换当前模型。
+  const authRevision = useProviderAuthRevision()
 
-  // attempt 是用户主动重新查询的触发器，不是请求参数。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 每次显式重试都需要重新查询。
+  // attempt 是用户主动重新查询的触发器，不是请求参数；authRevision 变化也需重读。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 每次显式重试或认证变化都需要重新查询。
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -51,7 +54,7 @@ export function PiHostStatus() {
     return () => {
       active = false
     }
-  }, [attempt])
+  }, [attempt, authRevision])
 
   const readiness = info?.defaultModel.readiness
   const pending = !session?.id || session.id === '__pending__'

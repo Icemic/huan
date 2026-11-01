@@ -11,6 +11,14 @@
  */
 
 import type {
+  HarnessProviderAuthCancelResult,
+  HarnessProviderAuthMethod,
+  HarnessProviderAuthRespondResult,
+  HarnessProviderAuthSnapshot,
+  HarnessProviderAuthStartResult,
+  HarnessProviderAuthStreamEvent,
+} from './auth.js'
+import type {
   HarnessCommandArgumentCompletion,
   HarnessCommandArgumentInput,
   HarnessCommandCatalog,
@@ -95,6 +103,28 @@ export interface HarnessClient {
   getHostInteractions(): Promise<HarnessHostInteractionSnapshot>
   /** 订阅宿主级交互；首帧为权威快照，断线重连同样以快照恢复。 */
   subscribeHostInteractions(listener: (event: HarnessHostInteractionEvent) => void): () => void
+  /**
+   * 认证权威快照：provider 可登录方法、凭据类型与进行中的操作。
+   * 不包含凭据原文、auth.json 内容或 provider 原始错误。
+   */
+  getProviderAuth(): Promise<HarnessProviderAuthSnapshot>
+  /** 订阅认证快照（传输层可轮询）；首帧即权威快照，多窗口共享同一 broker。 */
+  subscribeProviderAuth(listener: (event: HarnessProviderAuthStreamEvent) => void): () => void
+  /** 启动登录；返回 started 后流程在后台继续，进度经订阅恢复。 */
+  startProviderLogin(input: {
+    providerId: string
+    method: HarnessProviderAuthMethod
+  }): Promise<HarnessProviderAuthStartResult>
+  /** 回填当前提示；值只进入宿主内存 resolver，不出现在任何响应/快照中。 */
+  respondProviderAuthPrompt(input: {
+    operationId: string
+    promptId: string
+    value: string
+  }): Promise<HarnessProviderAuthRespondResult>
+  /** 请求取消登录/退出；与持久化提交点竞态以操作终态为准。 */
+  cancelProviderAuth(operationId: string): Promise<HarnessProviderAuthCancelResult>
+  /** 移除已存凭据；同 provider 的登录/退出互斥。 */
+  logoutProvider(providerId: string): Promise<HarnessProviderAuthStartResult>
   /** 应答宿主级请求；已结算/未知 ID 返回 accepted=false（幂等）。 */
   respondToHostInteraction(
     response: HarnessHostInteractionResponse,

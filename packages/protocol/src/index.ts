@@ -19,10 +19,28 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 12 as const
+export const HARNESS_PROTOCOL_VERSION = 13 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
+export type {
+  HarnessProviderAuthCancelResult,
+  HarnessProviderAuthEvent,
+  HarnessProviderAuthFailureCode,
+  HarnessProviderAuthMethod,
+  HarnessProviderAuthMethodInfo,
+  HarnessProviderAuthOperation,
+  HarnessProviderAuthOperationKind,
+  HarnessProviderAuthPhase,
+  HarnessProviderAuthPrompt,
+  HarnessProviderAuthProvider,
+  HarnessProviderAuthRespondResult,
+  HarnessProviderAuthResult,
+  HarnessProviderAuthSnapshot,
+  HarnessProviderAuthSource,
+  HarnessProviderAuthStartResult,
+  HarnessProviderAuthStreamEvent,
+} from './auth.js'
 export type { HarnessClient } from './client.js'
 export type {
   HarnessBuiltinCommand,
