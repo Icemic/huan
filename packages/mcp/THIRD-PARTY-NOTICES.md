@@ -25,14 +25,16 @@
 另外参考但未直接复制运行时实现的路径：
 
 - `packages/coding-agent/src/utils/text.ts`（BOM 剥离；本地为等价的一行实现）
-- `packages/coding-agent/src/config.ts`（仅参考项目配置目录概念；本地固定为 `.huan`）
+- `packages/coding-agent/src/config.ts`（仅参考项目配置目录概念；本地与 Pi 一致使用 `.pi`）
 
 ## 本地差异
 
-huan 只移植配置阶段需要的内容，并针对隔离存储做了以下调整：
+huan 只移植配置阶段需要的内容，并针对共享配置与本地存储边界做了以下调整：
 
-1. 路径改为 `<agentDir>/huan/mcp.json` 与 `<cwd>/.huan/mcp.json`；不读取、不迁移
-   或修改 `<agentDir>/mcp.json`、`<cwd>/.pi/mcp.json`、`mcp-auth.json`、`mcp.log`。
+1. 用户/项目配置与 Pi 共用 `<agentDir>/mcp.json` 与 `<cwd>/.pi/mcp.json`，保留原文
+   与未知字段；不读取、不迁移、不修改旧隔离路径 `huan/mcp.json` / `.huan/mcp.json`。
+   OAuth 凭据与日志路径仍为 `<agentDir>/huan/mcp-auth.json` / `mcp.log`（本阶段只定义），不读写 Pi 的
+   同名认证/日志文件。
 2. 项目配置是否读取由调用方显式传入的 `projectTrusted` 决定，不以文件存在代替信任。
 3. 保留 `mcpServers`、`autoEnableCodemode`、exposure 通配/别名、namespace 规范化、
    项目完整条目替换、`enabled`/`exposure`/`toolExposure` 三字段 override、逐项诊断、
@@ -40,8 +42,10 @@ huan 只移植配置阶段需要的内容，并针对隔离存储做了以下调
 4. 未移植 `McpServerRegistry`、扩展注册、连接协调、工具/资源、OAuth 流程或 TUI 交互；
    这些属于后续阶段，本包不预建运行时架构。
 5. 增补：512 KiB UTF-8 有界读取、BOM 支持、实际字节 SHA-256 revision、拒绝无效
-   UTF-8、原型污染键与嵌套深度检查、读取/保存的符号链接拒绝、同目录 `wx` 临时文件
-   （0600）+ rename + 回读、单进程规范化路径写队列、强制 `expectedRevision`。
+   UTF-8、原型污染键与嵌套深度检查、目标文件与 `<cwd>/.pi` 组件的符号链接拒绝
+   （根 agentDir/cwd 符号链接仍允许）、同目录 `wx` 临时文件（0600）+ rename + 回读、
+   单进程规范化路径写队列、强制 `expectedRevision`。revision 只检测读取后已发生的
+   修改；与 Pi 同时编辑同一文件没有共同锁协议，不提供跨进程 CAS。
 6. JSON 解析错误只保留位置，不回显可能包含秘密的原文；服务器校验错误不回显配置值。
 7. 上游 `errors: string[]` 改为结构化 `McpConfigIssue[]`；读取结果与合并结果不再
    返回项目原文给普通快照调用方。

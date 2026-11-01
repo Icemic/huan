@@ -111,15 +111,15 @@ huan 已确认增加多项目工作区：会话归属工作区而非单项目，
 
 ### 3.6 MCP
 
-huan 的 MCP 集成层为 `@huan/mcp`，依赖官方 `@earendil-works/pi-mcp` 协议库，与 Pi 内置 MCP 集成同层；不引入 `pi-mcp-adapter` 等第三方替代品。用户配置存 `<agentDir>/huan/mcp.json`，项目配置存 `<cwd>/.huan/mcp.json`；不自动读取、合并或修改 Pi TUI 的 MCP 配置，凭据与日志也使用 huan 子目录。未来实现路线的调整由 roadmap 维护，下列验收语义不因路线而降低。
+huan 的 MCP 集成层为 `@huan/mcp`，依赖官方 `@earendil-works/pi-mcp` 协议库，与 Pi 内置 MCP 集成同层；不引入 `pi-mcp-adapter` 等第三方替代品。用户配置存 `<agentDir>/mcp.json`，项目配置存 `<cwd>/.pi/mcp.json`，与 Pi TUI 共用服务器定义及配置语义；持久化更改会影响双方后续加载，保存与运行时应用分开。OAuth 凭据和日志分别使用 `<agentDir>/huan/mcp-auth.json` 与 `<agentDir>/huan/mcp.log`，不共享 Pi 的认证/日志文件；huan 专属设置独立存储。未来实现路线的调整由 roadmap 维护，下列验收语义不因路线而降低。
 
 | ID | Pi 基准 / 接入方向 | GUI 要求与关键验收 |
 | --- | --- | --- |
-| MCP-01 | huan 独立 `mcp.json`、`@huan/mcp` | 用户与受信项目配置加载、覆盖及校验遵循 Pi 语义，但存储独立，不自动导入或改写 Pi 配置；stdio / streamable HTTP 可连接，配置错误不阻断其他服务器；无受支持服务器时可正常使用 Pi |
+| MCP-01 | Pi 共享 `mcp.json`、`@huan/mcp` | 用户与受信项目配置加载、覆盖及校验遵循 Pi 语义，共用用户/项目文件并保留未知字段；stdio / streamable HTTP 可连接，配置错误不阻断其他服务器；无受支持服务器时可正常使用 Pi |
 | MCP-02 | `/mcp` 状态、工具与资源 | 展示连接、配置来源、工具/资源与错误，模型可发现并调用工具及读取资源；支持连接中的状态与动态工具列表变化 |
 | MCP-03 | `/mcp` 启停、重连与 exposure | GUI 可启停、重连、调整服务器和工具暴露；保存到正确来源，项目 override 与会话临时注册区分；hidden/deferred/codemode/direct 语义正确 |
 | MCP-04 | MCP OAuth | GUI 完成登录、退出、重定向回填和错误恢复；认证按服务器身份与 URL 隔离，凭据不通过普通消息泄露 |
-| MCP-05 | 配置维护、reload、shutdown | GUI 可新增/修改/移除服务器配置，保留无关字段并提示风险；重载/换会话/退出正确回收连接和子进程；用本地测试服务验证，不依赖私人服务 |
+| MCP-05 | 配置维护、reload、shutdown | GUI 可新增/修改/移除服务器配置，保留无关字段并提示共享影响；revision 拒绝已过期提交，但不承诺与 Pi 跨进程同时写入的原子 CAS；重载/换会话/退出正确回收连接和子进程；用本地测试服务验证，不依赖私人服务 |
 
 ### 3.7 输出、诊断与 GUI 等价入口
 

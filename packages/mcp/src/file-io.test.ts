@@ -54,7 +54,7 @@ describe('配置有界读取', () => {
     const content = '\uFEFF{"extra":"中文","mcpServers":{}}'
     const file = mockFile(Buffer.from(content), Buffer.byteLength(content), 2)
     const root = resolve('test-root')
-    const result = await readMcpConfigText(`${root}/huan/mcp.json`, root)
+    const result = await readMcpConfigText(`${root}/mcp.json`, root)
     expect(result.content).toBe(content)
     expect(result.revision).toBe(mcpConfigRevision(content))
     expect(file.read.mock.calls.length).toBeGreaterThan(2)
@@ -64,7 +64,7 @@ describe('配置有界读取', () => {
   it('stat 后增长只读取上限加一字节，不返回部分内容', async () => {
     const file = mockFile(Buffer.alloc(MCP_CONFIG_FILE_MAX_BYTES + 100, 0x20), 2)
     const root = resolve('test-root')
-    const result = await readMcpConfigText(`${root}/huan/mcp.json`, root)
+    const result = await readMcpConfigText(`${root}/mcp.json`, root)
     expect(result.tooLarge).toBe(true)
     expect(result.content).toBe('')
     expect(result.revision).toBeNull()

@@ -1,9 +1,10 @@
 /**
- * MCP 配置存储测试（G1.4d1）。
+ * MCP 配置存储测试（G1.4d1；2026-11-02 改为与 Pi 共享配置）。
  *
- * 覆盖固定路径、BOM/revision、512KiB UTF-8 上限、坏 JSON 秘密不回显、
- * 项目信任、符号链接拒绝、Pi 文件 sentinel、原子写入/权限失败/临时文件清理、
- * revision 冲突与不同 store 实例并发。全部使用临时目录。
+ * 覆盖共享路径读写、旧隔离路径不读不写、BOM/revision、512KiB UTF-8 上限、
+ * 坏 JSON 秘密不回显、项目信任、符号链接拒绝、Pi 凭据/日志 sentinel、
+ * 原子写入/权限失败/临时文件清理、revision 冲突与不同 store 实例并发。
+ * 全部使用临时目录。
  */
 import { createHash } from 'node:crypto'
 import {
@@ -185,6 +186,74 @@ describe('读取与 revision', () => {
     })
     expect(result.status).toBe('invalid')
     await expect(readFile(paths.user, 'utf8')).rejects.toBeTruthy()
+  })
+})
+
+describe('共享配置', () => {
+  it('读到 Pi 共享的用户/项目服务器；保存写回同一文件、保留未知字段、不动另一 scope', async () => {
+    const store = createStore()
+    const userContent = `${JSON.stringify(
+      {
+        mcpServers: { shared: { command: 'node', args: ['user'] } },
+        customTop: { keep: 'yes' },
+      },
+      null,
+      2,
+    )}\n`
+    const projectContent = `${JSON.stringify(
+      { mcpServers: { project_server: { command: 'node' } } },
+      null,
+      2,
+    )}\n`
+    await writeRaw(paths.user, userContent)
+    await writeRaw(paths.project, projectContent)
+
+    const loaded = await store.load({ projectTrusted: true })
+    expect(loaded.servers.map((server) => server.name).sort()).toEqual(['project_server', 'shared'])
+    expect(loaded.servers.find((server) => server.name === 'shared')?.source).toBe(paths.user)
+    expect(loaded.servers.find((server) => server.name === 'project_server')?.source).toBe(
+      paths.project,
+    )
+
+    const read = await store.read('user')
+    const next = `${JSON.stringify(
+      {
+        mcpServers: { shared: { command: 'node', args: ['edited'] } },
+        customTop: { keep: 'yes' },
+      },
+      null,
+      2,
+    )}\n`
+    const saved = await store.save({
+      scope: 'user',
+      content: next,
+      expectedRevision: read.revision,
+    })
+    expect(saved.status).toBe('saved')
+    expect(await readFile(paths.user, 'utf8')).toBe(next)
+    expect(
+      (JSON.parse(await readFile(paths.user, 'utf8')) as { customTop: unknown }).customTop,
+    ).toEqual({ keep: 'yes' })
+    // 项目 scope 保持原样，不被用户 scope 的保存连带修改。
+    expect(await readFile(paths.project, 'utf8')).toBe(projectContent)
+
+    const projectRead = await store.read('project', { projectTrusted: true })
+    const projectNext = JSON.stringify({
+      mcpServers: { project_server: { command: 'node', enabled: false } },
+      projectExtra: { keep: true },
+    })
+    expect(
+      await store.save({
+        scope: 'project',
+        content: projectNext,
+        expectedRevision: projectRead.revision,
+        projectTrusted: true,
+      }),
+    ).toMatchObject({ status: 'saved' })
+    expect(await readFile(paths.project, 'utf8')).toBe(projectNext)
+    expect(await readFile(paths.user, 'utf8')).toBe(next)
+    // 只保存服务器配置，不创建 huan 专属状态目录。
+    await expect(readdir(join(agentDir, 'huan'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 
@@ -404,31 +473,23 @@ describe('项目信任与项目保存', () => {
 })
 
 describe('路径与符号链接', () => {
-  it('用户目录组件是符号链接时读取/保存都拒绝', async () => {
-    const store = createStore()
-    const sentinelDir = join(root, 'sentinel-dir')
-    await mkdir(sentinelDir, { recursive: true })
-    const sentinelFile = join(sentinelDir, 'mcp.json')
-    await writeFile(sentinelFile, '{"sentinel":true}', 'utf8')
-    const linkPath = join(agentDir, 'huan')
-    if (!(await trySymlink(sentinelDir, linkPath, 'dir'))) return
+  it('agentDir 本身是符号链接时仍允许读写用户配置', async () => {
+    const aliasAgentDir = join(root, 'agent-link')
+    if (!(await trySymlink(agentDir, aliasAgentDir, 'dir'))) return
+    const store = createStore(aliasAgentDir)
 
+    const content = '{"mcpServers":{"linked":{"command":"node"}}}'
+    expect((await store.save({ scope: 'user', content, expectedRevision: null })).status).toBe(
+      'saved',
+    )
+    expect(await readFile(paths.user, 'utf8')).toBe(content)
     const read = await store.read('user')
-    expect(read.readError).toContain('符号链接')
-    expect(read.content).toBe('')
-
-    const saved = await store.save({
-      scope: 'user',
-      content: '{"mcpServers":{}}',
-      expectedRevision: null,
-    })
-    expect(saved.status).toBe('failed')
-    expect(await readFile(sentinelFile, 'utf8')).toBe('{"sentinel":true}')
+    expect(read.readError).toBeUndefined()
+    expect(read.content).toBe(content)
   })
 
-  it('目标文件是符号链接时读取/保存都拒绝', async () => {
+  it('用户配置目标文件是符号链接时读取/保存都拒绝', async () => {
     const store = createStore()
-    await mkdir(join(agentDir, 'huan'), { recursive: true })
     const sentinelFile = join(root, 'target-sentinel.json')
     await writeFile(sentinelFile, '{"sentinel":true}', 'utf8')
     if (!(await trySymlink(sentinelFile, paths.user, 'file'))) return
@@ -446,14 +507,15 @@ describe('路径与符号链接', () => {
     expect(await readFile(sentinelFile, 'utf8')).toBe('{"sentinel":true}')
   })
 
-  it('项目 .huan 指向 .pi 时拒绝读取/保存；未信任时不触碰', async () => {
+  it('项目 .pi 目录是符号链接时拒绝读取/保存；未信任时不触碰', async () => {
     const store = createStore()
-    const piDir = join(cwd, '.pi')
-    await mkdir(piDir, { recursive: true })
-    const piFile = join(piDir, 'mcp.json')
-    const original = '{"mcpServers":{"pi":{"command":"pi-secret"}}}'
-    await writeFile(piFile, original, 'utf8')
-    if (!(await trySymlink(piDir, join(cwd, '.huan'), 'dir'))) return
+    // 用外部 sentinel 目录而非 Pi 配置目录，验证拒绝发生在组件检查阶段。
+    const sentinelDir = join(root, 'pi-sentinel-dir')
+    await mkdir(sentinelDir, { recursive: true })
+    const sentinelFile = join(sentinelDir, 'mcp.json')
+    const original = '{"mcpServers":{"sentinel":{"command":"sentinel"}}}'
+    await writeFile(sentinelFile, original, 'utf8')
+    if (!(await trySymlink(sentinelDir, join(cwd, '.pi'), 'dir'))) return
 
     const untrusted = await store.read('project', { projectTrusted: false })
     expect(untrusted.readable).toBe(false)
@@ -471,22 +533,17 @@ describe('路径与符号链接', () => {
       projectTrusted: true,
     })
     expect(saved.status).toBe('failed')
-    expect(await readFile(piFile, 'utf8')).toBe(original)
+    expect(await readFile(sentinelFile, 'utf8')).toBe(original)
   })
 
-  it('Pi 的 mcp.json/mcp-auth.json/mcp.log sentinel 不被读取或修改', async () => {
+  it('Pi 的 mcp-auth.json/mcp.log sentinel 不被读取或修改；huan 的 auth/log 不创建', async () => {
     const store = createStore()
-    const piUser = join(agentDir, 'mcp.json')
-    const piProject = join(cwd, '.pi', 'mcp.json')
     const piAuth = join(agentDir, 'mcp-auth.json')
     const piLog = join(agentDir, 'mcp.log')
-    const sentinels = new Map([
-      [piUser, '{"piUserSecret":true, bad'],
-      [piProject, '{"piProjectSecret":true, bad'],
-      [piAuth, '{"piAuthSecret":true'],
-      [piLog, 'pi-log-sentinel'],
-    ])
-    for (const [path, content] of sentinels) await writeRaw(path, content)
+    const piAuthContent = '{"piAuthSecret":true'
+    const piLogContent = 'pi-log-sentinel'
+    await writeRaw(piAuth, piAuthContent)
+    await writeRaw(piLog, piLogContent)
 
     const loaded = await store.load({ projectTrusted: true })
     expect(loaded.issues).toEqual([])
@@ -512,9 +569,56 @@ describe('路径与符号链接', () => {
       ).status,
     ).toBe('saved')
 
-    for (const [path, content] of sentinels) {
-      expect(await readFile(path, 'utf8')).toBe(content)
-    }
+    expect(await readFile(piAuth, 'utf8')).toBe(piAuthContent)
+    expect(await readFile(piLog, 'utf8')).toBe(piLogContent)
+    // huan 自己的凭据/日志路径仍只定义不创建。
+    await expect(readFile(paths.auth, 'utf8')).rejects.toBeTruthy()
+    await expect(readFile(paths.log, 'utf8')).rejects.toBeTruthy()
+  })
+
+  it('旧隔离配置即使有效或损坏也不读取、不修改、不作 fallback', async () => {
+    const store = createStore()
+    const legacyUser = join(agentDir, 'huan', 'mcp.json')
+    const legacyProject = join(cwd, '.huan', 'mcp.json')
+    const legacyUserContent = '{"mcpServers":{"legacyUser":{"command":"node"}}}'
+    const legacyProjectContent = '{"mcpServers":{"legacyProject":{"command":"node"}}}'
+    await writeRaw(legacyUser, legacyUserContent)
+    await writeRaw(legacyProject, legacyProjectContent)
+
+    const loaded = await store.load({ projectTrusted: true })
+    expect(loaded.servers).toEqual([])
+    expect(loaded.issues).toEqual([])
+    expect(loaded.projectConfig).toBe(paths.project)
+
+    // 保存共享文件不会触碰旧隔离文件。
+    expect(
+      (
+        await store.save({
+          scope: 'user',
+          content: JSON.stringify({ mcpServers: { shared: { command: 'node' } } }),
+          expectedRevision: null,
+        })
+      ).status,
+    ).toBe('saved')
+    expect(
+      (
+        await store.save({
+          scope: 'project',
+          content: JSON.stringify({ mcpServers: {} }),
+          expectedRevision: null,
+          projectTrusted: true,
+        })
+      ).status,
+    ).toBe('saved')
+    expect(await readFile(legacyUser, 'utf8')).toBe(legacyUserContent)
+    expect(await readFile(legacyProject, 'utf8')).toBe(legacyProjectContent)
+
+    // 损坏的旧文件同样不参与读取与诊断，也不作为 fallback。
+    await writeRaw(legacyUser, '{ bad legacy')
+    await writeRaw(legacyProject, '{"mcpServers":{"broken":')
+    const badLoaded = await store.load({ projectTrusted: true })
+    expect(badLoaded.issues).toEqual([])
+    expect(badLoaded.servers.map((server) => server.name)).toEqual(['shared'])
   })
 })
 
@@ -566,6 +670,40 @@ describe('revision 与并发', () => {
     expect(conflict.status).toBe('conflict')
   })
 
+  it('外部 writeFile 修改已读文件后旧 revision 冲突，重读后可保存', async () => {
+    const store = createStore()
+    const original = '{"mcpServers":{"a":{"command":"node"}}}'
+    const saved = await store.save({ scope: 'user', content: original, expectedRevision: null })
+    expect(saved.status).toBe('saved')
+    if (saved.status !== 'saved') return
+
+    // 模拟 Pi TUI/编辑器在读取之后直接改写同一共享文件。
+    const external = '{"mcpServers":{"a":{"command":"node","args":["external"]}}}'
+    await writeFile(paths.user, external, 'utf8')
+
+    const stale = await store.save({
+      scope: 'user',
+      content: '{"mcpServers":{}}',
+      expectedRevision: saved.revision,
+    })
+    expect(stale.status).toBe('conflict')
+    if (stale.status === 'conflict') {
+      expect(stale.revision).toBe(mcpConfigRevision(external))
+    }
+    expect(await readFile(paths.user, 'utf8')).toBe(external)
+
+    // revision 只检测已经发生的修改，不提供跨进程 CAS；重读后再提交即可。
+    const reread = await store.read('user')
+    const next = '{"mcpServers":{"a":{"command":"node","args":["after-reread"]}}}'
+    const retried = await store.save({
+      scope: 'user',
+      content: next,
+      expectedRevision: reread.revision,
+    })
+    expect(retried.status).toBe('saved')
+    expect(await readFile(paths.user, 'utf8')).toBe(next)
+  })
+
   it('不同 store 实例并发保存同一文件时只有一个成功', async () => {
     const aliasAgentDir = join(root, 'agent-link')
     const linked = await trySymlink(agentDir, aliasAgentDir, 'dir')
@@ -590,14 +728,13 @@ describe('revision 与并发', () => {
 
 describe('原子写入', () => {
   it('写入失败时清理同目录临时文件', async () => {
-    const directory = join(agentDir, 'huan')
-    await mkdir(directory, { recursive: true })
+    // 用户配置现在是 agentDir 的直接子文件，临时文件也在 agentDir 下。
     // 目标路径是目录：rename 必然失败，用于验证 wx 临时文件被清理。
     await mkdir(paths.user)
     await expect(
       writeMcpConfigFileAtomic(paths.user, '{"mcpServers":{}}', agentDir),
     ).rejects.toBeTruthy()
-    expect(await readdir(directory)).toEqual(['mcp.json'])
+    expect(await readdir(agentDir)).toEqual(['mcp.json'])
   })
 
   it.skipIf(process.platform === 'win32')('落盘文件不对 group/other 开放', async () => {
@@ -631,9 +768,7 @@ describe('原子写入', () => {
           expectedRevision: first.revision,
         })
         expect(result.status).toBe('failed')
-        expect(
-          (await readdir(join(agentDir, 'huan'))).filter((name) => name.endsWith('.tmp')),
-        ).toEqual([])
+        expect((await readdir(agentDir)).filter((name) => name.endsWith('.tmp'))).toEqual([])
       } finally {
         await chmod(paths.user, 0o600)
       }
@@ -654,7 +789,8 @@ describe('原子写入', () => {
     expect(first.status).toBe('saved')
     if (first.status !== 'saved') return
 
-    const directory = join(agentDir, 'huan')
+    // 用户文件在 agentDir 本层，权限失败时同目录临时文件也必须清理。
+    const directory = agentDir
     await chmod(directory, 0o500)
     try {
       const result = await store.save({

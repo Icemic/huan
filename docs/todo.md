@@ -27,7 +27,7 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：813 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；63 条 Chromium 为此前认证阶段记录，本轮仅配置包未重跑。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：816 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；63 条 Chromium 为此前认证阶段记录，本轮仅配置包未重跑。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
@@ -35,11 +35,18 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
 
+### MCP 共享配置修订（✅ 开发完成，`feat`）
+
+记录：[共享配置](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)
+
+- `@huan/mcp` 改为读写 Pi 用户/可信项目的 mcp.json，OAuth 凭据与日志仍独立；不迁移或合并 d1 原隔离路径。保存不自动影响 live，持久配置供双方后续加载。
+- 主 agent 独立 review 并补双 scope 保存边界验证，亲验56项配置测试通过、2项平台跳过，全仓816项通过、2项跳过及check/build；未改UI或重跑Chromium。
+
 ### G1.4d1 MCP 独立包与配置隔离（✅ 开发完成，`feat`）
 
 记录：[独立 MCP 集成](iteration/2026-11/2026-11-02-feat-mcp-integration.md)
 
-- 新增 `@huan/mcp` 配置基础，用户 `<agentDir>/huan/mcp.json`、可信项目 `<cwd>/.huan/mcp.json`，不读取/合并/修改 Pi MCP 文件；凭据/日志只定义独立路径。
+- 初版新增 `@huan/mcp` 配置基础，用户 `<agentDir>/huan/mcp.json`、可信项目 `<cwd>/.huan/mcp.json`，当时不读取/合并/修改 Pi MCP 文件；该存储决定已由上方共享配置修订替代，凭据/日志仍独立。
 - 逐项校验与覆盖、revision 防覆盖、有界读取和原子保存；主 agent 修复 scope/timeout 边界并补 I/O 回归，亲验813项通过、2项跳过及check/build。尚未装配 MCP 连接或 GUI。
 
 ### G1.4c 模型认证（✅ 开发完成，`feat`）
@@ -238,7 +245,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | 无文件快照 / 回滚 | 属后续增强能力 |
 | 会话搜索范围有限 | 只匹配显式名称与首条用户消息，不含全历史全文检索；支持全部/当前工作区范围与最近活动/创建时间/名称排序 |
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
-| MCP 运行时未装配 | `@huan/mcp` 已有独立配置基础，尚无连接/GUI；codemode、tool search 工厂已装配 |
+| MCP 运行时未装配 | `@huan/mcp` 已有共享配置基础，尚无连接/GUI；codemode、tool search 工厂已装配 |
 | 多项原生操作无 GUI 入口 | reload、认证、设置、MCP与导出/分享等仍未实施；Shell和compact已有入口 |
 | 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
 

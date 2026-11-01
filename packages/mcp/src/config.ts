@@ -7,7 +7,7 @@
  * 原实现为 MIT 许可，版权与指纹见 `packages/mcp/THIRD-PARTY-NOTICES.md`。
  *
  * 本地差异：
- * - 路径改为 `<agentDir>/huan/mcp.json` 与 `<cwd>/.huan/mcp.json`；
+ * - 路径与 Pi 共享：`<agentDir>/mcp.json` 与 `<cwd>/.pi/mcp.json`；
  * - 项目是否读取由调用方显式传入的 projectTrusted 决定，不以文件存在代替信任；
  * - 结构化逐项诊断，错误信息不回显原文或配置值；
  * - 增加原型污染键与嵌套深度检查；

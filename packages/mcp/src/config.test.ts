@@ -50,13 +50,13 @@ function findServer(loaded: Awaited<ReturnType<typeof loadMcpConfig>>, name: str
 }
 
 describe('固定路径与 namespace', () => {
-  it('使用 huan 的固定路径，不读写 Pi 的 mcp.json', () => {
-    expect(paths.user).toBe(join(agentDir, 'huan', 'mcp.json'))
-    expect(paths.project).toBe(join(cwd, '.huan', 'mcp.json'))
+  it('用户/项目配置与 Pi 共享，凭据与日志留在 huan 子目录', () => {
+    expect(paths.user).toBe(join(agentDir, 'mcp.json'))
+    expect(paths.project).toBe(join(cwd, '.pi', 'mcp.json'))
     expect(paths.auth).toBe(join(agentDir, 'huan', 'mcp-auth.json'))
     expect(paths.log).toBe(join(agentDir, 'huan', 'mcp.log'))
-    expect(paths.user).not.toBe(join(agentDir, 'mcp.json'))
-    expect(paths.project).not.toBe(join(cwd, '.pi', 'mcp.json'))
+    expect(paths.user).not.toBe(paths.auth)
+    expect(paths.project).not.toBe(join(cwd, '.huan', 'mcp.json'))
   })
 
   it('namespace 将 - 归一化为 _', () => {
@@ -340,7 +340,10 @@ describe('用户/项目合并', () => {
     expect(findServer(loaded, 'a-b')?.scope).toBe('user')
     expect(findServer(loaded, 'a_b')).toBeUndefined()
     expect(loaded.issues.some((issue) => issue.kind === 'namespace-collision')).toBe(true)
-    expect(loaded.issues.every((issue) => !issue.file.endsWith('.pi/mcp.json'))).toBe(true)
+    // 诊断只归属当前两个配置作用域，不再指向旧隔离目录。
+    expect(
+      loaded.issues.every((issue) => issue.file === paths.user || issue.file === paths.project),
+    ).toBe(true)
   })
 
   it('项目 override 只允许三个字段；多项错误逐项报告', async () => {

@@ -1,8 +1,9 @@
 /**
- * MCP 隔离配置存储（G1.4d1）。
+ * MCP 配置存储（G1.4d1；2026-11-02 改为与 Pi 共享配置文件）。
  *
  * 存储对象固定 agentDir/cwd，只通过 user/project scope 访问固定文件，不接受来自
- * HTTP 的任意路径。读取必须显式确认项目信任；未信任时不触碰项目文件。
+ * HTTP 的任意路径。user/project 目标与 Pi 相同：`<agentDir>/mcp.json` 与
+ * `<cwd>/.pi/mcp.json`；读取必须显式确认项目信任，未信任时不触碰项目文件。
  *
  * 保存是「整份原文」语义：
  * - 新内容必须通过解析、形状、污染键、深度与服务器语义校验，避免写入已知错误；
@@ -10,7 +11,11 @@
  * - expectedRevision 强制提供，队列内重新读取后比较；
  * - 原子写入 + 回读；rename 前失败保留原文件，提交后无法确认时明确要求重读。
  *
- * 本阶段只改磁盘，不自动连接、不改变 live 状态，也不读写 Pi 的 mcp.json。
+ * 配置文件与 Pi 共享，因此 revision 只能发现「读取之后已经发生」的修改；与 Pi TUI
+ * 或其他进程同时编辑同一文件时双方没有共同锁协议，read-check-rename 仍有竞态
+ * 窗口，不提供跨进程 CAS 保证。冲突时重读再保存，不自动合并。
+ *
+ * 本阶段只改磁盘，不自动连接、不改变 live 状态。
  */
 import { resolve } from 'node:path'
 import {
@@ -309,7 +314,7 @@ export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigS
             scope,
             path,
             revision: current.revision,
-            message: 'MCP 配置已被其他窗口或进程修改；请重新加载原文后再保存。',
+            message: 'MCP 配置已被 Pi、其他窗口或进程修改；请重新加载原文后再保存。',
           }
         }
 

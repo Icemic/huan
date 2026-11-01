@@ -1,12 +1,13 @@
 /**
- * MCP 配置文件的有界读取与安全写入（G1.4d1）。
+ * MCP 配置文件的有界读取与安全写入（G1.4d1；2026-11-02 改为共享配置）。
  *
  * 上游 Pi 1.4.0 的 `config.ts` 直接用 `readFileSync`/`writeFileSync`。huan 的
  * 存储层需要额外的边界与安全约束：
  * - 读取上限 512 KiB（UTF-8 字节），有界短读循环，避免 stat 后文件增长导致无界分配；
  * - 保留原文 BOM，解析时再剥离；revision 基于磁盘上的实际字节；
  * - 拒绝无效 UTF-8（不做有损解码）；
- * - 拒绝目标文件或 <agentDir>/huan、<cwd>/.huan 下现有组件中的符号链接；
+ * - 拒绝目标文件或 `<cwd>/.pi` 下现有组件中的符号链接；根 agentDir/cwd 本身允许是
+ *   符号链接（用户可能刻意指定或链接），不因此限制；
  * - 同目录 `wx` 临时文件（0600）+ rename + 有界回读；
  * - 同进程内按规范化路径共享写队列，不同 store 实例不会同时覆盖同一文件。
  *
@@ -70,9 +71,10 @@ export function mcpConfigContentIsEncodable(content: string): boolean {
 /**
  * 拒绝目标路径或受管子目录组件中的符号链接。
  *
- * root 本身不做检查：用户可能刻意把 agentDir 指向另一位置，这不会把写入重定向到
- * Pi 的 `mcp.json`；真正需要防止的是 `<agentDir>/huan` 或 `<cwd>/.huan` 被换成
- * 指向 `.pi` 的别名。
+ * root 本身不做检查：agentDir/cwd 可能由用户指定，也可能本来就是符号链接，允许
+ * 它不会让写入越出受管范围。真正需要防止的是目标文件被换成别名，或
+ * `<cwd>/.pi` 被换成指向其他目录的符号链接。用户配置文件是 agentDir 的直接子
+ * 文件，因此只检查文件本身，不误建 huan 配置目录。
  */
 export async function assertMcpConfigPathSafe(root: string, target: string): Promise<void> {
   const rootPath = resolve(root)
