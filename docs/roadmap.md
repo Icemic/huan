@@ -54,7 +54,7 @@
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
 | G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 的启动期交互已在G1.3c补齐并验收；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航已完成，SES-04 与 RUN-06 分支同步已验收（[证据](iteration/2026-10/2026-10-31-feat-session-tree.md)：主 agent 566 项测试、24 条 Chromium、类型与构建）；d fork/clone/import 已通过主 agent review与验收（598 项测试、29 条 Chromium、类型/构建/Lingui235通过，见[迭代记录](iteration/2026-10/2026-10-31-feat-session-fork-import.md)）。SES-01～SES-07、ENV-02 分支/导入与 RUN-06 分支同步开发验收完成；ENV-03启动期交互已由G1.3c独立通道补齐，见该迭代证据 |
 | G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | ✅ 开发完成；a运行操作、[b命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)、[c Host UI](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)经主agent直接review/修复，亲验38文件/685项测试、47条Chromium、lint/全部类型/build/Lingui299通过。RUN-01～05、RUN-07、MOD-01/04、RES-02/04及ENV-03启动交互验收；reload/认证/设置/MCP等仍归G1.4，终端专属组件遵循能力规范边界 |
-| G1.4 配置、认证与 MCP | MOD-02、MOD-03、MOD-05、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP/llama 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；b [重载/基础内置装配完成](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)：RES-03 与 RES-05 codemode/tool-search 子项，主 agent review修复后亲验738项测试、59条Chromium、lint/类型/build；MCP 工厂与管理生命周期归 d；c [模型认证完成](iteration/2026-11/2026-11-02-feat-provider-auth.md)：MOD-02，主 agent review修复后亲验760项/63条、lint/类型/build；d MCP/llama管理的公开SDK接口缺口待决策 |
+| G1.4 配置、认证与 MCP | MOD-02、MOD-03、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理；MOD-05 经用户确认排除 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；b [重载/基础内置装配完成](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)：RES-03 与 RES-05 codemode/tool-search 子项，主 agent review修复后亲验738项测试、59条Chromium、lint/类型/build；MCP 工厂与管理生命周期归 d；c [模型认证完成](iteration/2026-11/2026-11-02-feat-provider-auth.md)：MOD-02，主 agent review修复后亲验760项/63条、lint/类型/build；d MCP 管理的公开 SDK 接口缺口待决策 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 待启动；原生条件能力不因未配置而删项 |
 
 执行中若发现后阶段接口是前阶段的必要依赖，可先做最小依赖；跨阶段扩大范围需先更新本表和对应迭代文档，不把整个 G1 合并为一次巨型迭代。G1.2～G1.5 开工前按工作量拆成有独立出口的迭代。
@@ -63,7 +63,7 @@
 
 ### 2.3 当前阶段：G1.4c 完成，d 接口决策
 
-G1.4a（322de27）、b（27ce524）已提交。c 模型认证已完成并通过主 agent review/修复与760项/63条验证。d 尚未实施：Pi 1.4.0 的公开 MCP 工厂未提供管理对象，凭据存储选项引用的类也未导出；llama 工厂未公开导出。维持禁止私有深导入，需决定向上游补公开接口或允许以公开 pi-mcp/HTTP 契约维护 huan 管理层。
+G1.4a（322de27）、b（27ce524）已提交。c 模型认证已完成并通过主 agent review/修复与760项/63条验证。d 尚未实施：Pi 1.4.0 的公开 MCP 工厂未提供管理对象，凭据存储选项引用的类也未导出。用户已确认 huan 的 MCP 内建方案仅使用官方实现，不引入第三方 MCP 替代品；llama.cpp 管理（MOD-05）排除，不作为延期项或完成项。维持禁止私有深导入，剩余决策为向 Pi 上游补公开管理接口，或基于官方 `@earendil-works/pi-mcp` 维护 huan 集成层。
 
 刷新性能已完成：
 
@@ -100,7 +100,7 @@ G1.1 已交付：
 | 测试基线 | G1.1 已迁移临时用户空间与确定性 provider，主 agent 复跑 464 项通过；真实个人环境兼容验证未执行 |
 | 用户空间 | 当前创建/枚举/读写已统一目录；后续分支/导入必须沿用此规则 |
 | Pi 版本升级 | 已升 1.4.0 并通过取消/回放回归；启动期 busy/abort 行为变化已记录，未来升级继续回归 |
-| GUI 不能直接复用 custom TUI | 内置基础功能必须提供等价入口；MCP 管理、llama.cpp、认证和报告分别核实公开接口，阻塞时讨论，不静默延期 |
+| GUI 不能直接复用 custom TUI | 适用的内置基础功能必须提供等价入口；MCP 管理、认证和报告分别核实公开接口，阻塞时讨论，不静默延期；llama.cpp 管理经用户确认排除 |
 | CLI 主动处理的命令不等于 SDK prompt 命令 | G1.3 明确宿主命令与扩展/模板路由、覆盖和取消语义 |
 | 多会话与分支生命周期 | G1.2 保持 Pi 为活动分支权威，替换 session 后重绑订阅，防止 runtime 复用导致事件投递到错误会话 |
 
