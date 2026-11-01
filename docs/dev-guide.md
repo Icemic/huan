@@ -47,7 +47,7 @@ huan/
 
 依赖方向（强制）：`apps/*` → `@huan/core` / `@huan/react` / `@huan/history` → `@huan/protocol`；core 可消费 `@huan/mcp`，后者依赖官方 pi-mcp / Pi SDK 公开 API，不反向依赖 core。`core` / `mcp` / `protocol` 不依赖 React；`react` 不依赖 Node。
 
-MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项目 `<cwd>/.pi/mcp.json`；持久修改影响双方后续加载，保存不自动改变 live。OAuth 凭据/日志仍独立于 Pi，路径为 `<agentDir>/huan/mcp-auth.json` / `<agentDir>/huan/mcp.log`；huan 专属设置独立存储。当前包只提供配置基础，尚未装配连接或 GUI。不要同时在 Pi 与 huan 编辑同一配置：revision 可检测已发生的外部修改，但不提供跨进程 CAS；冲突时重读再保存。旧隔离配置路径不迁移、不作 fallback。
+MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项目 `<cwd>/.pi/mcp.json`；持久修改影响双方后续加载，保存不自动改变 live。OAuth 凭据/日志仍独立于 Pi，路径为 `<agentDir>/huan/mcp-auth.json` / `<agentDir>/huan/mcp.log`；huan 专属设置独立存储。当前包提供配置基础与显式启动的连接管理器（stdio/streamable HTTP、状态/目录、临时管理、工具/资源请求和关闭），尚未由 core/harness 消费，也未注册 Pi 工具或接入 GUI。不要同时在 Pi 与 huan 编辑同一配置：revision 可检测已发生的外部修改，但不提供跨进程 CAS；冲突时重读再保存。旧隔离配置路径不迁移、不作 fallback。
 
 ## 4. 开发期约定
 

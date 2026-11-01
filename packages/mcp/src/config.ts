@@ -32,7 +32,7 @@ export const MCP_SERVER_OVERRIDE_KEYS = ['enabled', 'exposure', 'toolExposure'] 
 const OVERRIDE_KEY_SET: ReadonlySet<string> = new Set(MCP_SERVER_OVERRIDE_KEYS)
 
 /** 当前支持的 exposure 值。 */
-const MCP_EXPOSURES: readonly McpExposure[] = ['codemode', 'deferred', 'direct', 'hidden']
+export const MCP_EXPOSURES: readonly McpExposure[] = ['codemode', 'deferred', 'direct', 'hidden']
 
 /** 旧 exposure 名称；校验时归一化为当前名称。 */
 const MCP_EXPOSURE_ALIASES: Readonly<Record<string, McpExposure>> = {
