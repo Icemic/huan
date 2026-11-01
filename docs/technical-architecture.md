@@ -1,6 +1,6 @@
 # 幻（huan）— 技术架构文档
 
-**最后更新**：2026-10-31
+**最后更新**：2026-11-01
 **状态**：持续维护文档，随技术变更同步更新
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
@@ -121,6 +121,8 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 
+**React 订阅边界**：`useHarnessActions()` 按 Controller 生命周期返回稳定动作；状态消费者通过字段选择器订阅。完整 extras 仍可读取，但不用于仅执行动作的组件。游离 Host UI 请求的分组结果只随请求数组变化；长期连接直接依赖 Controller。侧栏从公开 assistant-ui 状态选择必要标题与远端 ID，字段未变时保持投影引用；会话行按自身显示字段比较，工作区动作 Context 与数据 Context 分开。关闭的树面板不订阅输入文字。设计与验证见[刷新性能迭代](iteration/2026-11/2026-11-01-perf-react-subscriptions.md)。
+
 **长期边界**（不随计划变化）：公共层以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
 
 **当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。
@@ -155,7 +157,7 @@ react-pi原有能力由公共Controller与应用补齐了树/fork、命令目录
 
 实现时必须处理的三个点：
 
-1. **空闲会话的跨窗实时**：会话空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力已在 M2 纳入公共 Controller（`useHarnessExtras().connect()`）；新建传输订阅始终请求权威快照，关闭后再连也补齐历史；快照仅含 SDK 已提交消息，直接到达的助手 message_end 可独立补齐。
+1. **空闲会话的跨窗实时**：会话空闲时打开不自动转直播，另一窗口发起运行后本窗口需刷新。当前在应用层对「打开的会话视图」使用长期订阅（`PiLiveSubscription`）；该能力已在 M2 纳入公共 Controller（`useHarnessController().connect()`）；新建传输订阅始终请求权威快照，关闭后再连也补齐历史；快照仅含 SDK 已提交消息，直接到达的助手 message_end 可独立补齐。
 2. **Host UI 并发响应**：两个窗口可能同时响应同一请求，按「先响应生效、重复响应幂等忽略」处理；验证 bridge 对重复 resolve 的实际行为。
 3. **窗口本地状态不共享**：各窗口的选中会话、输入草稿、滚动位置等属于本地 UI 状态，默认不跨窗同步；仅经 Pi/宿主的状态（消息、运行状态、Host UI 请求、模型配置）全局一致。
 

@@ -12,7 +12,12 @@ import type {
   HarnessThinkingLevel,
 } from '@huan/protocol'
 import { parseLeadingSlashCommand } from '@huan/protocol'
-import { useHarnessExtras, useHarnessSession, useHarnessThreadState } from '@huan/react'
+import {
+  useHarnessActions,
+  useHarnessController,
+  useHarnessSession,
+  useHarnessThreadState,
+} from '@huan/react'
 import {
   type ChangeEvent,
   type KeyboardEvent,
@@ -64,7 +69,8 @@ export const clearSubmissionHistory = (): void => {
 }
 
 /** 从 assistant-ui 消息中取纯文本（用于历史与 /copy）。 */
-function threadMessageText(message: { content?: readonly unknown[]; role?: string }): string {
+function threadMessageText(message: { content?: unknown; role?: string }): string {
+  if (typeof message.content === 'string') return message.content.trim()
   if (!Array.isArray(message.content)) return ''
   const chunks: string[] = []
   for (const part of message.content) {
@@ -158,6 +164,8 @@ export type PiComposerController = {
   insertCommandFromPalette: (command: AppCommand) => void
   longInputOpen: boolean
   setLongInputOpen: (open: boolean) => void
+  /** 打开长输入编辑；打开瞬间读取输入框当前文字（不订阅 text）。 */
+  openLongInput: () => void
   longInputText: string
   setLongInputText: (text: string) => void
   applyLongInput: () => void
@@ -221,7 +229,8 @@ const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
 
 export function usePiComposer(): PiComposerController {
   const aui = useAui()
-  const extras = useHarnessExtras()
+  const actions = useHarnessActions()
+  const controller = useHarnessController()
   const session = useHarnessSession()
   const metadata = useHarnessThreadState((state) => state.metadata)
   const runStatus = useHarnessThreadState((state) => state.runStatus)
@@ -229,7 +238,16 @@ export function usePiComposer(): PiComposerController {
   const compaction = useHarnessThreadState((state) => state.compaction)
   const queue = useHarnessThreadState((state) => state.queue)
   const text = useAuiState((state) => state.composer.text)
-  const messages = useAuiState((state) => state.thread.messages)
+  // 只订阅最后一条用户消息：assistant 流式输出不会改变它，因此输入历史维护
+  // 不必在每段输出时扫描整份消息表。
+  const lastUserMessage = useHarnessThreadState((state) => {
+    const threadMessages = state.messages
+    for (let index = threadMessages.length - 1; index >= 0; index -= 1) {
+      const message = threadMessages[index]
+      if (message?.role === 'user') return message
+    }
+    return undefined
+  })
   const { hostInfo, workspaces, activeWorkspaceId, startProjectFor, refresh } = useWorkspace()
 
   const isPending = !session?.id || session.id === PENDING_THREAD_ID
@@ -332,23 +350,41 @@ export function usePiComposer(): PiComposerController {
   }, [cwd, threadId])
 
   // 本窗口历史：只记录 thread 加载完成后新出现的用户消息；加载前已有消息作为基线。
-  const seenMessages = useRef<Set<string>>(new Set())
+  const seenUserMessages = useRef(0)
   const historyThread = useRef<string | undefined>(undefined)
+  const historyLoaded = useRef(false)
+  // 首条提交从占位 Controller 切到真实 Controller，属于本窗口新输入。
+  const pendingHistorySubmission = useRef(false)
   useEffect(() => {
-    const userMessages = messages.filter((message) => message.role === 'user')
-    const ids = new Set(userMessages.map((message) => message.id))
-    if (historyThread.current !== metadata.id || loadState !== 'loaded') {
+    if (!lastUserMessage) {
+      seenUserMessages.current = 0
       historyThread.current = metadata.id
-      seenMessages.current = ids
+      historyLoaded.current = loadState === 'loaded'
       return
     }
-    for (const message of userMessages) {
-      if (seenMessages.current.has(message.id)) continue
-      seenMessages.current.add(message.id)
+    const userMessages = controller.getState().messages.filter((message) => message.role === 'user')
+    if (
+      pendingHistorySubmission.current &&
+      metadata.id !== PENDING_THREAD_ID &&
+      loadState === 'loaded'
+    ) {
+      pendingHistorySubmission.current = false
+      seenUserMessages.current = 0
+      historyThread.current = metadata.id
+      historyLoaded.current = true
+    }
+    if (historyThread.current !== metadata.id || loadState !== 'loaded' || !historyLoaded.current) {
+      historyThread.current = metadata.id
+      historyLoaded.current = loadState === 'loaded'
+      seenUserMessages.current = userMessages.length
+      return
+    }
+    for (const message of userMessages.slice(seenUserMessages.current)) {
       const value = threadMessageText(message)
       if (value) rememberSubmission(value)
     }
-  }, [loadState, messages, metadata.id])
+    seenUserMessages.current = userMessages.length
+  }, [controller, lastUserMessage, loadState, metadata.id])
 
   const historyBrowse = useRef<{
     cursor: number
@@ -634,6 +670,11 @@ export function usePiComposer(): PiComposerController {
     [aui, setCursor],
   )
 
+  const openLongInput = useCallback(() => {
+    setLongInputText(aui.composer.getState().text)
+    setLongInputOpen(true)
+  }, [aui])
+
   const applyLongInput = useCallback(() => {
     aui.composer.setText(longInputText)
     setLongInputOpen(false)
@@ -642,7 +683,7 @@ export function usePiComposer(): PiComposerController {
 
   const retrieveQueue = useCallback(async () => {
     try {
-      const cleared = await extras.clearQueue()
+      const cleared = await actions.clearQueue()
       const parts = [...cleared.steering, ...cleared.followUp].filter((item) => item.trim())
       if (parts.length === 0) return
       const current = aui.composer.getState().text.trim()
@@ -660,7 +701,7 @@ export function usePiComposer(): PiComposerController {
       }
       setNotice(errorText(error))
     }
-  }, [aui, extras, setCursor])
+  }, [aui, actions, setCursor])
 
   const rejectImages = useCallback(async (): Promise<string | undefined> => {
     const state = aui.composer.getState()
@@ -750,7 +791,7 @@ export function usePiComposer(): PiComposerController {
         return true
       }
       try {
-        await extras.setModel({ provider: target.provider, modelId: target.modelId })
+        await actions.setModel({ provider: target.provider, modelId: target.modelId })
         setNotice(`已切换模型：${target.provider}/${target.modelId}。`)
         return true
       } catch (error) {
@@ -758,7 +799,7 @@ export function usePiComposer(): PiComposerController {
         return false
       }
     },
-    [ensureModelCatalog, extras, isPending],
+    [ensureModelCatalog, actions, isPending],
   )
 
   const runThinkingCommand = useCallback(
@@ -783,7 +824,7 @@ export function usePiComposer(): PiComposerController {
         return true
       }
       try {
-        await extras.setThinkingLevel(level)
+        await actions.setThinkingLevel(level)
         setNotice(`Thinking 级别已设置为 ${level}。`)
         return true
       } catch (error) {
@@ -791,11 +832,14 @@ export function usePiComposer(): PiComposerController {
         return false
       }
     },
-    [extras, isPending],
+    [actions, isPending],
   )
 
   const copyLastReply = useCallback(async () => {
-    const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant')
+    const threadMessages = aui.thread.getState().messages
+    const lastAssistant = [...threadMessages]
+      .reverse()
+      .find((message) => message.role === 'assistant')
     const value = lastAssistant ? threadMessageText(lastAssistant) : ''
     if (!value) {
       setNotice('没有可复制的助手回复。')
@@ -809,7 +853,7 @@ export function usePiComposer(): PiComposerController {
       setNotice(`复制失败：${errorText(error)}`)
       return false
     }
-  }, [messages])
+  }, [aui])
 
   /** 执行一个内置命令；返回 true 表示输入已处理（可清空输入框）。 */
   const runBuiltinCommand = useCallback(
@@ -836,7 +880,7 @@ export function usePiComposer(): PiComposerController {
             return true
           }
           try {
-            const outcome = await extras.compact({ customInstructions: args })
+            const outcome = await actions.compact({ customInstructions: args })
             setNotice(
               outcome.status === 'compacted'
                 ? `压缩完成（${outcome.tokensBefore ?? '?'} → ${outcome.estimatedTokensAfter ?? '?'} tokens）。`
@@ -907,7 +951,7 @@ export function usePiComposer(): PiComposerController {
       activeWorkspaceId,
       copyLastReply,
       cwd,
-      extras,
+      actions,
       isPending,
       runModelCommand,
       runNameCommand,
@@ -922,7 +966,7 @@ export function usePiComposer(): PiComposerController {
         return false
       }
       try {
-        const result = await extras.runBash({ command, excludeFromContext })
+        const result = await actions.runBash({ command, excludeFromContext })
         if (result.status === 'started') {
           rememberSubmission(`${excludeFromContext ? '!!' : '!'}${command}`)
           return true
@@ -934,7 +978,7 @@ export function usePiComposer(): PiComposerController {
         return false
       }
     },
-    [extras, isPending],
+    [actions, isPending],
   )
 
   const submitNormal = useCallback(
@@ -946,9 +990,10 @@ export function usePiComposer(): PiComposerController {
         setNotice(rejection)
         return
       }
+      if (isPending) pendingHistorySubmission.current = true
       aui.composer.send(steer === undefined ? undefined : { steer })
     },
-    [aui, rejectImages],
+    [aui, isPending, rejectImages],
   )
 
   const submit = useCallback(
@@ -1146,6 +1191,7 @@ export function usePiComposer(): PiComposerController {
     insertCommandFromPalette,
     longInputOpen,
     setLongInputOpen,
+    openLongInput,
     longInputText,
     setLongInputText,
     applyLongInput,

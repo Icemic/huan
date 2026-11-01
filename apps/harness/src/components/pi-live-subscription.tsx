@@ -1,4 +1,4 @@
-import { useHarnessExtras } from '@huan/react'
+import { useHarnessController } from '@huan/react'
 import { useEffect } from 'react'
 
 /**
@@ -9,15 +9,16 @@ import { useEffect } from 'react'
  * 的窗口不会收到实时更新（技术架构 §4.1 记录的限制）。
  *
  * 本组件在挂载时为当前会话建立长期订阅，卸载时释放；滚动变化或窗口切换
- * 都不影响——只要会话视图打开，就保持事件流连接。
+ * 都不影响——只要会话视图打开，就保持事件流连接。订阅只依赖 Controller：
+ * 消息/队列/Host UI 状态更新不会触发重新连接。
  */
 export function PiLiveSubscription() {
-  const extras = useHarnessExtras()
+  const controller = useHarnessController()
 
   useEffect(() => {
-    const release = extras.connect()
+    const release = controller.connect()
     return () => release()
-  }, [extras])
+  }, [controller])
 
   return null
 }

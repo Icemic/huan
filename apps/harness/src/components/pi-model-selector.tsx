@@ -1,6 +1,6 @@
 import type { HarnessThinkingLevel } from '@huan/protocol'
-import { useHarnessExtras, useHarnessSession, useHarnessThreadState } from '@huan/react'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useHarnessActions, useHarnessSession, useHarnessThreadState } from '@huan/react'
+import { memo, useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -48,14 +48,18 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
 
 /**
  * 模型选择器接线：模型目录来自宿主真实注册表（含扩展 provider）；
- * 当前值来自当前会话 metadata.config；切换经 extras.setModel / setThinkingLevel。
+ * 当前值来自当前会话 metadata.config；切换经 useHarnessActions 的 setModel / setThinkingLevel。
  *
  * 新会话（空白页，threadId 为占位值）的特殊处理：
  * 运行时此时使用 NOOP controller，`setModel` 是空操作（会被静默丢弃）。
  * 因此把选择写入草稿 store，由包装客户端在创建请求中携带（见 pi-http-client.ts），
  * 保证首条消息就使用选定模型。
  */
-export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boolean }) {
+export const PiModelSelector = memo(function PiModelSelector({
+  openOnCommand = false,
+}: {
+  openOnCommand?: boolean
+}) {
   const { workspaces, activeWorkspaceId, startProjectFor, hostInfo } = useWorkspace()
   const metadata = useHarnessThreadState((state) => state.metadata)
   const metadataWorkspace = metadata.workspaceId
@@ -66,7 +70,7 @@ export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boo
   const projectPath =
     metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : hostInfo?.workspacePath)
   const session = useHarnessSession()
-  const extras = useHarnessExtras()
+  const actions = useHarnessActions()
   const [models, setModels] = useState<readonly ModelOption[]>([])
   const [open, setOpen] = useState(false)
   const intent = usePiIntent()
@@ -131,9 +135,9 @@ export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boo
         })
         return
       }
-      void extras.setModel({ provider: providerId, modelId: nextModelId })
+      void actions.setModel({ provider: providerId, modelId: nextModelId })
     },
-    [displayKey, models, isPendingThread, draft?.thinkingLevel, extras],
+    [displayKey, models, isPendingThread, draft?.thinkingLevel, actions],
   )
 
   const scopeKeys = metadata.scopedModelKeys
@@ -157,7 +161,7 @@ export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boo
           if (draft) setDraftModel({ ...draft, thinkingLevel: level as HarnessThinkingLevel })
           return
         }
-        void extras.setThinkingLevel(level as HarnessThinkingLevel)
+        void actions.setThinkingLevel(level as HarnessThinkingLevel)
       }}
     >
       <ModelSelectorTrigger>
@@ -166,4 +170,4 @@ export function PiModelSelector({ openOnCommand = false }: { openOnCommand?: boo
       <ModelSelectorContent />
     </ModelSelectorRoot>
   )
-}
+})

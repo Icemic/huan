@@ -246,6 +246,7 @@ test('详情展示累计统计与路径，归档/恢复可从全部会话操作'
   await expect(details).toContainText('用户 1')
   await details.getByRole('button', { name: '关闭', exact: true }).first().click()
   await expect(details).toHaveCount(0)
+  await expect(row.getByRole('button', { name: '会话操作' })).toBeFocused()
 
   // 归档：普通视图隐藏，归档视图可见，恢复后回到普通视图。
   await row.hover()

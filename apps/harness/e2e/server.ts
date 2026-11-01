@@ -12,7 +12,7 @@ import { serve } from '@hono/node-server'
 import { createHarnessHost, workspaceStateFile } from '@huan/core'
 import { createIsolatedPiEnv, TEST_RESOURCE_ISOLATION } from '@huan/core/testing'
 import type { HarnessClient } from '@huan/protocol'
-import { createServer as createViteServer } from 'vite'
+import { createServer as createViteServer, preview } from 'vite'
 import { createApp } from '../server/app.js'
 import type { ServerConfig } from '../server/config.js'
 import {
@@ -324,11 +324,18 @@ app.post('/__e2e__/disconnect', (c) => {
   return c.body(null, 204)
 })
 
-const vite = await createViteServer({
-  root: resolve(import.meta.dirname, '..'),
-  server: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
-})
-await vite.listen()
+// 生产性能验证复用相同隔离宿主，只切换静态页面服务。
+const vite =
+  process.env.HUAN_E2E_PREVIEW === '1'
+    ? await preview({
+        root: resolve(import.meta.dirname, '..'),
+        preview: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
+      })
+    : await createViteServer({
+        root: resolve(import.meta.dirname, '..'),
+        server: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
+      })
+if ('listen' in vite) await vite.listen()
 console.log(`[e2e] 宿主 ${E2E_HOST_URL}，页面 ${E2E_APP_URL}`)
 console.log(`[e2e] 临时用户空间：${env.agentDir}`)
 

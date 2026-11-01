@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { AppendMessage, ExternalStoreAdapter } from '@assistant-ui/react'
-import type { HarnessClient } from '@huan/protocol'
+import type { HarnessClient, HarnessHostUiRequest } from '@huan/protocol'
 import { act, createElement, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -95,6 +95,7 @@ vi.mock('./thread-controller.js', async (importOriginal) => {
 
 import { ExportedMessageRepository, MessageNotSentError } from '@assistant-ui/react'
 import { HarnessHttpError } from '../client/http-client.js'
+import type { HarnessRuntimeExtrasInternal } from './runtime-types.js'
 import type { HarnessThreadControllerLike } from './thread-controller.js'
 import { createHarnessThreadState, type HarnessThreadState } from './thread-state.js'
 import {
@@ -418,6 +419,78 @@ describe('useHarnessRuntime tool approvals', () => {
 
     expect(onError).toHaveBeenCalledOnce()
     expect(mocks.controller.respondToHostUiRequest).not.toHaveBeenCalled()
+  })
+})
+
+describe('useHarnessRuntime stable extras fields', () => {
+  it('keeps actions and free-standing Host UI requests across state updates', async () => {
+    const requests: readonly HarnessHostUiRequest[] = [
+      { id: 'r1', kind: 'confirm', title: 'Continue?', message: 'Proceed with the run.' },
+    ]
+    const initialState: HarnessThreadState = {
+      ...createHarnessThreadState('t1'),
+      hostUiRequests: requests,
+    }
+    mocks.state = initialState
+    mocks.repository = ExportedMessageRepository.fromArray([])
+
+    const client = {} as HarnessClient
+    const App = () => {
+      useHarnessRuntime({ client, initialThreadId: 't1' })
+      return null
+    }
+    root = createRoot(document.createElement('div'))
+    await act(async () => root!.render(createElement(App)))
+
+    const before = mocks.adapters.at(-1)!.extras as HarnessRuntimeExtrasInternal
+    expect(before.hostUiRequests).toEqual(requests)
+
+    await act(async () => {
+      mocks.state = { ...initialState, runStatus: 'running' }
+      for (const listener of [...mocks.allListeners]) listener()
+    })
+
+    const after = mocks.adapters.at(-1)!.extras as HarnessRuntimeExtrasInternal
+    expect(after).not.toBe(before)
+    // 状态更新只替换数据字段；动作与未变化的请求数组保持引用。
+    expect(after.actions).toBe(before.actions)
+    expect(after.hostUiRequests).toBe(before.hostUiRequests)
+    expect(after.allHostUiRequests).toBe(before.allHostUiRequests)
+  })
+
+  it('rebinds actions to the new Controller when the main thread changes', async () => {
+    mocks.state = createHarnessThreadState('t1')
+    mocks.repository = ExportedMessageRepository.fromArray([])
+    let rerender!: () => void
+    const client = {} as HarnessClient
+    const App = () => {
+      const [, setTick] = useState(0)
+      rerender = () => setTick((tick) => tick + 1)
+      useHarnessRuntime({ client, initialThreadId: 't1' })
+      return null
+    }
+    root = createRoot(document.createElement('div'))
+    await act(async () => root!.render(createElement(App)))
+
+    const before = mocks.adapters.at(-1)!.extras as HarnessRuntimeExtrasInternal
+    const firstController = before.controller
+    expect(firstController).not.toBe(NOOP_CONTROLLER)
+
+    mocks.threadListItem = { id: 't2', remoteId: 't2', externalId: 't2', status: 'regular' }
+    mocks.mainThreadId = 't2'
+    mocks.state = createHarnessThreadState('t2')
+    await act(async () => rerender())
+
+    const after = mocks.adapters.at(-1)!.extras as HarnessRuntimeExtrasInternal
+    expect(after.controller).not.toBe(firstController)
+    expect(after.actions).not.toBe(before.actions)
+
+    await after.actions.setModel({ provider: 'test', modelId: 'model-b' })
+    expect(vi.mocked(after.controller.setModel)).toHaveBeenCalledWith({
+      provider: 'test',
+      modelId: 'model-b',
+    })
+    expect(vi.mocked(firstController.setModel)).not.toHaveBeenCalled()
   })
 })
 

@@ -14,7 +14,9 @@ import {
   resetStream,
   selectModel,
   sendMessage,
+  startNewSession,
   streamState,
+  threadListItem,
   userMessages,
 } from './helpers.js'
 
@@ -191,6 +193,33 @@ test('草稿刷新恢复、长输入取消与应用、窗口历史回到空输�
   await messageInput(page).press('ArrowUp')
   await expect(messageInput(page)).toHaveValue(sent)
   await resetStream(request)
+})
+
+test('打开旧会话后新增输入不会把历史消息补记到窗口输入历史', async ({ page }) => {
+  const run = Date.now().toString(36)
+  const oldest = `旧会话首条-${run}`
+  const latestOld = `旧会话末条-${run}`
+  const fresh = `本窗口新输入-${run}`
+  await openApp(page)
+  await startNewSession(page)
+  await selectModel(page)
+  await sendMessage(page, oldest)
+  await expect(userMessages(page)).toHaveCount(1)
+  await expect(assistantMessages(page).last()).toContainText('这是确定性测试回复。')
+  await expect(page.locator('[data-slot="huan-run-status"]')).toHaveCount(0)
+  await sendMessage(page, latestOld)
+  await expect(userMessages(page)).toHaveCount(2)
+  await expect(page.locator('[data-slot="huan-run-status"]')).toHaveCount(0)
+  await page.reload()
+  await threadListItem(page, oldest).click()
+  await expect(userMessages(page)).toHaveCount(2)
+  await sendMessage(page, fresh)
+  await expect(userMessages(page)).toHaveCount(3)
+  await expect(messageInput(page)).toHaveValue('')
+  await messageInput(page).press('ArrowUp')
+  await expect(messageInput(page)).toHaveValue(fresh)
+  await messageInput(page).press('ArrowUp')
+  await expect(messageInput(page)).toHaveValue(fresh)
 })
 
 test('输入 ! / !! 直接执行 Shell，不把命令发给模型', async ({ page }) => {

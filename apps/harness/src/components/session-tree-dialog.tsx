@@ -299,7 +299,6 @@ export function SessionTreeDialog() {
   const { i18n } = useLingui()
   const { copyToClipboard } = useCopyToClipboard()
   const threadId = metadata.id
-  const currentDraft = useAuiState((state) => state.composer.text)
   const pendingThread = !threadId || threadId === PENDING_ID
   const locateTarget = useSessionTreeTarget()
 
@@ -314,6 +313,9 @@ export function SessionTreeDialog() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string>()
   const [pendingNavigation, setPendingNavigation] = useState<PendingNavigation>()
+  // 打开导航确认时记录草稿是否非空；不在组件顶层订阅输入文字，
+  // 真正执行导航时再读取最新草稿。
+  const [draftNonEmpty, setDraftNonEmpty] = useState(false)
   const [editingLabel, setEditingLabel] = useState<{ entryId: string; value: string }>()
   const [forkTarget, setForkTarget] = useState<HarnessThreadTreeNode>()
   const [recovered, setRecovered] = useState<RecoveredQueue>()
@@ -338,6 +340,7 @@ export function SessionTreeDialog() {
   useEffect(() => {
     setTree(undefined)
     setPendingNavigation(undefined)
+    setDraftNonEmpty(false)
     setEditingLabel(undefined)
     setForkTarget(undefined)
     return () => {
@@ -426,6 +429,7 @@ export function SessionTreeDialog() {
 
   const startNavigation = (node: HarnessThreadTreeNode) => {
     const draft = aui.composer.getState().text
+    setDraftNonEmpty(draft.trim().length > 0)
     setPendingNavigation({
       node,
       mode: 'none',
@@ -881,7 +885,7 @@ export function SessionTreeDialog() {
                   </label>
                 </>
               )}
-              {currentDraft.trim() ||
+              {draftNonEmpty ||
               pendingNavigation.node.kind === 'user' ||
               pendingNavigation.node.kind === 'custom' ? (
                 <label className="flex items-center gap-1.5">

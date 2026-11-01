@@ -57,25 +57,13 @@ export type HarnessRuntimeOptions = ExternalStoreSharedOptions & {
   adapters?: ExternalStoreAdapter<ThreadMessageLike>['adapters']
 }
 
-export interface HarnessRuntimeExtras {
-  state: HarnessThreadState
-  metadata: HarnessThreadMetadata
-  status: HarnessThreadStatus
-  readiness: HarnessRuntimeReadiness | undefined
-  contextUsage: HarnessContextUsage | undefined
-  /**
-   * 待处理的游离（side-channel）Host UI 请求——不挂在工具调用上的那些。
-   * 工具关联的请求改为渲染为工具调用的 approval。
-   */
-  hostUiRequests: readonly HarnessHostUiRequest[]
-  /** 全部待处理的 Host UI 请求，含工具关联的。 */
-  allHostUiRequests: readonly HarnessHostUiRequest[]
-  queue: HarnessThreadState['queue']
-  compaction: HarnessThreadState['compaction']
-  /** 用户 Shell（`!` / `!!`）的实时/刚完成状态。 */
-  bash: HarnessBashRun | undefined
-  retry: HarnessThreadState['retry']
-  lastError: string | undefined
+/**
+ * 与单个 Controller 生命周期绑定的动作集合。
+ *
+ * 这些动作只转发到 Controller，不读取当前线程状态；因此可以在 Controller
+ * 不变时保持引用稳定，让只需动作的消费方不必随消息/流式状态重渲染。
+ */
+export interface HarnessRuntimeActions {
   /**
    * 维持长期事件订阅（多窗口场景下空闲会话也需实时更新）。
    * 每次调用递增保留计数，返回的函数释放它；计数归零后由 Controller
@@ -115,6 +103,32 @@ export interface HarnessRuntimeExtras {
   consumeHostUiDirective: (directiveId: string) => Promise<boolean>
   respondToToolApproval: (id: string, approved: boolean) => Promise<void>
   resumeToolCall: (toolCallId: string, payload: HarnessInterruptAnswer) => Promise<void>
+}
+
+export interface HarnessRuntimeExtras extends HarnessRuntimeActions {
+  state: HarnessThreadState
+  metadata: HarnessThreadMetadata
+  status: HarnessThreadStatus
+  readiness: HarnessRuntimeReadiness | undefined
+  contextUsage: HarnessContextUsage | undefined
+  /**
+   * 待处理的游离（side-channel）Host UI 请求——不挂在工具调用上的那些。
+   * 工具关联的请求改为渲染为工具调用的 approval。
+   */
+  hostUiRequests: readonly HarnessHostUiRequest[]
+  /** 全部待处理的 Host UI 请求，含工具关联的。 */
+  allHostUiRequests: readonly HarnessHostUiRequest[]
+  queue: HarnessThreadState['queue']
+  compaction: HarnessThreadState['compaction']
+  /** 用户 Shell（`!` / `!!`）的实时/刚完成状态。 */
+  bash: HarnessBashRun | undefined
+  retry: HarnessThreadState['retry']
+  lastError: string | undefined
+  /**
+   * 与当前 Controller 绑定的稳定动作集合。
+   * 只需动作的消费方应使用 `useHarnessActions()`，避免随完整 extras 更新。
+   */
+  actions: HarnessRuntimeActions
 }
 
 export type HarnessRuntimeExtrasInternal = HarnessRuntimeExtras & {

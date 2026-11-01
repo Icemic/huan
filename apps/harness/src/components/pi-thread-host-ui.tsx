@@ -5,9 +5,9 @@
  */
 import { useAui } from '@assistant-ui/react'
 import type { HarnessHostUiRequest, HarnessHostUiWidgetPlacement } from '@huan/protocol'
-import { useHarnessExtras, useHarnessHostUiRequests, useHarnessThreadState } from '@huan/react'
+import { useHarnessActions, useHarnessHostUiRequests, useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { setComposerDraftOverride } from './pi-composer-draft-override'
 import { harnessWindowId } from './pi-http-client'
@@ -153,7 +153,7 @@ export function PiHostUiRequests() {
  */
 export function PiThreadHostUi() {
   const hostUi = useHarnessThreadState((state) => state.hostUi)
-  const extra = useHarnessExtras()
+  const actions = useHarnessActions()
   const aui = useAui()
   const { refresh } = useWorkspace()
   const [error, setError] = useState<string | undefined>()
@@ -177,7 +177,7 @@ export function PiThreadHostUi() {
 
   const consume = async (id: string): Promise<boolean> => {
     try {
-      return await extra.consumeHostUiDirective(id)
+      return await actions.consumeHostUiDirective(id)
     } catch (cause) {
       setError(errorText(cause))
       return false
@@ -263,13 +263,17 @@ export function PiThreadHostUi() {
 
 /** 文本 widget（仅字符串行）；按 placement 放在输入框上方/下方。 */
 export function PiComposerWidgets({ placement }: { placement: HarnessHostUiWidgetPlacement }) {
-  const widgets = useHarnessThreadState((state) =>
-    (state.hostUi?.widgets ?? []).filter((widget) => widget.placement === placement),
+  // 先订阅原始数组（hostUi 未变时引用稳定），再按 placement 派生，
+  // 避免选择器每次执行都返回新数组而随所有线程状态更新重渲染。
+  const widgets = useHarnessThreadState((state) => state.hostUi?.widgets)
+  const placed = useMemo(
+    () => (widgets ?? []).filter((widget) => widget.placement === placement),
+    [placement, widgets],
   )
-  if (widgets.length === 0) return null
+  if (placed.length === 0) return null
   return (
     <div data-slot={`huan-widget-${placement}`} className="text-muted-foreground px-2 text-xs">
-      {widgets.map((widget) => (
+      {placed.map((widget) => (
         <div key={widget.key} data-widget-key={widget.key} className="whitespace-pre-wrap">
           {widget.lines.join('\n')}
         </div>
@@ -300,7 +304,7 @@ function PiComposerHostUiContent({
   inputRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
   const directive = useHarnessThreadState((state) => state.hostUi?.editorDirective)
-  const extra = useHarnessExtras()
+  const actions = useHarnessActions()
   const aui = useAui()
   const [previous, setPrevious] = useState<string | undefined>()
   const [appliedId, setAppliedId] = useState<string | undefined>()
@@ -329,7 +333,7 @@ function PiComposerHostUiContent({
   }, [])
   const consume = async (id: string): Promise<boolean> => {
     try {
-      return await extra.consumeHostUiDirective(id)
+      return await actions.consumeHostUiDirective(id)
     } catch (cause) {
       setError(errorText(cause))
       return false

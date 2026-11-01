@@ -11,7 +11,7 @@
  * - 「继续最近」始终按活动时间从未归档会话中选取，不受搜索、排序与过滤影响。
  */
 
-import { useAui, useAuiState } from '@assistant-ui/react'
+import { type AssistantState, useAui, useAuiState } from '@assistant-ui/react'
 import type { HarnessThreadMetadata, HarnessWorkspace } from '@huan/protocol'
 import { Trans } from '@lingui/react/macro'
 import {
@@ -29,7 +29,7 @@ import {
   Settings2Icon,
   TrashIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentProps, memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -45,7 +45,7 @@ import { ImportThreadButton } from './import-thread-dialog'
 import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
 import { DeleteThreadDialog, ThreadDetailsDialog } from './session-dialogs'
-import { useWorkspace } from './workspace-context'
+import { useWorkspace, useWorkspaceActions } from './workspace-context'
 import {
   AssignWorkspaceDialog,
   NewSessionDialog,
@@ -103,22 +103,86 @@ const formatActivity = (value: string | undefined): string | undefined => {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function SessionRow({
+/** 侧栏从运行时列表需要的字段：远端标题与当前主线程的宿主 ID。 */
+type RemoteThreadProjection = {
+  titles: ReadonlyMap<string, string | undefined>
+  activeThreadId: string | undefined
+}
+
+const sameRemoteThreadProjection = (
+  previous: RemoteThreadProjection,
+  titles: ReadonlyMap<string, string | undefined>,
+  activeThreadId: string | undefined,
+): boolean => {
+  if (previous.activeThreadId !== activeThreadId) return false
+  if (previous.titles.size !== titles.size) return false
+  for (const [id, title] of titles) {
+    if (!previous.titles.has(id) || previous.titles.get(id) !== title) return false
+  }
+  return true
+}
+
+/**
+ * 选择侧栏真正需要的会话列表字段。
+ *
+ * assistant-ui 在输入文字时会重建 `threadItems` 数组；这里逐项比较条目 ID、
+ * 标题与远端 ID，字段未变时复用上一次投影，使数组容器变化不再触发侧栏渲染。
+ * 不序列化整条会话：只比较 UI 实际读取的字段。
+ */
+const useRemoteThreadProjection = (): RemoteThreadProjection => {
+  const cached = useRef<RemoteThreadProjection | undefined>(undefined)
+  const select = useMemo(
+    () =>
+      (current: AssistantState): RemoteThreadProjection => {
+        const items = current.threads.threadItems
+        const mainId = current.threads.mainThreadId
+        const titles = new Map<string, string | undefined>()
+        let mainRemoteId: string | undefined
+        for (const item of items) {
+          titles.set(item.id, item.title)
+          // 本地映射 ID 与宿主 ID 并存时，两个键都可用于查找标题。
+          if (item.remoteId && item.remoteId !== item.id) titles.set(item.remoteId, item.title)
+          if (mainId && item.id === mainId) mainRemoteId = item.remoteId
+        }
+        // 经 initialize() 创建的远端会话保留本地映射 ID（__LOCALID_*），
+        // 活动会话用 remoteId 回退为原 ID；与侧栏宿主会话 ID 比较。
+        const activeThreadId = mainId ? (mainRemoteId ?? mainId) : undefined
+        const previous = cached.current
+        if (previous && sameRemoteThreadProjection(previous, titles, activeThreadId)) {
+          return previous
+        }
+        const next = { titles, activeThreadId }
+        cached.current = next
+        return next
+      },
+    [],
+  )
+  return useAuiState(select)
+}
+
+/**
+ * 单条会话行。
+ *
+ * 只接收自身需要的稳定字段：父级列表刷新（搜索、展开、选中）不应导致无关行
+ * 重新执行；内部持久操作弹层按需挂载，关闭时不分配组件与 hook。
+ */
+function SessionRowComponent({
   thread,
   remoteTitle,
   unassigned = false,
-  activeThreadId,
+  active,
+  actionsDisabled,
 }: {
   thread: HarnessThreadMetadata
   remoteTitle?: string
   unassigned?: boolean
-  activeThreadId?: string
+  /** 当前窗口的活动会话；由父级比较后传入，避免每行持有最新 ID。 */
+  active: boolean
+  /** 工作区元数据不可用时禁用写操作。 */
+  actionsDisabled: boolean
 }) {
   const aui = useAui()
-  const { refresh, showError, showNotice, state, selectWorkspace } = useWorkspace()
-  // 运行时经 initialize 创建的会话保留本地映射 ID，不能直接用 mainThreadId
-  // 与宿主会话 ID 比较；侧栏统一把主线程解析为宿主 ID 后传下来。
-  const active = activeThreadId === thread.id
+  const { refresh, showError, showNotice, selectWorkspace } = useWorkspaceActions()
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -219,7 +283,7 @@ function SessionRow({
             size="icon"
             className="size-6"
             aria-label="加入工作区"
-            disabled={state !== 'ok' || busy}
+            disabled={actionsDisabled || busy}
             onClick={() => setAssignOpen(true)}
           >
             <FolderPlusIcon aria-hidden className="size-3.5" />
@@ -296,17 +360,40 @@ function SessionRow({
           </PopoverContent>
         </Popover>
       </div>
-      <AssignWorkspaceDialog open={assignOpen} onOpenChange={setAssignOpen} thread={thread} />
-      <ThreadDetailsDialog open={detailsOpen} onOpenChange={setDetailsOpen} thread={thread} />
-      <DeleteThreadDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        thread={thread}
-        active={active}
-      />
+      {assignOpen && <AssignWorkspaceDialog open onOpenChange={setAssignOpen} thread={thread} />}
+      {detailsOpen && <ThreadDetailsDialog open onOpenChange={setDetailsOpen} thread={thread} />}
+      {deleteOpen && (
+        <DeleteThreadDialog open onOpenChange={setDeleteOpen} thread={thread} active={active} />
+      )}
     </div>
   )
 }
+
+function sameSessionRowProps(
+  previous: ComponentProps<typeof SessionRowComponent>,
+  next: ComponentProps<typeof SessionRowComponent>,
+) {
+  // 目录重查会产生新元数据对象；只比较本行及其按需弹层实际使用的字段。
+  const before = previous.thread
+  const after = next.thread
+  return (
+    previous.active === next.active &&
+    previous.actionsDisabled === next.actionsDisabled &&
+    previous.unassigned === next.unassigned &&
+    previous.remoteTitle === next.remoteTitle &&
+    before.id === after.id &&
+    before.title === after.title &&
+    before.name === after.name &&
+    before.workspacePath === after.workspacePath &&
+    before.workspaceId === after.workspaceId &&
+    before.status === after.status &&
+    before.updatedAt === after.updatedAt &&
+    before.archived === after.archived &&
+    before.sessionFile === after.sessionFile
+  )
+}
+
+const SessionRow = memo(SessionRowComponent, sameSessionRowProps)
 
 function WorkspaceGroup({
   workspace,
@@ -416,7 +503,8 @@ function WorkspaceGroup({
                 key={thread.id}
                 thread={thread}
                 remoteTitle={remoteTitles.get(thread.id)}
-                activeThreadId={activeThreadId}
+                active={activeThreadId === thread.id}
+                actionsDisabled={state !== 'ok'}
               />
             ))
           )}
@@ -457,20 +545,9 @@ export function WorkspaceSidebar() {
     if (target) setNewSession(target)
     clearPiIntent(intent.id)
   }, [activeWorkspaceId, intent, workspaces])
-  const remoteItems = useAuiState((current) => current.threads.threadItems)
-  /**
-   * 当前主线程对应的宿主会话 ID。
-   *
-   * 经 `initialize()` 创建的远端会话在运行时列表里保留本地映射 ID
-   * （`__LOCALID_*`），因此不能把 `mainThreadId` 直接与会话 ID 比较；
-   * 这里查一次条目得到 `remoteId`（尚未初始化的新线程回退原 ID）。
-   */
-  const activeThreadId = useAuiState((current) => {
-    const mainId = current.threads.mainThreadId
-    if (!mainId) return undefined
-    const main = current.threads.threadItems.find((item) => item.id === mainId)
-    return main?.remoteId ?? mainId
-  })
+  const remote = useRemoteThreadProjection()
+  const remoteTitles = remote.titles
+  const activeThreadId = remote.activeThreadId
   const syncedThreadRef = useRef<string | undefined>(undefined)
   // 新会话首次发送后 ID 才落到运行时；此时补一次宿主列表，避免侧栏要刷新页面才出现。
   useEffect(() => {
@@ -483,12 +560,6 @@ export function WorkspaceSidebar() {
     syncedThreadRef.current = activeThreadId
     void refresh()
   }, [activeThreadId, refresh, threads])
-  const remoteTitles = useMemo(() => {
-    const map = new Map<string, string | undefined>()
-    for (const item of remoteItems) map.set(item.id, item.title)
-    return map
-  }, [remoteItems])
-
   const query = search.trim().toLowerCase()
 
   /** 继续最近的候选：未归档 + 有归属，按活动时间挑一条（不受视图过滤影响）。 */
@@ -695,7 +766,8 @@ export function WorkspaceSidebar() {
                       thread={thread}
                       remoteTitle={remoteTitles.get(thread.id)}
                       unassigned
-                      activeThreadId={activeThreadId}
+                      active={activeThreadId === thread.id}
+                      actionsDisabled={state !== 'ok'}
                     />
                   ))}
                 </div>

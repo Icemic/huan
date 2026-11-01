@@ -14,7 +14,7 @@ import {
   SquareTerminalIcon,
   XIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { TooltipIconButton } from '@/components/assistant-ui/elements/tooltip-icon-button'
 import {
   type AppCommand,
@@ -36,8 +36,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 /** 队列展示：标注 steer/follow-up，并支持整体取回。 */
-export function ComposerQueue({ controller }: { controller: PiComposerController }) {
-  const { steering, followUp } = controller.queue
+export const ComposerQueue = memo(function ComposerQueue({
+  queue,
+  onRetrieve,
+}: {
+  queue: PiComposerController['queue']
+  onRetrieve: () => Promise<void>
+}) {
+  const { steering, followUp } = queue
   if (steering.length === 0 && followUp.length === 0) return null
   return (
     <div data-slot="huan-composer-queue" className="mb-1 flex flex-col gap-1">
@@ -71,7 +77,7 @@ export function ComposerQueue({ controller }: { controller: PiComposerController
           variant="ghost"
           size="xs"
           data-slot="huan-queue-retrieve"
-          onClick={() => void controller.retrieveQueue()}
+          onClick={() => void onRetrieve()}
         >
           <ChevronUpIcon aria-hidden className="size-3" />
           <Trans>取回全部</Trans>
@@ -79,7 +85,7 @@ export function ComposerQueue({ controller }: { controller: PiComposerController
       </div>
     </div>
   )
-}
+})
 
 /** 输入上方的补全列表（role=listbox，键盘由输入框处理）。 */
 export function ComposerCompletionMenu({ controller }: { controller: PiComposerController }) {
@@ -152,7 +158,13 @@ export function ComposerNotice({ controller }: { controller: PiComposerControlle
 }
 
 /** 左侧工具按钮：命令面板与 @ 文件引用。 */
-export function ComposerTools({ controller }: { controller: PiComposerController }) {
+export const ComposerTools = memo(function ComposerTools({
+  onOpenPalette,
+  onInsertMention,
+}: {
+  onOpenPalette: () => void
+  onInsertMention: () => void
+}) {
   return (
     <>
       <TooltipIconButton
@@ -163,7 +175,7 @@ export function ComposerTools({ controller }: { controller: PiComposerController
         size="icon"
         className="size-7 rounded-full"
         aria-label="打开命令面板"
-        onClick={controller.openPalette}
+        onClick={onOpenPalette}
       >
         <SquareTerminalIcon className="size-4" />
       </TooltipIconButton>
@@ -175,17 +187,25 @@ export function ComposerTools({ controller }: { controller: PiComposerController
         size="icon"
         className="size-7 rounded-full"
         aria-label="插入文件引用"
-        onClick={controller.insertMention}
+        onClick={onInsertMention}
       >
         <AtSignIcon className="size-4" />
       </TooltipIconButton>
     </>
   )
-}
+})
 
 /** 运行中显式选择排队语义。 */
-export function ComposerQueueMode({ controller }: { controller: PiComposerController }) {
-  if (!controller.isRunning) return null
+export const ComposerQueueMode = memo(function ComposerQueueMode({
+  isRunning,
+  queueMode,
+  onQueueModeChange,
+}: {
+  isRunning: boolean
+  queueMode: 'followUp' | 'steer'
+  onQueueModeChange: (mode: 'followUp' | 'steer') => void
+}) {
+  if (!isRunning) return null
   return (
     <fieldset
       data-slot="huan-composer-queue-mode"
@@ -194,52 +214,66 @@ export function ComposerQueueMode({ controller }: { controller: PiComposerContro
     >
       <button
         type="button"
-        aria-pressed={controller.queueMode === 'followUp'}
+        aria-pressed={queueMode === 'followUp'}
         className={cn(
           'rounded-full px-1.5 py-0.5',
-          controller.queueMode === 'followUp' ? 'bg-accent text-accent-foreground' : '',
+          queueMode === 'followUp' ? 'bg-accent text-accent-foreground' : '',
         )}
-        onClick={() => controller.setQueueMode('followUp')}
+        onClick={() => onQueueModeChange('followUp')}
       >
         <Trans>后续</Trans>
       </button>
       <button
         type="button"
-        aria-pressed={controller.queueMode === 'steer'}
+        aria-pressed={queueMode === 'steer'}
         className={cn(
           'rounded-full px-1.5 py-0.5',
-          controller.queueMode === 'steer' ? 'bg-accent text-accent-foreground' : '',
+          queueMode === 'steer' ? 'bg-accent text-accent-foreground' : '',
         )}
-        onClick={() => controller.setQueueMode('steer')}
+        onClick={() => onQueueModeChange('steer')}
       >
         <Trans>转向</Trans>
       </button>
     </fieldset>
   )
-}
+})
 
 /** 自定义发送按钮：保留队列模式并统一走命令路由。 */
-export function ComposerSendButton({ controller }: { controller: PiComposerController }) {
+export const ComposerSendButton = memo(function ComposerSendButton({
+  isRunning,
+  queueMode,
+  busy,
+  onSubmit,
+}: {
+  isRunning: boolean
+  queueMode: 'followUp' | 'steer'
+  busy: boolean
+  onSubmit: () => Promise<void>
+}) {
   const canSend = useAuiState((state) => state.composer.canSend)
   return (
     <TooltipIconButton
-      tooltip={controller.isRunning && controller.queueMode === 'steer' ? '转向发送' : '发送消息'}
+      tooltip={isRunning && queueMode === 'steer' ? '转向发送' : '发送消息'}
       side="bottom"
       type="button"
       variant="default"
       size="icon"
       className="aui-composer-send size-7 rounded-full"
       aria-label="Send message"
-      disabled={!canSend || controller.busy !== undefined}
-      onClick={() => void controller.submit()}
+      disabled={!canSend || busy}
+      onClick={() => void onSubmit()}
     >
       <ArrowUpIcon className="size-4" />
     </TooltipIconButton>
   )
-}
+})
 
 /** 展开长输入编辑。 */
-export function ComposerExpandButton({ controller }: { controller: PiComposerController }) {
+export const ComposerExpandButton = memo(function ComposerExpandButton({
+  onExpand,
+}: {
+  onExpand: () => void
+}) {
   return (
     <TooltipIconButton
       tooltip="展开编辑"
@@ -249,15 +283,12 @@ export function ComposerExpandButton({ controller }: { controller: PiComposerCon
       size="icon"
       className="text-muted-foreground size-7 rounded-full"
       aria-label="展开编辑长输入"
-      onClick={() => {
-        controller.setLongInputText(controller.text)
-        controller.setLongInputOpen(true)
-      }}
+      onClick={onExpand}
     >
       <Maximize2Icon className="size-3.5" />
     </TooltipIconButton>
   )
-}
+})
 
 /** 命令面板：可搜索、可键盘选择，插入到当前光标位置。 */
 function CommandPaletteDialog({ controller }: { controller: PiComposerController }) {

@@ -2,7 +2,7 @@
  * 运行操作面板：直接 Shell、上下文压缩与模型范围。
  *
  * 入口放在会话上下文栏（与工作区/项目信息同一行），打开后是紧凑的多段面板。
- * 所有动作经 `@huan/react` extras → 宿主 RPC；面板只展示权威状态，不自行
+ * 所有动作经 `@huan/react` 的稳定 actions → 宿主 RPC；面板只展示权威状态，不自行
  * 猜测成功（压缩失败、自动压缩保存失败都会如实显示）。
  */
 import type {
@@ -11,7 +11,7 @@ import type {
   HarnessModelInfo,
   HarnessModelScope,
 } from '@huan/protocol'
-import { useHarnessExtras, useHarnessThreadState } from '@huan/react'
+import { useHarnessActions, useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import {
   BanIcon,
@@ -141,7 +141,7 @@ export function RuntimeOperationsPanel() {
 }
 
 function RuntimeOperationsPanelContent() {
-  const extras = useHarnessExtras()
+  const actions = useHarnessActions()
   const metadata = useHarnessThreadState((state) => state.metadata)
   const bash = useHarnessThreadState((state) => state.bash)
   const compaction = useHarnessThreadState((state) => state.compaction)
@@ -173,10 +173,6 @@ function RuntimeOperationsPanelContent() {
 
   const autoCompaction = metadata.autoCompactionEnabled
 
-  // extras 引用随状态变化重建；用 ref 读取动作，避免把每次渲染的新函数放进依赖。
-  const extrasRef = useRef(extras)
-  extrasRef.current = extras
-
   /** 目录 + 会话范围：打开面板时读取；空白页只读目录（仍需要固定起始目录）。 */
   useEffect(() => {
     if (!open || !cwd) return
@@ -187,7 +183,7 @@ function RuntimeOperationsPanelContent() {
         if (!active) return
         setCatalog(models)
         if (threadId) {
-          const current = await extrasRef.current.getModelScope()
+          const current = await actions.getModelScope()
           if (!active) return
           setScope(current)
           setSelected(
@@ -203,7 +199,7 @@ function RuntimeOperationsPanelContent() {
     return () => {
       active = false
     }
-  }, [open, threadId, cwd])
+  }, [actions, open, threadId, cwd])
 
   const mounted = useRef(true)
   useEffect(() => {
@@ -227,7 +223,7 @@ function RuntimeOperationsPanelContent() {
 
   const submitShell = () =>
     run('shell', async () => {
-      const result = await extras.runBash({
+      const result = await actions.runBash({
         command,
         ...(excludeFromContext ? { excludeFromContext: true } : {}),
       })
@@ -241,7 +237,7 @@ function RuntimeOperationsPanelContent() {
 
   const submitCompact = () =>
     run('compact', async () => {
-      const outcome = await extras.compact({
+      const outcome = await actions.compact({
         ...(instructions.trim() ? { customInstructions: instructions.trim() } : {}),
       })
       if (mounted.current) setNotice(compactionNotice(outcome))
@@ -253,7 +249,7 @@ function RuntimeOperationsPanelContent() {
         setNotice('会话尚未就绪，暂时无法修改自动压缩设置')
         return
       }
-      const result = await extras.setAutoCompaction(!autoCompaction)
+      const result = await actions.setAutoCompaction(!autoCompaction)
       if (!mounted.current) return
       if (result.status === 'failed') {
         setNotice(result.message)
@@ -268,7 +264,7 @@ function RuntimeOperationsPanelContent() {
 
   const refreshCatalog = () =>
     run('refresh', async () => {
-      const result = await extras.refreshModels(
+      const result = await actions.refreshModels(
         threadId || !cwd ? undefined : { workspacePath: cwd },
       )
       if (!mounted.current) return
@@ -284,7 +280,7 @@ function RuntimeOperationsPanelContent() {
 
   const saveScope = () =>
     run('scope', async () => {
-      const result = await extras.setModelScope({
+      const result = await actions.setModelScope({
         patterns: [...selected],
         ...(saveAsDefault ? { saveAsDefault: true } : {}),
       })
@@ -399,7 +395,7 @@ function RuntimeOperationsPanelContent() {
                 size="sm"
                 variant="outline"
                 disabled={bash?.status !== 'running'}
-                onClick={() => run('shell-abort', () => extras.abortBash().then(() => {}))}
+                onClick={() => run('shell-abort', () => actions.abortBash().then(() => {}))}
               >
                 <CircleStopIcon aria-hidden className="size-3.5" />
                 <Trans>取消 Shell</Trans>
@@ -456,7 +452,7 @@ function RuntimeOperationsPanelContent() {
                 size="sm"
                 variant="outline"
                 disabled={!compaction.active}
-                onClick={() => run('compact-abort', () => extras.abortCompaction().then(() => {}))}
+                onClick={() => run('compact-abort', () => actions.abortCompaction().then(() => {}))}
               >
                 <Trans>取消压缩</Trans>
               </Button>

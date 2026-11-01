@@ -50,6 +50,7 @@ export type { HarnessQueueMode } from './queue-ids.js'
 // 队列条目 ID 方案
 export { harnessQueueItemId, isHarnessSteerQueueItemId } from './queue-ids.js'
 export {
+  useHarnessActions,
   useHarnessController,
   useHarnessExtras,
   useHarnessHostUiRequests,
@@ -77,7 +78,11 @@ export {
   projectHarnessThreadRepository,
   shareProjectedThreadMessages,
 } from './runtime/message-projection.js'
-export type { HarnessRuntimeExtras, HarnessRuntimeOptions } from './runtime/runtime-types.js'
+export type {
+  HarnessRuntimeActions,
+  HarnessRuntimeExtras,
+  HarnessRuntimeOptions,
+} from './runtime/runtime-types.js'
 export type {
   HarnessNotificationScheduler,
   HarnessSendOptions,

@@ -478,7 +478,7 @@ const Composer: FC<{ autoFocus: boolean }> = ({ autoFocus }) => {
   return (
     <ComposerPrimitive.Root className="aui-composer-root relative flex w-full flex-col">
       <PiComposerWidgets placement="aboveEditor" />
-      <ComposerQueuePanel controller={controller} />
+      <ComposerQueuePanel queue={controller.queue} onRetrieve={controller.retrieveQueue} />
       <ComposerCompletionMenu controller={controller} />
       <ComposerPrimitive.AttachmentDropzone asChild>
         <div
@@ -521,11 +521,18 @@ const ComposerAction: FC<{ controller: PiComposerController }> = ({ controller }
     <div className="aui-composer-action-wrapper relative flex items-center justify-between">
       <div className="flex items-center gap-1">
         <ComposerAddAttachment />
-        <ComposerTools controller={controller} />
+        <ComposerTools
+          onOpenPalette={controller.openPalette}
+          onInsertMention={controller.insertMention}
+        />
         <PiModelSelector openOnCommand />
       </div>
       <div className="flex items-center gap-1.5">
-        <ComposerQueueMode controller={controller} />
+        <ComposerQueueMode
+          isRunning={controller.isRunning}
+          queueMode={controller.queueMode}
+          onQueueModeChange={controller.setQueueMode}
+        />
         <AuiIf condition={(s) => s.thread.capabilities.dictation}>
           <AuiIf condition={(s) => s.composer.dictation == null}>
             <ComposerPrimitive.Dictate asChild>
@@ -558,8 +565,13 @@ const ComposerAction: FC<{ controller: PiComposerController }> = ({ controller }
             </ComposerPrimitive.StopDictation>
           </AuiIf>
         </AuiIf>
-        <ComposerExpandButton controller={controller} />
-        <ComposerSendButton controller={controller} />
+        <ComposerExpandButton onExpand={controller.openLongInput} />
+        <ComposerSendButton
+          isRunning={controller.isRunning}
+          queueMode={controller.queueMode}
+          busy={controller.busy !== undefined}
+          onSubmit={controller.submit}
+        />
         <AuiIf
           condition={(s) =>
             s.composer.canCancel &&

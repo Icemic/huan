@@ -34,7 +34,7 @@ import {
   useExternalStoreRuntime,
   useRemoteThreadListRuntime,
 } from '@assistant-ui/react'
-import type { HarnessClient, HarnessThreadMetadata } from '@huan/protocol'
+import type { HarnessClient, HarnessHostUiRequest, HarnessThreadMetadata } from '@huan/protocol'
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { HarnessHttpError } from '../client/http-client.js'
 import { harnessQueueItemId } from '../queue-ids.js'
@@ -47,7 +47,11 @@ import {
   responseForToolApproval,
   splitHostUiRequests,
 } from './host-ui.js'
-import type { HarnessRuntimeExtrasInternal, HarnessRuntimeOptions } from './runtime-types.js'
+import type {
+  HarnessRuntimeActions,
+  HarnessRuntimeExtrasInternal,
+  HarnessRuntimeOptions,
+} from './runtime-types.js'
 import {
   appendMessageParts,
   HarnessThreadController,
@@ -174,11 +178,49 @@ const invokeHarnessErrorCallback = (onError: HarnessRuntimeOptions['onError'], e
   void invokeUserCallback('huan-react', 'onError', onError, error)
 }
 
+/**
+ * 建立与 Controller 共生命周期的动作闭包。
+ *
+ * 动作本身不读取状态快照，因此同一 Controller 下可复用同一对象；状态更新只
+ * 重建 extras，不应让只需动作的订阅者重渲染。
+ */
+const createHarnessRuntimeActions = (
+  controller: HarnessThreadControllerLike,
+): HarnessRuntimeActions => ({
+  connect: () => controller.connect(),
+  cancel: () => controller.cancel(),
+  refresh: () => controller.refresh(),
+  clearQueue: () => controller.clearQueue(),
+  getThreadTree: () => controller.getThreadTree(),
+  navigateThreadTree: (input) => controller.navigateThreadTree(input),
+  setThreadEntryLabel: (input) => controller.setThreadEntryLabel(input),
+  cancelThreadTreeNavigation: () => controller.cancelThreadTreeNavigation(),
+  setModel: (input) => controller.setModel(input),
+  setThinkingLevel: (level) => controller.setThinkingLevel(level),
+  runBash: (input) => controller.runBash(input),
+  abortBash: () => controller.abortBash(),
+  compact: (input) => controller.compact(input),
+  abortCompaction: () => controller.abortCompaction(),
+  setAutoCompaction: (enabled) => controller.setAutoCompaction(enabled),
+  getModelScope: () => controller.getModelScope(),
+  setModelScope: (input) => controller.setModelScope(input),
+  refreshModels: (input) => controller.refreshModels(input),
+  respondToHostUiRequest: (response) => controller.respondToHostUiRequest(response),
+  consumeHostUiDirective: (directiveId) => controller.consumeHostUiDirective(directiveId),
+  respondToToolApproval: (id, approved) => controller.respondToToolApproval(id, approved),
+  resumeToolCall: (toolCallId, payload) => controller.resumeToolCall(toolCallId, payload),
+})
+
+export const EMPTY_RUNTIME_ACTIONS = createHarnessRuntimeActions(NOOP_CONTROLLER)
+
+const EMPTY_HOST_UI_REQUESTS: readonly HarnessHostUiRequest[] = []
+
 const buildExtras = (
   controller: HarnessThreadControllerLike,
   state: HarnessThreadState,
+  actions: HarnessRuntimeActions,
+  hostUiRequests: readonly HarnessHostUiRequest[],
 ): HarnessRuntimeExtrasInternal => {
-  const { freeStanding } = splitHostUiRequests(state.hostUiRequests)
   return harnessExtras.provide({
     controller,
     state,
@@ -186,39 +228,24 @@ const buildExtras = (
     status: state.runStatus === 'failed' ? 'failed' : state.runStatus,
     readiness: state.readiness,
     contextUsage: state.contextUsage,
-    hostUiRequests: freeStanding,
+    hostUiRequests,
     allHostUiRequests: state.hostUiRequests,
     queue: state.queue,
     compaction: state.compaction,
     bash: state.bash,
     retry: state.retry,
     lastError: state.lastError,
-    connect: () => controller.connect(),
-    cancel: () => controller.cancel(),
-    refresh: () => controller.refresh(),
-    clearQueue: () => controller.clearQueue(),
-    getThreadTree: () => controller.getThreadTree(),
-    navigateThreadTree: (input) => controller.navigateThreadTree(input),
-    setThreadEntryLabel: (input) => controller.setThreadEntryLabel(input),
-    cancelThreadTreeNavigation: () => controller.cancelThreadTreeNavigation(),
-    setModel: (input) => controller.setModel(input),
-    setThinkingLevel: (level) => controller.setThinkingLevel(level),
-    runBash: (input) => controller.runBash(input),
-    abortBash: () => controller.abortBash(),
-    compact: (input) => controller.compact(input),
-    abortCompaction: () => controller.abortCompaction(),
-    setAutoCompaction: (enabled) => controller.setAutoCompaction(enabled),
-    getModelScope: () => controller.getModelScope(),
-    setModelScope: (input) => controller.setModelScope(input),
-    refreshModels: (input) => controller.refreshModels(input),
-    respondToHostUiRequest: (response) => controller.respondToHostUiRequest(response),
-    consumeHostUiDirective: (directiveId) => controller.consumeHostUiDirective(directiveId),
-    respondToToolApproval: (id, approved) => controller.respondToToolApproval(id, approved),
-    resumeToolCall: (toolCallId, payload) => controller.resumeToolCall(toolCallId, payload),
+    ...actions,
+    actions,
   })
 }
 
-export const EMPTY_RUNTIME_EXTRAS = buildExtras(NOOP_CONTROLLER, EMPTY_THREAD_STATE)
+export const EMPTY_RUNTIME_EXTRAS = buildExtras(
+  NOOP_CONTROLLER,
+  EMPTY_THREAD_STATE,
+  EMPTY_RUNTIME_ACTIONS,
+  EMPTY_HOST_UI_REQUESTS,
+)
 
 // ---------------------------------------------------------------------------
 // 每线程运行时。
@@ -306,9 +333,17 @@ const useHarnessThreadStore = (
     return controller.connect()
   }, [controller, isRunning])
 
+  // 动作只依赖 Controller；状态变化时只重建 extras 的数据字段。
+  const actions = useMemo(() => createHarnessRuntimeActions(controller), [controller])
+  // 游离请求的数组引用只随 hostUiRequests 变化；否则每次消息更新都会让
+  // useHarnessHostUiRequests 的字段选择器看到新数组。
+  const hostUiRequests = useMemo(
+    () => splitHostUiRequests(state.hostUiRequests).freeStanding,
+    [state.hostUiRequests],
+  )
   const extras = useMemo<HarnessRuntimeExtrasInternal>(
-    () => buildExtras(controller, state),
-    [controller, state],
+    () => buildExtras(controller, state, actions, hostUiRequests),
+    [controller, state, actions, hostUiRequests],
   )
 
   // Pi 原生支持 queue（`prompt()` 可在运行中 steer 或 followUp），因此 queue

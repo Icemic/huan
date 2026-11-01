@@ -34,7 +34,8 @@ export type WorkspaceUiError =
   | 'invalid'
   | 'not-found'
 
-type WorkspaceContextValue = {
+/** 工作区数据：会随刷新、选中与展开变化的只读状态。 */
+type WorkspaceDataContextValue = {
   hostInfo: HarnessHostInfo | undefined
   workspaces: readonly HarnessWorkspace[]
   state: HarnessWorkspaceState | undefined
@@ -45,6 +46,10 @@ type WorkspaceContextValue = {
   busy: boolean
   error: WorkspaceUiError | undefined
   notice: string | undefined
+}
+
+/** 工作区动作：与数据变化解耦，供仅执行操作的组件订阅。 */
+type WorkspaceActionsContextValue = {
   refresh: (options?: { threads?: boolean; rescan?: boolean }) => Promise<void>
   selectWorkspace: (workspaceId: string) => void
   toggleWorkspace: (workspaceId: string) => void
@@ -60,7 +65,10 @@ type WorkspaceContextValue = {
   clearNotice: () => void
 }
 
-const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined)
+type WorkspaceContextValue = WorkspaceDataContextValue & WorkspaceActionsContextValue
+
+const WorkspaceDataContext = createContext<WorkspaceDataContextValue | undefined>(undefined)
+const WorkspaceActionsContext = createContext<WorkspaceActionsContextValue | undefined>(undefined)
 
 const storageKeys = (info: HarnessHostInfo) => {
   const scope = `${info.agentDir}\u0000${info.sessionStorage.root}`
@@ -126,14 +134,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string>()
 
   const activeRef = useRef<string | undefined>(undefined)
+  const hostInfoRef = useRef<HarnessHostInfo | undefined>(undefined)
+  const threadsRef = useRef<readonly HarnessThreadMetadata[]>([])
   const keysRef = useRef<ReturnType<typeof storageKeys> | undefined>(undefined)
   const startPreferencesRef = useRef<Record<string, string>>({})
   const creationTargetRef = useRef<{ workspaceId?: string; startProjectPath?: string }>({})
   const catalogRef = useRef<HarnessWorkspaceCatalog | undefined>(undefined)
   const initializedRef = useRef(false)
-  const refreshRef = useRef<
-    ((options?: { threads?: boolean; rescan?: boolean }) => Promise<void>) | undefined
-  >(undefined)
   const active = useRef(true)
   const refreshGeneration = useRef(0)
 
@@ -169,11 +176,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     async (options?: { threads?: boolean; rescan?: boolean }) => {
       const generation = ++refreshGeneration.current
       try {
+        const currentHost = hostInfoRef.current
         const [nextHost, nextCatalog, nextThreads] = await Promise.all([
-          hostInfo ? Promise.resolve(hostInfo) : harnessHttpClient.getHostInfo(),
+          currentHost ? Promise.resolve(currentHost) : harnessHttpClient.getHostInfo(),
           harnessHttpClient.listWorkspaces(),
           options?.threads === false
-            ? Promise.resolve(threads)
+            ? Promise.resolve(threadsRef.current)
             : harnessHttpClient.listThreads({
                 includeArchived: true,
                 // 显式刷新/窗口重新聚焦：清空宿主作用域缓存并重扫，
@@ -182,6 +190,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               }),
         ])
         if (!active.current || generation !== refreshGeneration.current) return
+        hostInfoRef.current = nextHost
+        threadsRef.current = nextThreads
         if (!initializedRef.current) {
           // 并发 refresh（挂载 + 聚焦/事件）只能有一个执行窗口状态恢复；
           // 否则后完成的空 expanded 会覆盖先完成的默认展开。
@@ -213,21 +223,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (active.current && generation === refreshGeneration.current) setBusy(false)
       }
     },
-    [applyActive, chooseActive, hostInfo, threads],
+    [applyActive, chooseActive],
   )
 
-  // refresh 的闭包会随列表变化更新；通过 ref 供窗口事件与初次挂载使用，
-  // 避免把 refresh 放进依赖后触发「刷新 → 列表变化 → 再刷新」的循环。
   useEffect(() => {
-    refreshRef.current = refresh
-  }, [refresh])
-
-  useEffect(() => {
-    void refreshRef.current?.()
+    void refresh()
     // 窗口聚焦/恢复时显式重扫作用域，外部 Pi 改动与跨窗口改动可见。
-    const onFocus = () => void refreshRef.current?.({ rescan: true })
+    const onFocus = () => void refresh({ rescan: true })
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') void refreshRef.current?.({ rescan: true })
+      if (document.visibilityState === 'visible') void refresh({ rescan: true })
     }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
@@ -235,7 +239,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [])
+  }, [refresh])
 
   // 创建会话/首条消息接受后由 HTTP 客户端发出轻量通知；只重查列表，
   // 不把整份工作区定义附到流式事件里。
@@ -317,7 +321,45 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo<WorkspaceContextValue>(
+  const showNotice = useCallback((message: string) => {
+    setNotice(message)
+    setError(undefined)
+  }, [])
+  const showError = useCallback((next: WorkspaceUiError) => setError(next), [])
+  const clearError = useCallback(() => setError(undefined), [])
+  const clearNotice = useCallback(() => setNotice(undefined), [])
+
+  // 动作与数据分开提供：会话行等组件只需动作时，不随选中/展开/列表刷新重渲染。
+  const actions = useMemo<WorkspaceActionsContextValue>(
+    () => ({
+      refresh,
+      selectWorkspace,
+      toggleWorkspace,
+      startProjectFor,
+      setStartProject,
+      beginNewSession,
+      createThreadInput,
+      showNotice,
+      showError,
+      clearError,
+      clearNotice,
+    }),
+    [
+      refresh,
+      selectWorkspace,
+      toggleWorkspace,
+      startProjectFor,
+      setStartProject,
+      beginNewSession,
+      createThreadInput,
+      showNotice,
+      showError,
+      clearError,
+      clearNotice,
+    ],
+  )
+
+  const data = useMemo<WorkspaceDataContextValue>(
     () => ({
       hostInfo,
       workspaces: catalog?.workspaces ?? [],
@@ -329,45 +371,31 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       busy,
       error,
       notice,
-      refresh,
-      selectWorkspace,
-      toggleWorkspace,
-      startProjectFor,
-      setStartProject,
-      beginNewSession,
-      createThreadInput,
-      showNotice: (message) => {
-        setNotice(message)
-        setError(undefined)
-      },
-      showError: setError,
-      clearError: () => setError(undefined),
-      clearNotice: () => setNotice(undefined),
     }),
-    [
-      hostInfo,
-      catalog,
-      threads,
-      activeWorkspaceId,
-      expanded,
-      busy,
-      error,
-      notice,
-      refresh,
-      selectWorkspace,
-      toggleWorkspace,
-      startProjectFor,
-      setStartProject,
-      beginNewSession,
-      createThreadInput,
-    ],
+    [hostInfo, catalog, threads, activeWorkspaceId, expanded, busy, error, notice],
   )
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>
+  return (
+    <WorkspaceActionsContext.Provider value={actions}>
+      <WorkspaceDataContext.Provider value={data}>{children}</WorkspaceDataContext.Provider>
+    </WorkspaceActionsContext.Provider>
+  )
 }
 
 export function useWorkspace(): WorkspaceContextValue {
-  const value = useContext(WorkspaceContext)
+  const data = useContext(WorkspaceDataContext)
+  const actions = useContext(WorkspaceActionsContext)
+  const value = useMemo(
+    () => (data && actions ? { ...data, ...actions } : undefined),
+    [data, actions],
+  )
   if (!value) throw new Error('useWorkspace must be used inside WorkspaceProvider')
+  return value
+}
+
+/** 仅需工作区动作的组件使用；不订阅数据变化。 */
+export function useWorkspaceActions(): WorkspaceActionsContextValue {
+  const value = useContext(WorkspaceActionsContext)
+  if (!value) throw new Error('useWorkspaceActions must be used inside WorkspaceProvider')
   return value
 }
