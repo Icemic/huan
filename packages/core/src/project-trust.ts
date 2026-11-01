@@ -190,84 +190,40 @@ export async function prepareProjectTrust(
     settingsManager,
   })
   const trustStore = options.trustStore ?? new ProjectTrustStore(options.agentDir)
-  const defaultProjectTrust = settingsManager.getDefaultProjectTrust()
-  const requiresTrust = hasTrustRequiringProjectResources(cwd)
   const extensionErrors: string[] = []
-
-  let status: ProjectTrustStatus = 'needs-trust'
-  let source: ProjectTrustSource = 'ask'
-  let savedPath: string | undefined
+  // 首次装配与后续 loader.reload 共用同一解析函数，避免两套信任策略漂移。
+  let decision: ResolvedProjectTrustDecision = {
+    status: 'needs-trust',
+    source: 'ask',
+    requiresTrust: hasTrustRequiringProjectResources(cwd),
+    defaultProjectTrust: settingsManager.getDefaultProjectTrust(),
+  }
 
   await resourceLoader.reload({
     resolveProjectTrust: async ({ extensionsResult }) => {
-      if (options.override !== undefined) {
-        status = options.override ? 'trusted' : 'untrusted'
-        source = 'explicit'
-      } else if (!requiresTrust) {
-        status = 'trusted'
-        source = 'no-resources'
-      } else {
-        const context = options.projectTrustContext
-          ? { ...options.projectTrustContext, cwd }
-          : createHeadlessContext(cwd)
-        const extensionResult = await resolveFromExtensions(
-          extensionsResult,
-          cwd,
-          context,
-          extensionErrors,
-        )
-
-        if (extensionResult) {
-          status = extensionResult.trusted === 'yes' ? 'trusted' : 'untrusted'
-          source = 'extension'
-          if (extensionResult.remember === true) {
-            savedPath = rememberDecision(trustStore, cwd, status === 'trusted')
-          }
-        } else {
-          const saved = trustStore.getEntry(cwd)
-          if (saved) {
-            status = saved.decision ? 'trusted' : 'untrusted'
-            source = 'saved'
-            savedPath = saved.path
-          } else {
-            switch (defaultProjectTrust) {
-              case 'always':
-                status = 'trusted'
-                source = 'default'
-                break
-              case 'never':
-                status = 'untrusted'
-                source = 'default'
-                break
-              case 'ask': {
-                const answer = await options.ask?.({ cwd, defaultProjectTrust })
-                if (!answer) {
-                  status = 'needs-trust'
-                  source = 'ask'
-                  break
-                }
-                status = answer.trusted ? 'trusted' : 'untrusted'
-                source = 'ask'
-                if (answer.remember === true) {
-                  savedPath = rememberDecision(trustStore, cwd, answer.trusted)
-                }
-                break
-              }
-            }
-          }
-        }
-      }
-      return status === 'trusted'
+      decision = await resolveProjectTrustDecision({
+        cwd,
+        settingsManager,
+        trustStore,
+        extensionsResult,
+        extensionErrors,
+        ...(options.override !== undefined ? { override: options.override } : {}),
+        ...(options.ask ? { ask: options.ask } : {}),
+        ...(options.projectTrustContext
+          ? { projectTrustContext: options.projectTrustContext }
+          : {}),
+      })
+      return decision.status === 'trusted'
     },
   })
 
   const state: ProjectTrustState = {
     cwd,
-    status,
-    source,
-    requiresTrust,
-    defaultProjectTrust,
-    ...(savedPath ? { savedPath } : {}),
+    status: decision.status,
+    source: decision.source,
+    requiresTrust: decision.requiresTrust,
+    defaultProjectTrust: decision.defaultProjectTrust,
+    ...(decision.savedPath ? { savedPath: decision.savedPath } : {}),
     extensionErrors,
   }
 
@@ -279,5 +235,114 @@ export async function prepareProjectTrust(
     loadErrors: resourceLoader
       .getExtensions()
       .errors.map(({ path, error }) => `扩展加载（${path}）：${error}`),
+  }
+}
+
+/** 一次信任解析的结论（不含 cwd 与错误明细的外部投影）。 */
+export interface ResolvedProjectTrustDecision {
+  status: ProjectTrustStatus
+  source: ProjectTrustSource
+  requiresTrust: boolean
+  defaultProjectTrust: DefaultProjectTrust
+  savedPath?: string
+}
+
+/** 信任解析输入：装配与运行时重载共用同一权威，不复制第二套策略。 */
+export interface ResolveProjectTrustOptions {
+  /** 项目路径（会按 SDK 相同口径规范化）。 */
+  cwd: string
+  settingsManager: SettingsManager
+  trustStore: ProjectTrustStore
+  /** 本次解析已加载的用户扩展（用于 `project_trust` 处理器）。 */
+  extensionsResult: LoadExtensionsResult
+  /** 扩展处理错误累积数组（由调用方持有）。 */
+  extensionErrors: string[]
+  /** 本次显式决定；优先级最高且不写入 trust.json。 */
+  override?: boolean
+  /** 需要用户回答时调用；返回 undefined 表示暂不回答。 */
+  ask?: (
+    request: ProjectTrustAsk,
+  ) => Promise<ProjectTrustAnswer | undefined> | ProjectTrustAnswer | undefined
+  /** 用户扩展可用的信任上下文；缺省为无 UI 的最小上下文。 */
+  projectTrustContext?: ProjectTrustContext
+}
+
+/**
+ * 解析一次项目信任结论（不创建 loader、不装配资源）。
+ *
+ * 优先级与 CLI 一致：本次显式决定 > 用户扩展首个 yes/no > 最近父目录保存决定 >
+ * 全局 defaultProjectTrust。`ask` 没有回答时返回 `needs-trust`，调用方不得据此
+ * 执行项目资源。
+ */
+export async function resolveProjectTrustDecision(
+  options: ResolveProjectTrustOptions,
+): Promise<ResolvedProjectTrustDecision> {
+  const cwd = canonicalPath(options.cwd)
+  const requiresTrust = hasTrustRequiringProjectResources(cwd)
+  const defaultProjectTrust = options.settingsManager.getDefaultProjectTrust()
+  if (options.override !== undefined) {
+    return {
+      status: options.override ? 'trusted' : 'untrusted',
+      source: 'explicit',
+      requiresTrust,
+      defaultProjectTrust,
+    }
+  }
+  if (!requiresTrust) {
+    return { status: 'trusted', source: 'no-resources', requiresTrust, defaultProjectTrust }
+  }
+  const context = options.projectTrustContext
+    ? { ...options.projectTrustContext, cwd }
+    : createHeadlessContext(cwd)
+  const extensionResult = await resolveFromExtensions(
+    options.extensionsResult,
+    cwd,
+    context,
+    options.extensionErrors,
+  )
+  if (extensionResult) {
+    const status: ProjectTrustStatus = extensionResult.trusted === 'yes' ? 'trusted' : 'untrusted'
+    const savedPath =
+      extensionResult.remember === true
+        ? rememberDecision(options.trustStore, cwd, status === 'trusted')
+        : undefined
+    return {
+      status,
+      source: 'extension',
+      requiresTrust,
+      defaultProjectTrust,
+      ...(savedPath ? { savedPath } : {}),
+    }
+  }
+  const saved = options.trustStore.getEntry(cwd)
+  if (saved) {
+    return {
+      status: saved.decision ? 'trusted' : 'untrusted',
+      source: 'saved',
+      requiresTrust,
+      defaultProjectTrust,
+      savedPath: saved.path,
+    }
+  }
+  if (defaultProjectTrust === 'always' || defaultProjectTrust === 'never') {
+    return {
+      status: defaultProjectTrust === 'always' ? 'trusted' : 'untrusted',
+      source: 'default',
+      requiresTrust,
+      defaultProjectTrust,
+    }
+  }
+  const answer = await options.ask?.({ cwd, defaultProjectTrust })
+  if (!answer) {
+    return { status: 'needs-trust', source: 'ask', requiresTrust, defaultProjectTrust }
+  }
+  const savedPath =
+    answer.remember === true ? rememberDecision(options.trustStore, cwd, answer.trusted) : undefined
+  return {
+    status: answer.trusted ? 'trusted' : 'untrusted',
+    source: 'ask',
+    requiresTrust,
+    defaultProjectTrust,
+    ...(savedPath ? { savedPath } : {}),
   }
 }

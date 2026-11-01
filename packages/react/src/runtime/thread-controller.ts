@@ -35,6 +35,8 @@ import type {
   HarnessModelScope,
   HarnessModelScopeUpdateInput,
   HarnessModelScopeUpdateResult,
+  HarnessReloadResult,
+  HarnessReloadTrigger,
   HarnessSendMessageInput,
   HarnessSendMessageResult,
   HarnessThinkingLevel,
@@ -136,6 +138,11 @@ export interface HarnessThreadControllerLike {
   setModelScope(input: HarnessModelScopeUpdateInput): Promise<HarnessModelScopeUpdateResult>
   /** 刷新模型目录；空白页需显式传固定起始目录。 */
   refreshModels(input?: { workspacePath?: string }): Promise<HarnessModelRefreshResult>
+  /**
+   * 资源重载：同一会话刷新设置/指令/扩展（消息、分支与订阅不替换）。
+   * 返回宿主的真实结局（busy/failed 不抛异常，由调用方展示）。
+   */
+  reloadResources(trigger?: HarnessReloadTrigger): Promise<HarnessReloadResult>
   /** 仅通过决定来答复指定 id 的请求：`confirm` 会原样接受；拒绝会关闭其他类型的请求；
    * 若接受请求时未提供其选项或文本，则会被拒绝。 */
   respondToToolApproval(approvalId: string, approved: boolean): Promise<void>
@@ -213,6 +220,8 @@ const METADATA_DIRTY_EVENT_TYPES: ReadonlySet<string> = new Set([
   'bash_output',
   'bash_end',
   'host_ui_update',
+  'reload_start',
+  'reload_end',
   'auto_retry_start',
   'auto_retry_end',
   'session_info_changed',
@@ -1231,6 +1240,20 @@ export class HarnessThreadController implements HarnessThreadControllerLike {
       this.setState({ ...this.state, lastError: errorText(error) })
       throw error
     }
+  }
+
+  public async reloadResources(trigger: HarnessReloadTrigger = 'api') {
+    const result = await this.client.reloadResources({ threadId: this.threadId, trigger })
+    // 宿主同时广播快照；这里先用响应里的权威快照收敛状态，避免额外往返。
+    if (result.status === 'reloaded' && result.snapshot) {
+      this.dispatch({
+        type: 'snapshot',
+        snapshot: result.snapshot,
+        threadId: this.threadId,
+        seq: result.snapshot.seq ?? this.localSnapshotSeq,
+      })
+    }
+    return result
   }
 
   public async refreshModels(input?: { workspacePath?: string }) {

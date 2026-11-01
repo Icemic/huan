@@ -17,6 +17,8 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessHostInteractionSnapshot,
   HarnessHostUiRequest,
+  HarnessReloadOperation,
+  HarnessReloadResult,
   HarnessResourceSnapshot,
   HarnessSettingsSaveResult,
   HarnessSettingsSnapshot,
@@ -580,6 +582,64 @@ export const isThreadImportResult = (value: unknown): value is HarnessThreadImpo
   return value.preview === undefined || isThreadImportPreview(value.preview)
 }
 
+/**
+ * 资源重载操作守卫。
+ *
+ * 状态与目标都由宿主生成；这里只接受协议列出的受控值，避免畸形载荷
+ * 把未知状态带进 UI（例如把失败当成功显示）。
+ */
+export const isReloadOperation = (value: unknown): value is HarnessReloadOperation =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  value.id.length > 0 &&
+  (value.trigger === 'command' ||
+    value.trigger === 'settings' ||
+    value.trigger === 'extension' ||
+    value.trigger === 'api') &&
+  (value.status === 'running' ||
+    value.status === 'succeeded' ||
+    value.status === 'failed' ||
+    value.status === 'cancelled') &&
+  typeof value.workspacePath === 'string' &&
+  isOptionalString(value.threadId) &&
+  typeof value.startedAt === 'string' &&
+  isOptionalString(value.finishedAt) &&
+  typeof value.fromResourceRevision === 'number' &&
+  typeof value.resourceRevision === 'number' &&
+  isOptionalString(value.message)
+
+/** 资源重载结果守卫（含可选权威快照）。 */
+export const isReloadResult = (value: unknown): value is HarnessReloadResult => {
+  if (!isRecord(value)) return false
+  switch (value.status) {
+    case 'reloaded':
+      return (
+        (value.kind === 'session' || value.kind === 'workspace') &&
+        typeof value.workspacePath === 'string' &&
+        isOptionalString(value.threadId) &&
+        isReloadOperation(value.operation) &&
+        typeof value.resourceRevision === 'number' &&
+        (value.snapshot === undefined || isThreadSnapshot(value.snapshot))
+      )
+    case 'busy':
+      return (
+        typeof value.message === 'string' &&
+        typeof value.workspacePath === 'string' &&
+        isOptionalString(value.threadId)
+      )
+    case 'failed':
+      return (
+        (value.reason === 'trust' || value.reason === 'assembly' || value.reason === 'disposed') &&
+        typeof value.message === 'string' &&
+        isReloadOperation(value.operation)
+      )
+    case 'cancelled':
+      return typeof value.message === 'string' && isReloadOperation(value.operation)
+    default:
+      return false
+  }
+}
+
 /** 会话元数据守卫。 */
 export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata =>
   isRecord(value) &&
@@ -614,7 +674,9 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   isOptionalString(value.updatedAt) &&
   (value.leafId === undefined || value.leafId === null || typeof value.leafId === 'string') &&
   isOptionalString(value.treeRevision) &&
-  (value.treeOperation === undefined || isTreeOperation(value.treeOperation))
+  (value.treeOperation === undefined || isTreeOperation(value.treeOperation)) &&
+  isOptionalNumber(value.resourceRevision) &&
+  (value.reload === undefined || isReloadOperation(value.reload))
 
 /** 累计统计守卫：详情面板会直接读取这些数值。 */
 const isThreadStats = (value: unknown): boolean =>

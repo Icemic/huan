@@ -19,7 +19,7 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 11 as const
+export const HARNESS_PROTOCOL_VERSION = 12 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
@@ -111,6 +111,11 @@ export type {
 export type { HarnessQueueMode } from './queue.js'
 export { harnessQueueItemId, isHarnessSteerQueueItemId } from './queue.js'
 export type {
+  HarnessReloadFailureReason,
+  HarnessReloadResult,
+  HarnessReloadTargetInput,
+} from './reload.js'
+export type {
   HarnessAutoCompactionUpdateResult,
   HarnessBashAbortResult,
   HarnessBashResult,
@@ -173,6 +178,9 @@ export type {
   HarnessModelInfo,
   HarnessModelInput,
   HarnessQueuedMessage,
+  HarnessReloadOperation,
+  HarnessReloadStatus,
+  HarnessReloadTrigger,
   HarnessRuntimeReadiness,
   HarnessSendMessageDisposition,
   HarnessSendMessageInput,

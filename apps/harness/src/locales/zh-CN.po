@@ -7,6 +7,10 @@ msgstr ""
 "X-Generator: @lingui/cli\n"
 "Language: zh-CN\n"
 
+#: src/components/settings-resources-dialog.tsx:846
+msgid "编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。 保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源， “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。"
+msgstr "编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。 保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源， “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。"
+
 #: src/components/runtime-data-parts.tsx:108
 msgid "（压缩前约 {tokensBefore} tokens）"
 msgstr "（压缩前约 {tokensBefore} tokens）"
@@ -24,11 +28,11 @@ msgstr "{0} 个项目"
 msgid "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 msgstr "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 
-#: src/components/settings-resources-dialog.tsx:904
+#: src/components/settings-resources-dialog.tsx:1005
 msgid "JSON 原文"
 msgstr "JSON 原文"
 
-#: src/components/settings-resources-dialog.tsx:986
+#: src/components/settings-resources-dialog.tsx:1088
 msgid "live 会话正在使用的 loader"
 msgstr "live 会话正在使用的 loader"
 
@@ -65,7 +69,7 @@ msgid "Token"
 msgstr "Token"
 
 #: src/components/runtime-operations.tsx:416
-#: src/components/settings-resources-dialog.tsx:408
+#: src/components/settings-resources-dialog.tsx:412
 msgid "上下文压缩"
 msgstr "上下文压缩"
 
@@ -182,7 +186,7 @@ msgstr "保存标签"
 msgid "保存标签失败。"
 msgstr "保存标签失败。"
 
-#: src/components/settings-resources-dialog.tsx:1222
+#: src/components/settings-resources-dialog.tsx:1332
 msgid "保存设置"
 msgstr "保存设置"
 
@@ -212,7 +216,7 @@ msgstr "停止运行后取回 {0} 条未发送消息"
 msgid "允许"
 msgstr "允许"
 
-#: src/components/settings-resources-dialog.tsx:951
+#: src/components/settings-resources-dialog.tsx:1052
 msgid "先修复 JSON 解析错误，常用项表单才可用。"
 msgstr "先修复 JSON 解析错误，常用项表单才可用。"
 
@@ -254,7 +258,7 @@ msgstr "共 {0} 条"
 #: src/components/pi-composer-tools.tsx:408
 #: src/components/session-dialogs.tsx:217
 #: src/components/session-tree-dialog.tsx:946
-#: src/components/settings-resources-dialog.tsx:1226
+#: src/components/settings-resources-dialog.tsx:1336
 #: src/components/ui/dialog.tsx:74
 #: src/components/ui/dialog.tsx:109
 msgid "关闭"
@@ -405,7 +409,7 @@ msgstr "取消摘要"
 msgid "取消编辑标签"
 msgstr "取消编辑标签"
 
-#: src/components/settings-resources-dialog.tsx:988
+#: src/components/settings-resources-dialog.tsx:1090
 msgid "受信装配缓存（未重新执行扩展）"
 msgstr "受信装配缓存（未重新执行扩展）"
 
@@ -564,7 +568,7 @@ msgstr "导入预览失败。"
 msgid "导航未完成。"
 msgstr "导航未完成。"
 
-#: src/components/settings-resources-dialog.tsx:253
+#: src/components/settings-resources-dialog.tsx:257
 msgid "尚未创建（保存时写入）"
 msgstr "尚未创建（保存时写入）"
 
@@ -617,7 +621,7 @@ msgstr "工作目录"
 msgid "工具"
 msgstr "工具"
 
-#: src/components/settings-resources-dialog.tsx:444
+#: src/components/settings-resources-dialog.tsx:448
 msgid "工具、Skill 与传输"
 msgstr "工具、Skill 与传输"
 
@@ -657,7 +661,7 @@ msgstr "已取消"
 msgid "已复制"
 msgstr "已复制"
 
-#: src/components/settings-resources-dialog.tsx:251
+#: src/components/settings-resources-dialog.tsx:255
 msgid "已存在"
 msgstr "已存在"
 
@@ -689,7 +693,7 @@ msgstr "已跳转，并已写入分支摘要。"
 msgid "已跳转到所选节点。"
 msgstr "已跳转到所选节点。"
 
-#: src/components/settings-resources-dialog.tsx:895
+#: src/components/settings-resources-dialog.tsx:996
 msgid "常用项"
 msgstr "常用项"
 
@@ -697,6 +701,10 @@ msgstr "常用项"
 #: src/components/pi-thread-host-ui.tsx:403
 msgid "应用"
 msgstr "应用"
+
+#: src/components/settings-resources-dialog.tsx:965
+msgid "应用资源重载"
+msgstr "应用资源重载"
 
 #. placeholder {0}: hostInfo?.agentDir ?? '用户目录'
 #: src/components/runtime-operations.tsx:472
@@ -723,17 +731,17 @@ msgstr "当前"
 msgid "当前上下文"
 msgstr "当前上下文"
 
-#: src/components/settings-resources-dialog.tsx:792
+#: src/components/settings-resources-dialog.tsx:880
 msgid "当前会话固定 cwd"
 msgstr "当前会话固定 cwd"
 
-#: src/components/settings-resources-dialog.tsx:1192
+#: src/components/settings-resources-dialog.tsx:1294
 msgid "当前会话已加载值来自会话装配；磁盘变化需重载才会被使用。"
 msgstr "当前会话已加载值来自会话装配；磁盘变化需重载才会被使用。"
 
-#: src/components/settings-resources-dialog.tsx:878
-msgid "当前作用域有未保存改动；切换到另一作用域会保留草稿， 重新加载会丢弃该作用域的未保存改动。"
-msgstr "当前作用域有未保存改动；切换到另一作用域会保留草稿， 重新加载会丢弃该作用域的未保存改动。"
+#: src/components/settings-resources-dialog.tsx:979
+msgid "当前作用域有未保存改动；切换到另一作用域会保留草稿， “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。"
+msgstr "当前作用域有未保存改动；切换到另一作用域会保留草稿， “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。"
 
 #. placeholder {0}: details.branchEntryCount
 #: src/components/session-dialogs.tsx:199
@@ -753,7 +761,7 @@ msgstr "当前工作区"
 msgid "当前没有可取消的分支摘要。"
 msgstr "当前没有可取消的分支摘要。"
 
-#: src/components/settings-resources-dialog.tsx:768
+#: src/components/settings-resources-dialog.tsx:856
 msgid "当前没有可用的会话或起始目录；请先选择工作区/项目。"
 msgstr "当前没有可用的会话或起始目录；请先选择工作区/项目。"
 
@@ -856,7 +864,7 @@ msgstr "搜索范围：会话名称与首条消息"
 msgid "文件超过 20MiB 上限，无法导入。"
 msgstr "文件超过 20MiB 上限，无法导入。"
 
-#: src/components/settings-resources-dialog.tsx:1023
+#: src/components/settings-resources-dialog.tsx:1125
 msgid "文本只在显式请求时加载，且有长度上限。"
 msgstr "文本只在显式请求时加载，且有长度上限。"
 
@@ -889,7 +897,7 @@ msgstr "显式共享的平铺目录"
 msgid "显式参数"
 msgstr "显式参数"
 
-#: src/components/settings-resources-dialog.tsx:1019
+#: src/components/settings-resources-dialog.tsx:1121
 msgid "显示指令/系统提示文本"
 msgstr "显示指令/系统提示文本"
 
@@ -901,8 +909,8 @@ msgstr "暂无会话"
 msgid "替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）"
 msgstr "替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）"
 
-#: src/components/settings-resources-dialog.tsx:826
-#: src/components/settings-resources-dialog.tsx:846
+#: src/components/settings-resources-dialog.tsx:914
+#: src/components/settings-resources-dialog.tsx:934
 msgid "未保存"
 msgstr "未保存"
 
@@ -924,7 +932,7 @@ msgstr "未归属会话"
 msgid "未归属会话；可在左侧明确加入工作区。"
 msgstr "未归属会话；可在左侧明确加入工作区。"
 
-#: src/components/settings-resources-dialog.tsx:255
+#: src/components/settings-resources-dialog.tsx:259
 msgid "未读取（项目未信任）"
 msgstr "未读取（项目未信任）"
 
@@ -940,7 +948,7 @@ msgstr "本次拒绝"
 msgid "条目 / 版本"
 msgstr "条目 / 版本"
 
-#: src/components/settings-resources-dialog.tsx:1181
+#: src/components/settings-resources-dialog.tsx:1283
 msgid "来源按顶层键："
 msgstr "来源按顶层键："
 
@@ -1004,7 +1012,7 @@ msgstr "正在读取会话树…"
 msgid "正在读取会话统计…"
 msgstr "正在读取会话统计…"
 
-#: src/components/settings-resources-dialog.tsx:979
+#: src/components/settings-resources-dialog.tsx:1081
 msgid "正在读取资源清单…"
 msgstr "正在读取资源清单…"
 
@@ -1077,8 +1085,8 @@ msgstr "用户 Shell"
 msgid "用户空间"
 msgstr "用户空间"
 
-#: src/components/settings-resources-dialog.tsx:244
-#: src/components/settings-resources-dialog.tsx:819
+#: src/components/settings-resources-dialog.tsx:248
+#: src/components/settings-resources-dialog.tsx:907
 msgid "用户设置"
 msgstr "用户设置"
 
@@ -1118,7 +1126,7 @@ msgstr "确认替换当前输入框草稿；所选节点没有原文时清空"
 msgid "确认跳转"
 msgstr "确认跳转"
 
-#: src/components/settings-resources-dialog.tsx:1177
+#: src/components/settings-resources-dialog.tsx:1279
 msgid "磁盘合并预览（未应用到当前会话）"
 msgstr "磁盘合并预览（未应用到当前会话）"
 
@@ -1134,7 +1142,7 @@ msgstr "稍后处理"
 msgid "空白页可以刷新目录；模型范围与自动压缩需要先建立会话（使用会话固定起始目录）。"
 msgstr "空白页可以刷新目录；模型范围与自动压缩需要先建立会话（使用会话固定起始目录）。"
 
-#: src/components/settings-resources-dialog.tsx:794
+#: src/components/settings-resources-dialog.tsx:882
 msgid "空白页起始目录"
 msgstr "空白页起始目录"
 
@@ -1177,10 +1185,6 @@ msgstr "缓存写 {0}"
 msgid "缓存读 {0}"
 msgstr "缓存读 {0}"
 
-#: src/components/settings-resources-dialog.tsx:759
-msgid "编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。 保存只写磁盘；常用运行设置与资源需要重载宿主后才会应用。"
-msgstr "编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。 保存只写磁盘；常用运行设置与资源需要重载宿主后才会应用。"
-
 #. placeholder {0}: autoCompaction ? '开' : '关'
 #: src/components/runtime-operations.tsx:469
 msgid "自动压缩：{0}"
@@ -1203,8 +1207,8 @@ msgstr "装配失败"
 msgid "记住此决定（写入当前路径的 trust.json）"
 msgstr "记住此决定（写入当前路径的 trust.json）"
 
-#: src/components/settings-resources-dialog.tsx:746
-#: src/components/settings-resources-dialog.tsx:756
+#: src/components/settings-resources-dialog.tsx:833
+#: src/components/settings-resources-dialog.tsx:843
 msgid "设置与资源"
 msgstr "设置与资源"
 
@@ -1216,7 +1220,7 @@ msgstr "该会话没有工作区归属。请明确选择目标工作区；宿主
 msgid "该会话还没有条目。"
 msgstr "该会话还没有条目。"
 
-#: src/components/settings-resources-dialog.tsx:919
+#: src/components/settings-resources-dialog.tsx:1020
 msgid "该作用域没有可编辑的原文（未信任、读取失败或文件过大）。"
 msgstr "该作用域没有可编辑的原文（未信任、读取失败或文件过大）。"
 
@@ -1240,7 +1244,7 @@ msgstr "请先勾选“作为独立副本导入”。"
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
 
-#: src/components/settings-resources-dialog.tsx:913
+#: src/components/settings-resources-dialog.tsx:1014
 msgid "资源清单"
 msgstr "资源清单"
 
@@ -1257,7 +1261,7 @@ msgstr "起始目录"
 msgid "起始项目"
 msgstr "起始项目"
 
-#: src/components/settings-resources-dialog.tsx:264
+#: src/components/settings-resources-dialog.tsx:268
 msgid "超过读取上限"
 msgstr "超过读取上限"
 
@@ -1321,11 +1325,11 @@ msgstr "运行操作"
 msgid "还没有工作区。"
 msgstr "还没有工作区。"
 
-#: src/components/settings-resources-dialog.tsx:964
+#: src/components/settings-resources-dialog.tsx:1066
 msgid "这是完整文件内容：保存会整体替换该文件。未知字段会原样保留； 宿主保存时按随包 settings schema 校验已知字段。"
 msgstr "这是完整文件内容：保存会整体替换该文件。未知字段会原样保留； 宿主保存时按随包 settings schema 校验已知字段。"
 
-#: src/components/settings-resources-dialog.tsx:348
+#: src/components/settings-resources-dialog.tsx:352
 msgid "这里的默认模型只影响未来启动/新会话；当前会话的模型切换仍由模型选择器管理。"
 msgstr "这里的默认模型只影响未来启动/新会话；当前会话的模型切换仍由模型选择器管理。"
 
@@ -1358,7 +1362,7 @@ msgstr "配置文件"
 msgid "重命名"
 msgstr "重命名"
 
-#: src/components/settings-resources-dialog.tsx:864
+#: src/components/settings-resources-dialog.tsx:952
 msgid "重新加载"
 msgstr "重新加载"
 
@@ -1367,7 +1371,7 @@ msgstr "重新加载"
 msgid "重新查询"
 msgstr "重新查询"
 
-#: src/components/settings-resources-dialog.tsx:1210
+#: src/components/settings-resources-dialog.tsx:1312
 msgid "重置改动"
 msgstr "重置改动"
 
@@ -1375,11 +1379,11 @@ msgstr "重置改动"
 msgid "重试"
 msgstr "重试"
 
-#: src/components/settings-resources-dialog.tsx:354
+#: src/components/settings-resources-dialog.tsx:358
 msgid "队列与重试"
 msgstr "队列与重试"
 
-#: src/components/settings-resources-dialog.tsx:1017
+#: src/components/settings-resources-dialog.tsx:1119
 msgid "隐藏指令/系统提示文本"
 msgstr "隐藏指令/系统提示文本"
 
@@ -1391,7 +1395,7 @@ msgstr "需要会话的操作在左侧新建会话后可用。"
 msgid "需要信任决定"
 msgstr "需要信任决定"
 
-#: src/components/settings-resources-dialog.tsx:505
+#: src/components/settings-resources-dialog.tsx:509
 msgid "顶栏主题只影响本浏览器；此处 `theme`、`tuiMode` 等属于 Pi 终端参数，不影响本页面外观。 终端专属项可通过 JSON 编辑，但不会在 GUI 生效。"
 msgstr "顶栏主题只影响本浏览器；此处 `theme`、`tuiMode` 等属于 Pi 终端参数，不影响本页面外观。 终端专属项可通过 JSON 编辑，但不会在 GUI 生效。"
 
@@ -1399,11 +1403,11 @@ msgstr "顶栏主题只影响本浏览器；此处 `theme`、`tuiMode` 等属于
 msgid "项目信任"
 msgstr "项目信任"
 
-#: src/components/settings-resources-dialog.tsx:799
+#: src/components/settings-resources-dialog.tsx:887
 msgid "项目已信任"
 msgstr "项目已信任"
 
-#: src/components/settings-resources-dialog.tsx:801
+#: src/components/settings-resources-dialog.tsx:889
 msgid "项目待信任决定"
 msgstr "项目待信任决定"
 
@@ -1411,11 +1415,11 @@ msgstr "项目待信任决定"
 msgid "项目成员"
 msgstr "项目成员"
 
-#: src/components/settings-resources-dialog.tsx:803
+#: src/components/settings-resources-dialog.tsx:891
 msgid "项目未信任"
 msgstr "项目未信任"
 
-#: src/components/settings-resources-dialog.tsx:871
+#: src/components/settings-resources-dialog.tsx:972
 msgid "项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。"
 msgstr "项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。"
 
@@ -1423,16 +1427,16 @@ msgstr "项目未信任：不读取也不写入项目设置。请先在项目信
 msgid "项目装配检查失败"
 msgstr "项目装配检查失败"
 
-#: src/components/settings-resources-dialog.tsx:244
-#: src/components/settings-resources-dialog.tsx:839
+#: src/components/settings-resources-dialog.tsx:248
+#: src/components/settings-resources-dialog.tsx:927
 msgid "项目设置"
 msgstr "项目设置"
 
-#: src/components/settings-resources-dialog.tsx:993
+#: src/components/settings-resources-dialog.tsx:1095
 msgid "项目资源已加载"
 msgstr "项目资源已加载"
 
-#: src/components/settings-resources-dialog.tsx:995
+#: src/components/settings-resources-dialog.tsx:1097
 msgid "项目资源未加载"
 msgstr "项目资源未加载"
 
@@ -1440,7 +1444,7 @@ msgstr "项目资源未加载"
 msgid "预览导入"
 msgstr "预览导入"
 
-#: src/components/settings-resources-dialog.tsx:302
+#: src/components/settings-resources-dialog.tsx:306
 msgid "默认模型与 Thinking"
 msgstr "默认模型与 Thinking"
 

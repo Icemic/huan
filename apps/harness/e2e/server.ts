@@ -309,6 +309,36 @@ app.put('/__e2e__/settings-file', async (c) => {
   return c.body(null, 204)
 })
 
+// 测试控制面：在临时用户空间/工作区内写入文件（扩展、模板、指令探针）。
+// 只允许 env.agentDir 与 env.workspace 下的路径；不进入生产应用。
+app.put('/__e2e__/file', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    root?: unknown
+    path?: unknown
+    content?: unknown
+  }
+  const root =
+    body.root === 'agent' ? env.agentDir : body.root === 'workspace' ? env.workspace : undefined
+  const relative = typeof body.path === 'string' ? body.path : ''
+  if (!root || !relative || relative.includes('..') || typeof body.content !== 'string') {
+    return c.json({ error: 'invalid-file-write' }, 400)
+  }
+  const target = join(root, relative)
+  if (!withinTestRoot(target)) return c.json({ error: 'outside-scope' }, 400)
+  await mkdir(dirname(target), { recursive: true })
+  await writeFile(target, body.content)
+  return c.body(null, 204)
+})
+app.delete('/__e2e__/file', async (c) => {
+  const root = c.req.query('root') === 'agent' ? env.agentDir : env.workspace
+  const relative = c.req.query('path') ?? ''
+  if (!relative || relative.includes('..')) return c.json({ error: 'invalid-file-write' }, 400)
+  const target = join(root, relative)
+  if (!withinTestRoot(target)) return c.json({ error: 'outside-scope' }, 400)
+  await rm(target, { force: true })
+  return c.body(null, 204)
+})
+
 // 外部 Pi 会话：用于验证「显式刷新重新扫描作用域」能发现宿主启动后新增的文件。
 // 刻意不经宿主 API 创建，也不写入 huan 工作区元数据（应出现在未归属分组）。
 app.post('/__e2e__/sessions', async (c) => {

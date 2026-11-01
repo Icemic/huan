@@ -43,6 +43,7 @@ import {
   setModelCatalogCache,
 } from '@/components/pi-model-catalog'
 import { getDraftModel, setDraftModel } from '@/components/pi-model-draft'
+import { bumpResourceVersion, useResourceVersion } from '@/components/resource-version'
 import { requestForkThread } from '@/components/session-fork-bridge'
 import { useWorkspace } from '@/components/workspace-context'
 
@@ -249,6 +250,9 @@ export function usePiComposer(): PiComposerController {
     return undefined
   })
   const { hostInfo, workspaces, activeWorkspaceId, startProjectFor, refresh } = useWorkspace()
+  // 资源版本：会话重载由元数据驱动，空白页由本窗口信号驱动；两者都要求重读
+  // 命令目录等按需查询（旧结果在此之前已经返回的一律丢弃，由 effect 清理）。
+  const windowResourceVersion = useResourceVersion()
 
   const isPending = !session?.id || session.id === PENDING_THREAD_ID
   const threadId = isPending ? undefined : metadata.id
@@ -324,30 +328,32 @@ export function usePiComposer(): PiComposerController {
   }, [text])
 
   // 资源目录：空白页用固定起始目录，不创建后端会话；失败时仍保留内置索引。
+  // 资源重载后（会话元数据 revision 或本窗口信号变化）重新读取，旧请求结果丢弃。
+  const resourceVersionKey = `${metadata.resourceRevision ?? ''}:${windowResourceVersion}`
+  const catalogVersionRef = useRef(resourceVersionKey)
   useEffect(() => {
     let active = true
+    catalogVersionRef.current = resourceVersionKey
     const input = threadId ? { threadId } : cwd ? { workspacePath: cwd } : undefined
     if (!input) {
       setCatalog(mergeCommandCatalog(undefined))
       setCatalogDiagnostics([])
       return
     }
+    const applyResult = (result: HarnessCommandCatalog | undefined) => {
+      // 版本已变说明已有更新的一次查询：旧结果不再覆盖目录。
+      if (!active || catalogVersionRef.current !== resourceVersionKey) return
+      setCatalog(mergeCommandCatalog(result))
+      setCatalogDiagnostics(result?.diagnostics ?? [])
+    }
     void harnessHttpClient
       .listCommands(input)
-      .then((result: HarnessCommandCatalog) => {
-        if (!active) return
-        setCatalog(mergeCommandCatalog(result))
-        setCatalogDiagnostics(result.diagnostics)
-      })
-      .catch(() => {
-        if (!active) return
-        setCatalog(mergeCommandCatalog(undefined))
-        setCatalogDiagnostics([])
-      })
+      .then((result: HarnessCommandCatalog) => applyResult(result))
+      .catch(() => applyResult(undefined))
     return () => {
       active = false
     }
-  }, [cwd, threadId])
+  }, [cwd, threadId, resourceVersionKey])
 
   // 本窗口历史：只记录 thread 加载完成后新出现的用户消息；加载前已有消息作为基线。
   const seenUserMessages = useRef(0)
@@ -747,6 +753,42 @@ export function usePiComposer(): PiComposerController {
     [isPending, metadata.id, metadata.name, metadata.title, refresh],
   )
 
+  /**
+   * `/reload`：与设置面板按钮走同一宿主路径。
+   *
+   * 会话：同一 Pi 会话内重载（消息/分支/订阅不替换）；空白页：只刷新该 cwd 的
+   * 待消费装配，不创建会话。busy/失败原因如实展示，不重试、不伪造成功。
+   */
+  const runReloadCommand = useCallback(async (): Promise<boolean> => {
+    try {
+      const result = isPending
+        ? cwd
+          ? await harnessHttpClient.reloadResources({ workspacePath: cwd, trigger: 'command' })
+          : undefined
+        : await actions.reloadResources('command')
+      if (!result) {
+        setNotice('当前没有可重载的会话或起始目录。')
+        return false
+      }
+      if (result.status !== 'reloaded') {
+        setNotice(result.message)
+        return false
+      }
+      // 会话目标的刷新由元数据 resourceRevision 驱动；空白页没有会话元数据，
+      // 用本窗口信号补一次失效通知。
+      if (result.kind === 'workspace') bumpResourceVersion()
+      setNotice(
+        result.kind === 'session'
+          ? `资源已重载并应用到当前会话（资源版本 ${result.resourceRevision}）。`
+          : `已重载该起始目录的待消费装配（资源版本 ${result.resourceRevision}）；不会创建会话。`,
+      )
+      return true
+    } catch (error) {
+      setNotice(errorText(error))
+      return false
+    }
+  }, [actions, cwd, isPending])
+
   const runModelCommand = useCallback(
     async (args: string) => {
       if (!args) {
@@ -945,6 +987,8 @@ export function usePiComposer(): PiComposerController {
         case 'settings':
           requestPiIntent('settings')
           return true
+        case 'reload':
+          return runReloadCommand()
         default:
           setNotice(command.availability ?? `/${command.name} 尚无 GUI 入口。`)
           return true
@@ -958,6 +1002,7 @@ export function usePiComposer(): PiComposerController {
       isPending,
       runModelCommand,
       runNameCommand,
+      runReloadCommand,
       runThinkingCommand,
     ],
   )

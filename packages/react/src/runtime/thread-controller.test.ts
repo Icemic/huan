@@ -156,6 +156,9 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async getResources() {
       throw new Error('Controller 不查询资源')
     },
+    async reloadResources() {
+      throw new Error('Controller 不重载资源')
+    },
     async getCommandArgumentCompletions() {
       return []
     },
@@ -3124,6 +3127,53 @@ describe('运行操作动作', () => {
       models: [],
       failedProviders: [],
     })
+  })
+
+  it('资源重载转发触发来源，并用响应快照收敛状态', async () => {
+    const client = createFakeClient()
+    const reloadOperation = {
+      id: `${THREAD}:reload:1`,
+      trigger: 'command' as const,
+      status: 'succeeded' as const,
+      threadId: THREAD,
+      workspacePath: '/workspace',
+      startedAt: '2026-11-01T00:00:00.000Z',
+      finishedAt: '2026-11-01T00:00:01.000Z',
+      fromResourceRevision: 0,
+      resourceRevision: 3,
+    }
+    client.reloadResources = vi.fn(async (_input) => ({
+      status: 'reloaded' as const,
+      kind: 'session' as const,
+      threadId: THREAD,
+      workspacePath: '/workspace',
+      operation: reloadOperation,
+      resourceRevision: 3,
+      snapshot: {
+        ...snapshot(),
+        metadata: {
+          id: THREAD,
+          status: 'idle' as const,
+          resourceRevision: 3,
+          reload: reloadOperation,
+        },
+      },
+    }))
+    const controller = createController(client, THREAD)
+    const result = await controller.reloadResources('command')
+    expect(result.status).toBe('reloaded')
+    expect(client.reloadResources).toHaveBeenCalledWith({ threadId: THREAD, trigger: 'command' })
+    expect(controller.getState().metadata.resourceRevision).toBe(3)
+    expect(controller.getState().metadata.reload?.status).toBe('succeeded')
+
+    // busy/failed 由调用方如实展示，不抛异常。
+    client.reloadResources = vi.fn(async () => ({
+      status: 'busy' as const,
+      message: '会话正在运行',
+      threadId: THREAD,
+      workspacePath: '/workspace',
+    }))
+    await expect(controller.reloadResources()).resolves.toMatchObject({ status: 'busy' })
   })
 
   it('压缩失败写入 lastError，不伪装成功', async () => {

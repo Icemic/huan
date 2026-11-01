@@ -82,6 +82,8 @@ export function mapSessionEvent(
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           args: event.args,
+          // 嵌套工具（codemode 脚本等）带父调用 ID；缺失时不写，保持载荷干净。
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         },
       }
     case 'tool_execution_update':
@@ -92,6 +94,7 @@ export function mapSessionEvent(
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           partialResult: event.partialResult,
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         },
       }
     case 'tool_execution_end':
@@ -102,6 +105,7 @@ export function mapSessionEvent(
           toolCallId: event.toolCallId,
           result: event.result,
           isError: event.isError,
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         },
       }
     case 'queue_update':

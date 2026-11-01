@@ -37,6 +37,7 @@ import type {
   HarnessProjectTrustInput,
   HarnessRecentProject,
 } from './project.js'
+import type { HarnessReloadResult, HarnessReloadTargetInput } from './reload.js'
 import type {
   HarnessAutoCompactionUpdateResult,
   HarnessBashAbortResult,
@@ -156,6 +157,12 @@ export interface HarnessClient {
    * 热会话使用正在服务的 loader；不重跑扩展、不联网重扫。
    */
   getResources(input: HarnessResourceQueryInput): Promise<HarnessResourceSnapshot>
+  /**
+   * 资源重载：同一会话调用公开 AgentSession.reload（消息/分支/订阅不替换），
+   * 刷新设置、指令、扩展与命令目录；空白页目标只刷新该 cwd 的待消费装配。
+   * 与会话运行、发送、Shell 与结构操作互斥；失败如实报告，不虚报完成。
+   */
+  reloadResources(input: HarnessReloadTargetInput): Promise<HarnessReloadResult>
   /** 按需调用扩展的参数补全；不适用时返回空数组。 */
   getCommandArgumentCompletions(
     input: HarnessCommandArgumentInput,

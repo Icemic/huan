@@ -32,6 +32,7 @@ import {
   isCompleteTranscriptMessage,
   isContextUsage,
   isHostUiRequest,
+  isReloadOperation,
   isThreadHostUi,
   isThreadSnapshot,
 } from './validation.js'
@@ -152,19 +153,22 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
       return (
         typeof event.toolCallId === 'string' &&
         typeof event.toolName === 'string' &&
-        hasOwn(event, 'args')
+        hasOwn(event, 'args') &&
+        isOptionalString(event.parentToolCallId)
       )
     case 'tool_execution_update':
       return (
         typeof event.toolCallId === 'string' &&
         isOptionalString(event.toolName) &&
-        hasOwn(event, 'partialResult')
+        hasOwn(event, 'partialResult') &&
+        isOptionalString(event.parentToolCallId)
       )
     case 'tool_execution_end':
       return (
         typeof event.toolCallId === 'string' &&
         typeof event.isError === 'boolean' &&
-        hasOwn(event, 'result')
+        hasOwn(event, 'result') &&
+        isOptionalString(event.parentToolCallId)
       )
     case 'queue_update':
       return isStringArray(event.steering) && isStringArray(event.followUp)
@@ -208,6 +212,10 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
       return isContextUsage(event.contextUsage)
     case 'extension_ui_request':
       return isHostUiRequest(event.request)
+    case 'reload_start':
+      return isReloadOperation(event.operation)
+    case 'reload_end':
+      return isReloadOperation(event.operation) && typeof event.resourceRevision === 'number'
     case 'host_ui_update':
       return event.hostUi === undefined || isThreadHostUi(event.hostUi)
     case 'extension_ui_resolved':

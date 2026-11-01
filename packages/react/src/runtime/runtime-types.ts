@@ -19,6 +19,8 @@ import type {
   HarnessModelScope,
   HarnessModelScopeUpdateInput,
   HarnessModelScopeUpdateResult,
+  HarnessReloadResult,
+  HarnessReloadTrigger,
   HarnessRuntimeReadiness,
   HarnessThinkingLevel,
   HarnessThreadMetadata,
@@ -98,6 +100,8 @@ export interface HarnessRuntimeActions {
   getModelScope: () => Promise<HarnessModelScope>
   setModelScope: (input: HarnessModelScopeUpdateInput) => Promise<HarnessModelScopeUpdateResult>
   refreshModels: (input?: { workspacePath?: string }) => Promise<HarnessModelRefreshResult>
+  /** 资源重载：同一会话刷新设置/指令/扩展（消息、分支与订阅不替换）。 */
+  reloadResources: (trigger?: HarnessReloadTrigger) => Promise<HarnessReloadResult>
   respondToHostUiRequest: (response: HarnessHostUiResponse) => Promise<void>
   /** 消费会话级 Host UI 指令（编辑器文本/命令目标）；成功后从快照移除。 */
   consumeHostUiDirective: (directiveId: string) => Promise<boolean>

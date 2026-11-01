@@ -35,6 +35,7 @@
  *   GET    /settings                → HarnessSettingsSnapshot      (?threadId= 或 ?workspacePath=)
  *   PUT    /settings                → HarnessSettingsSaveResult    (body: target/scope/content/expectedRevision)
  *   GET    /resources               → HarnessResourceSnapshot      (?threadId= 或 ?workspacePath=，includeText=true 时含文本)
+ *   POST   /reload                  → HarnessReloadResult          (body: { target, trigger? })
  *   POST   /files                   → HarnessFileSearchResult
  *   GET    /threads/:id/tree        → HarnessThreadTree          (按需读取会话树)
  *   POST   /threads/:id/tree/navigate → HarnessTreeNavigateResult
@@ -95,6 +96,7 @@ import type {
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
   HarnessRecentProject,
+  HarnessReloadResult,
   HarnessResourceQueryInput,
   HarnessResourceSnapshot,
   HarnessSendMessageInput,
@@ -130,6 +132,7 @@ import {
 } from './event-source.js'
 import {
   isHostInteractionSnapshot,
+  isReloadResult,
   isResourceSnapshot,
   isSettingsSaveResult,
   isSettingsSnapshot,
@@ -670,6 +673,13 @@ const parseResourceSnapshotResponse = (value: unknown): HarnessResourceSnapshot 
   return value
 }
 
+const parseReloadResultResponse = (value: unknown): HarnessReloadResult => {
+  if (!isReloadResult(value)) {
+    throw invalidResponse('reloading resources', 'expected a valid reload result.')
+  }
+  return value
+}
+
 /** 设置/资源查询串：threadId 与 workspacePath 由宿主校验互斥。 */
 const configTargetQuery = (input: HarnessSettingsTargetInput): string => {
   const params = new URLSearchParams()
@@ -1135,6 +1145,19 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
     saveSettings: async (input: HarnessSettingsSaveInput) => {
       const value = await readJson(await send(`${base}/settings`, 'PUT', input), 'saving settings')
       return parseSettingsSaveResponse(value)
+    },
+
+    reloadResources: async (input) => {
+      // 与设置/资源路由同形：目标放在 target 对象里，触发来源单独传递。
+      const { trigger, ...target } = input
+      const value = await readJson(
+        await send(`${base}/reload`, 'POST', {
+          target,
+          ...(trigger ? { trigger } : {}),
+        }),
+        'reloading resources',
+      )
+      return parseReloadResultResponse(value)
     },
 
     getResources: async (input: HarnessResourceQueryInput) => {

@@ -50,6 +50,8 @@ export interface HarnessToolExecutionState {
    */
   partialResult?: unknown
   status: 'running' | 'complete' | 'error'
+  /** 由另一个工具（如 codemode 脚本）发起时，指向父工具调用。 */
+  parentToolCallId?: string
 }
 
 /** 单线程的完整 UI 状态。 */
@@ -351,6 +353,7 @@ export const reduceHarnessThreadState = (
           toolName: event.toolName,
           args: event.args,
           status: 'running',
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         }),
       )
 
@@ -360,6 +363,7 @@ export const reduceHarnessThreadState = (
           ...(event.toolName !== undefined ? { toolName: event.toolName } : {}),
           partialResult: event.partialResult,
           status: 'running',
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         }),
       )
 
@@ -368,6 +372,7 @@ export const reduceHarnessThreadState = (
         upsertToolExecution(state, event.toolCallId, {
           partialResult: event.result,
           status: event.isError ? 'error' : 'complete',
+          ...(event.parentToolCallId ? { parentToolCallId: event.parentToolCallId } : {}),
         }),
       )
 
@@ -440,6 +445,23 @@ export const reduceHarnessThreadState = (
 
     case 'context_usage':
       return stamped({ ...state, contextUsage: event.contextUsage })
+
+    case 'reload_start':
+      // 资源重载由宿主广播；快照是权威，这里先让元数据反映“重载中”。
+      return stamped({
+        ...state,
+        metadata: { ...state.metadata, reload: event.operation },
+      })
+
+    case 'reload_end':
+      return stamped({
+        ...state,
+        metadata: {
+          ...state.metadata,
+          reload: event.operation,
+          resourceRevision: event.resourceRevision,
+        },
+      })
 
     case 'session_info_changed': {
       const metadata = { ...state.metadata }

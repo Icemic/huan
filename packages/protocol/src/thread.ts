@@ -57,6 +57,37 @@ export type HarnessRuntimeReadiness =
 /** 线程状态。 */
 export type HarnessThreadStatus = 'idle' | 'running' | 'failed'
 
+/** 资源重载触发来源（只用于展示与审计，不参与授权）。 */
+export type HarnessReloadTrigger = 'command' | 'settings' | 'extension' | 'api'
+
+/** 一次资源重载的状态。 */
+export type HarnessReloadStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/**
+ * 一次资源重载操作（快照与事件共用）。
+ *
+ * 每次重载都有独立 id：并发窗口看到的是同一次操作，而不是按时间猜测。
+ * `status` 如实反映结局；取消（dispose/会话关闭）不等于成功。
+ */
+export type HarnessReloadOperation = {
+  id: string
+  /** 触发来源；扩展命令走 ctx.reload 时为 extension。 */
+  trigger: HarnessReloadTrigger
+  status: HarnessReloadStatus
+  /** 目标会话；空白页目标（只刷新待消费装配）缺失。 */
+  threadId?: string
+  /** 目标固定 cwd。 */
+  workspacePath: string
+  startedAt: string
+  finishedAt?: string
+  /** 重载开始前的资源版本。 */
+  fromResourceRevision: number
+  /** 成功后的资源版本；失败/取消时保留开始前的值。 */
+  resourceRevision: number
+  /** 受控失败说明（不含堆栈/凭据）。 */
+  message?: string
+}
+
 /** 队列中的一条消息（id 形如 "<mode>:<index>"）。 */
 export type HarnessQueuedMessage = {
   id: string
@@ -117,6 +148,10 @@ export type HarnessThreadMetadata = {
   treeRevision?: string
   /** 进行中的结构操作；空闲时缺失。 */
   treeOperation?: HarnessThreadTreeOperation
+  /** 该会话当前资源版本；每次成功重载递增（用于失效旧查询结果）。 */
+  resourceRevision?: number
+  /** 最近一次（或进行中的）资源重载操作；从未重载时缺失。 */
+  reload?: HarnessReloadOperation
 }
 
 /** 图片附件透传（对照 Pi ImageContent）。 */
@@ -300,9 +335,28 @@ export type HarnessClientEventBody =
       assistantMessageEvent: HarnessAssistantMessageDelta
     }
   | { type: 'message_end'; message: HarnessAgentMessage }
-  | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: unknown }
-  | { type: 'tool_execution_update'; toolCallId: string; toolName?: string; partialResult: unknown }
-  | { type: 'tool_execution_end'; toolCallId: string; result: unknown; isError: boolean }
+  | {
+      type: 'tool_execution_start'
+      toolCallId: string
+      toolName: string
+      args: unknown
+      /** 由另一个工具（如 codemode 脚本）发起时，指向父工具调用。 */
+      parentToolCallId?: string
+    }
+  | {
+      type: 'tool_execution_update'
+      toolCallId: string
+      toolName?: string
+      partialResult: unknown
+      parentToolCallId?: string
+    }
+  | {
+      type: 'tool_execution_end'
+      toolCallId: string
+      result: unknown
+      isError: boolean
+      parentToolCallId?: string
+    }
   | { type: 'queue_update'; steering: readonly string[]; followUp: readonly string[] }
   | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow' }
   | {
@@ -334,6 +388,10 @@ export type HarnessClientEventBody =
   | { type: 'thinking_level_changed'; level: string }
   | { type: 'context_usage'; contextUsage: HarnessContextUsage }
   | { type: 'extension_ui_request'; request: HarnessHostUiRequest }
+  /** 资源重载开始（另一窗口可据此显示“重载中”，不取消工作）。 */
+  | { type: 'reload_start'; operation: HarnessReloadOperation }
+  /** 资源重载结算（成功/失败/取消）；resourceRevision 供命令目录与设置面板失效。 */
+  | { type: 'reload_end'; operation: HarnessReloadOperation; resourceRevision: number }
   | { type: 'host_ui_update'; hostUi?: HarnessThreadHostUi }
   | { type: 'extension_ui_resolved'; requestId: string }
   | {

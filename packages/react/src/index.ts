@@ -36,6 +36,8 @@ export {
   isContextUsage,
   isHostInteractionSnapshot,
   isHostUiRequest,
+  isReloadOperation,
+  isReloadResult,
   isResourceSnapshot,
   isSettingsSaveResult,
   isSettingsSnapshot,

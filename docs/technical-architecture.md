@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 11（新增设置文件读写、revision 冲突与资源清单；此前命令、文件查询和 Host UI 契约保持）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 12（新增资源重载操作/版本与嵌套工具父调用 ID；设置文件读写、revision 冲突与资源清单保持）。
 
 **UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -117,13 +117,19 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 应用拦截内置slash与!命令，core拒绝保留内置被当prompt发送，其余交Pi按扩展→input→skill→模板语义执行。资源目录/参数补全只使用公开SDK；文件搜索限工作区成员，有界BFS并按目录gitignore过滤，不读取个人全局ignore，不预读内容。图片能力在首条/普通发送前校验，4xx未接受发送恢复文字与附件；窗口文字草稿存sessionStorage，附件不持久化。
 
-宿主级交互在record发布前承接project_trust与session_start；首次订阅及重连投递seq权威快照，答复/取消/超时/销毁唯一结算。启动装配遇UI等待即先返回宿主，HTTP可用后同一装配继续，不重跑扩展。线程UI通过host_ui_update独立投递，不清空聊天流；重连快照携带当前通知/status/widget等。有调用方的编辑器指令与命令目标定向窗口，无调用方须主动应用，宿主原子领取防多窗重复；窗口保留原草稿可恢复。模式rpc；终端组件与未交付reload/shutdown显式不支持。commandContextActions使用独立record而非替换父会话，setup/血缘/取消和withSession按公开SDK接入。详见[Host UI迭代](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)。
+宿主级交互在record发布前承接project_trust与session_start；首次订阅及重连投递seq权威快照，答复/取消/超时/销毁唯一结算。启动装配遇UI等待即先返回宿主，HTTP可用后同一装配继续，不重跑扩展。线程UI通过host_ui_update独立投递，不清空聊天流；重连快照携带当前通知/status/widget等。有调用方的编辑器指令与命令目标定向窗口，无调用方须主动应用，宿主原子领取防多窗重复；窗口保留原草稿可恢复。模式rpc；终端组件与未交付shutdown显式不支持，ctx.reload 接入同会话资源重载。commandContextActions使用独立record而非替换父会话，setup/血缘/取消和withSession按公开SDK接入。详见[Host UI迭代](iteration/2026-10/2026-10-31-feat-host-ui-startup.md)。
 
 ### 3.2.7 设置与资源清单
 
 设置接口仅接受会话 ID 或起始 cwd，配置路径由宿主固定为 agentDir/settings.json 和 cwd/.pi/settings.json。项目原文受信任门控；旧的“无受保护资源”缓存不能授权后来新增的配置。原文有界读取，经公开分发的 Pi settings schema 校验，SDK SettingsManager.fromStorage 只合并本次安全读取的原文。未知字段保留，SHA-256 revision 防止旧窗口覆盖；与既有设置操作共用串行写队列，同目录临时文件原子替换并回读确认。保存只改磁盘，不静默替换 live 模型、设置或资源；重载/重启要求单独说明。
 
 资源清单来自当前 live loader 或已装配缓存的公开 getters，展示来源、指令、系统提示片段、扩展/skill/模板/主题与 packages；配置全文不进入普通消息/快照。文本仅显式请求返回。具体设计见[设置与资源迭代](iteration/2026-11/2026-11-01-feat-settings-resources.md)。
+
+### 3.2.8 同会话资源重载与基础内置装配
+
+`reloadResources` 在现有会话结构闸门内调用公开 `AgentSession.reload`，消息、分支与订阅保持不替换。旧交互与指令结算，重载启动期请求经宿主通道应答；完成状态和资源版本广播使多窗命令目录失效。loader 的公开 reload 包装与首次装配共用信任解析，仅允许本次 bootstrap 用户扩展裁决，不使用旧项目处理器。空白页只重建目标 cwd 的待消费装配，新增受保护资源重新检查信任，不影响同 cwd 的 live 会话。失败可能已关闭旧扩展，明确报告并允许修复后重试。
+
+codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，遵循 extensions 启停与 defaultTools；默认不激活，嵌套工具事件保留 parentToolCallId。MCP 工厂与凭据/管理生命周期一并接入，当前仍未注入。详见[重载迭代](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)。
 
 ### 3.3 react-pi 采用分步（D-14）——已落地
 

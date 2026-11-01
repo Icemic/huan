@@ -85,6 +85,10 @@ import type {
   HarnessProjectTrust,
   HarnessProjectTrustInput,
   HarnessRecentProject,
+  HarnessReloadOperation,
+  HarnessReloadResult,
+  HarnessReloadTargetInput,
+  HarnessReloadTrigger,
   HarnessResourceQueryInput,
   HarnessResourceSnapshot,
   HarnessSendMessageInput,
@@ -123,6 +127,7 @@ import type {
   HarnessWorkspaceProject,
 } from '@huan/protocol'
 import { builtinCommandNameOf } from '@huan/protocol'
+import { createBuiltinExtensionFactories } from './builtin-extensions.js'
 import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
 import { createHostInteractions } from './host-interactions.js'
@@ -158,6 +163,11 @@ import {
   type FileSearchRoot,
   searchWorkspaceFiles,
 } from './resource-queries.js'
+import {
+  type BoundResourceLoaderTrust,
+  bindResourceLoaderTrust,
+  ResourceReloadTrustError,
+} from './resource-reload.js'
 import {
   createSessionDirResolver,
   defaultSessionsRoot,
@@ -305,6 +315,8 @@ type PreparedProject = {
     loadedInstructionPaths: readonly string[]
     onApplied?: (workspace: WorkspaceSnapshot | null) => void
   }
+  /** loader 的宿主信任检查绑定：重载后就地更新 trust.state。 */
+  trustBinding: BoundResourceLoaderTrust
 }
 
 /** 每 cwd 的项目状态缓存与可复用的启动/决定装配。 */
@@ -388,6 +400,8 @@ type ThreadRecord = {
   lastError: string | undefined
   /** 该会话的资源加载器（用于 dispose 时补发 session_shutdown）。 */
   resourceLoader: ResourceLoader
+  /** loader 的信任检查绑定：重载后就地更新，是 live 会话的信任权威。 */
+  trustBinding: BoundResourceLoaderTrust
   /** 在途发送（含预检阶段），取消/删除需使它们全部失效并等待退出。 */
   inFlight: Set<InFlightSend>
   /** 当前运行的归属与结局候选（agent_start 建立、agent_settled 结算）。 */
@@ -423,14 +437,26 @@ type ThreadRecord = {
   /** 缓存的首条用户消息文本（仅存找到的值；历史只追加，找到后不变）。 */
   firstUserMessageText?: string | undefined
   /**
-   * 单会话结构闸门：导航/标签/模型/Thinking/重命名在同一窗口内互斥。
+   * 单会话结构闸门：导航/标签/模型/Thinking/重命名/资源重载在同一窗口内互斥。
    * 同步占用（不先 await），发送在预检前检查它并明确拒绝 busy。
    */
   structure: StructureOperation | undefined
+  /** 资源版本：成功重载后递增，供命令目录/设置面板失效旧查询结果。 */
+  resourceRevision: number
+  /** 最近一次（或进行中的）资源重载操作；从未重载时缺失。 */
+  reload: HarnessReloadOperation | undefined
 }
 
 /** 结构操作种类（只用于互斥与 UI 提示）。 */
-type StructureKind = 'navigate' | 'label' | 'model' | 'thinking' | 'rename' | 'fork' | 'compact'
+type StructureKind =
+  | 'navigate'
+  | 'label'
+  | 'model'
+  | 'thinking'
+  | 'rename'
+  | 'fork'
+  | 'compact'
+  | 'reload'
 
 /** 用户 Shell（`!` / `!!`）的宿主内状态（含实时输出与完成标记）。 */
 type UserBashRun = {
@@ -710,6 +736,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const safeDiagnostics = new Set<
     'assembly-warning' | 'catalog-refresh-failed' | 'model-fallback'
   >()
+  /** 追加本地诊断并去重：重复重载同一失败不应无限增长。 */
+  const pushDiagnostic = (message: string): void => {
+    if (!diagnostics.includes(message)) diagnostics.push(message)
+  }
 
   // ---- 装配层：共享 modelRuntime（全宿主一份），其余每会话独立 ----
   const modelRuntime = await createSharedModelRuntime(agentDir)
@@ -741,6 +771,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   let disposed = false
   /** 代数计数：使 dispose 前发起的异步打开失效。 */
   let generation = 0
+  /** 资源版本：每次成功重载递增；新装配沿用当前值（表示已是最新资源）。 */
+  let resourceRevisionSeq = 0
+  /** 重载操作序号：每次调用生成独立身份，前端据此区分并发窗口看到的操作。 */
+  let reloadCounter = 0
 
   /** 编辑器镜像 key（同一会话内按窗口隔离）。 */
   const editorMirrorKey = (threadId: string, callerId: string): string =>
@@ -756,6 +790,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   const projectRuntimes = new Map<string, ProjectRuntime>()
   const pendingProjects = new Map<string, Promise<ProjectRuntime>>()
   const trustStore = new ProjectTrustStore(agentDir)
+  /**
+   * 本宿主内的显式信任决定（按规范化 cwd）。
+   *
+   * `decideProjectTrust` 未勾选“记住”时不会写 trust.json，但同一宿主内的后续
+   * 资源重载必须能看到该决定，否则用户刚允许的项目会被重载误拒。它不是第二套
+   * 信任权威：只是把同一次显式决定的 override 保留到本次进程生命周期。
+   */
+  const explicitTrust = new Map<string, boolean>()
+  const workspaceReloads = new Set<string>()
 
   /** 与 SDK 相同的 realpath 口径；目标不存在时保留绝对路径。 */
   const canonicalProjectPath = (path: string): string => {
@@ -1068,6 +1111,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
             getLoadedInstructionPaths: () => workspaceBinding.loadedInstructionPaths,
             onWorkspaceApplied: (workspace) => workspaceBinding.onApplied?.(workspace),
           }),
+          // codemode / tool_search 按 CLI 的 named builtin + replaceable 约定装配；
+          // 默认不激活，遵循 extensions 启停/替换与 defaultTools。
+          ...createBuiltinExtensionFactories(),
         ],
       },
       // 项目信任扩展可以获得真实 RPC UI；请求在 record 发布前也可发现/应答。
@@ -1100,7 +1146,23 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     workspaceBinding.loadedInstructionPaths = trust.resourceLoader
       .getAgentsFiles()
       .agentsFiles.map((file) => file.path)
-    return { trust, guard, workspaceBinding }
+    // SDK 的 AgentSession.reload() 调 loader.reload() 时不传信任回调；宿主必须
+    // 保证重载不能绕过信任门控（新出现的项目资源不得沿用 no-resources 结论）。
+    const trustBinding = bindResourceLoaderTrust(trust.resourceLoader, {
+      cwd: trust.state.cwd,
+      settingsManager: trust.settingsManager,
+      trustStore,
+      state: trust.state,
+      explicitDecision: () => explicitTrust.get(pathKey(trust.state.cwd)),
+      projectTrustContext: () => projectTrustContextOf(trust.state.cwd),
+      onExtensionErrors: (errors) => {
+        for (const message of errors) {
+          pushDiagnostic(`重载信任扩展（${trust.state.cwd}）：${message}`)
+          safeDiagnostics.add('assembly-warning')
+        }
+      },
+    })
+    return { trust, guard, workspaceBinding, trustBinding }
   }
 
   /** 由一次装配结果建立/替换项目缓存。旧 loader 未被消费时直接丢弃。 */
@@ -1195,6 +1257,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     input: string,
   ): Promise<{ runtime: ProjectRuntime; prepared: PreparedProject }> => {
     const check = await inspectProjectPath(input)
+    if (workspaceReloads.has(check.path)) {
+      throw new ThreadStructureBusyError('起始目录资源正在重载，请稍后重试')
+    }
     if (check.error) {
       throw new Error(`项目路径不可用：${check.error.code}`)
     }
@@ -1262,6 +1327,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
    */
   const peekProjectSession = async (input: string): Promise<PreparedProject> => {
     const check = await inspectProjectPath(input)
+    if (workspaceReloads.has(check.path)) {
+      throw new ThreadStructureBusyError('起始目录资源正在重载，请稍后重试')
+    }
     if (check.error) throw new Error(`项目路径不可用：${check.error.code}`)
     let runtime = projectRuntimes.get(check.path)
     if (!runtime || runtime.info.status === 'failed') {
@@ -1318,6 +1386,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     const check = await inspectProjectPath(input.path)
     if (check.error) return failedProjectInfo(check.path || input.path, check.error.code)
     if (input.remember === true) trustStore.set(check.path, input.trusted)
+    // 显式决定即使不保存也必须对本次进程内的后续重载可见（否则重载会误拒）。
+    explicitTrust.set(pathKey(check.path), input.trusted)
     try {
       const prepared = await prepareProjectSession(check.path, input.trusted)
       const runtime = projectRuntimeFrom(prepared, 'explicit')
@@ -1670,6 +1740,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       ...(usage ? { contextUsage: usage } : {}),
       ...(workspaceStore.sessionArchived(storeId, record.threadId) ? { archived: true } : {}),
       ...(queued.length ? { queuedMessages: queued } : {}),
+      resourceRevision: record.resourceRevision,
+      ...(record.reload ? { reload: { ...record.reload } } : {}),
     }
   }
 
@@ -2348,6 +2420,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       workspaceBinding: prepared.workspaceBinding,
       lastError: undefined,
       resourceLoader: prepared.trust.resourceLoader,
+      trustBinding: prepared.trustBinding,
       inFlight: new Set(),
       currentRun: undefined,
       bash: undefined,
@@ -2360,6 +2433,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       retired: false,
       sweepUnattendedRun: false,
       structure: undefined,
+      // 新装配即当前资源版本；成功重载后再递增。
+      resourceRevision: resourceRevisionSeq,
+      reload: undefined,
     }
 
     /** 装配期请求的宿主作用域：record 发布前也允许另一窗口发现/应答。 */
@@ -2673,9 +2749,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     fork: (entryId, options) => commandFork(record, entryId, options),
     navigateTree: (targetId, options) => commandNavigateTree(record, targetId, options),
     switchSession: (sessionPath, options) => commandSwitchSession(record, sessionPath, options),
+    // 扩展命令的 ctx.reload：与 GUI /reload、设置面板按钮走同一条受控路径。
+    // 命令本身运行在在途发送内，闸门只等待其他发送/运行，因此不会自等死锁。
     reload: async () => {
-      // 资源重载属于配置阶段；不得用空成功冒充已重载。
-      throw new UnsupportedHostCommandActionError('reload')
+      const result = await reloadThreadNow(record, 'extension')
+      if (result.status === 'busy') throw new ThreadStructureBusyError(result.message)
+      if (result.status === 'cancelled') throw new Error(result.message)
+      if (result.status === 'failed') throw new Error(result.message)
     },
   })
 
@@ -4652,13 +4732,34 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   /**
    * 目标项目的信任结论。
    *
-   * 优先复用已装配的项目缓存；live 会话没有缓存时以其设置管理器
-   * 实际加载的信任状态为准；其余走只读摘要（不加载项目扩展）。
+   * live 会话以正在服务的 loader 的信任状态为准（重载就地更新）；其余优先
+   * 复用已装配的项目缓存，没有缓存时走只读摘要（不加载项目扩展）。
    */
   const configTrustOf = async (
     cwd: string,
     record?: ThreadRecord,
   ): Promise<HarnessProjectTrust> => {
+    // live 会话：以它正在使用的 loader 的信任状态为权威。资源重载会就地更新
+    // 该状态，因此「重载因新资源被拒」后页面不会仍显示旧的 trusted 结论。
+    if (record) {
+      const state = record.trustBinding.state()
+      if (state.source === 'no-resources' && hasTrustRequiringProjectResources(cwd)) {
+        return (await inspectProjectTrust(cwd)).trust
+      }
+      return {
+        decision:
+          state.status === 'trusted'
+            ? 'trusted'
+            : state.status === 'untrusted'
+              ? 'untrusted'
+              : 'unknown',
+        origin: state.source,
+        requiresTrust: state.requiresTrust,
+        defaultPolicy: state.defaultProjectTrust,
+        ...(state.savedPath ? { savedPath: state.savedPath } : {}),
+        extensionErrorCount: state.extensionErrors.length,
+      }
+    }
     const cached = projectRuntimes.get(cwd)
     if (
       cached &&
@@ -4667,19 +4768,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         cached.info.trust.origin !== 'no-resources')
     )
       return cached.info.trust
-    if (
-      record &&
-      (!cached || cached.info.trust.requiresTrust || !hasTrustRequiringProjectResources(cwd))
-    ) {
-      const trusted = record.settingsManager.isProjectTrusted()
-      return {
-        decision: trusted ? 'trusted' : 'untrusted',
-        origin: 'none',
-        requiresTrust: hasTrustRequiringProjectResources(cwd),
-        defaultPolicy: record.settingsManager.getDefaultProjectTrust(),
-        extensionErrorCount: 0,
-      }
-    }
     return (await inspectProjectTrust(cwd)).trust
   }
 
@@ -4876,14 +4964,14 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         (record) => !record.retired && pathKey(record.workspacePath) === pathKey(resolved.cwd),
       )
       const runtime = projectRuntimes.get(resolved.cwd)
-      if (sameCwd) {
-        loader = sameCwd.resourceLoader
-        settings = sameCwd.settingsManager
-        loadedFrom = 'session'
-      } else if (runtime?.pending) {
+      if (runtime?.pending) {
         loader = runtime.pending.trust.resourceLoader
         settings = runtime.pending.trust.settingsManager
         loadedFrom = 'assembly'
+      } else if (sameCwd) {
+        loader = sameCwd.resourceLoader
+        settings = sameCwd.settingsManager
+        loadedFrom = 'session'
       } else if (runtime?.lastLoader) {
         loader = runtime.lastLoader.loader
         settings = runtime.lastLoader.settings
@@ -4915,6 +5003,313 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       },
       { includeText: input.includeText === true },
     )
+  }
+
+  // ---- 资源重载（G1.4b） ----
+
+  /**
+   * 清空旧运行时的扩展 UI 状态与定向指令。
+   *
+   * 旧 ExtensionRunner 在 reload 中会被 invalidate，status/widget/标题/编辑器
+   * 指令都不再有人负责清理；留着会让页面展示已失效扩展的残留状态，甚至把
+   * 旧指令应用到新运行时的输入框。通知是历史信息，保留。
+   */
+  const resetHostUiForReload = (record: ThreadRecord): void => {
+    const ui = record.hostUi
+    ui.statuses.clear()
+    ui.widgets.clear()
+    ui.title = undefined
+    ui.workingMessage = undefined
+    ui.workingVisible = undefined
+    ui.hiddenThinkingLabel = undefined
+    ui.editorDirective = undefined
+    ui.commandTarget = undefined
+    emitHostUiSnapshot(record)
+  }
+
+  /**
+   * 重载成功后刷新与资源绑定的宿主缓存。
+   *
+   * 只做本地动作：登记新扩展 provider、物化本地模型目录（不联网）、更新
+   * 工作区绑定实际加载的指令路径，并保留最近一次 loader 供只读清单查询。
+   * 不覆盖用户已选模型/Thinking，也不重新执行扩展工厂（loader 负责一次）。
+   */
+  const applyReloadedResources = async (record: ThreadRecord): Promise<void> => {
+    const loader = record.resourceLoader
+    const extensions = loader.getExtensions()
+    // 新 ExtensionRunner 已把 provider 注册写入共享 modelRuntime；这里对未消费
+    // 的登记做兜底（幂等），并显式物化本地目录，保证选择器立即看到新模型。
+    registerPreparedProviders(extensions)
+    try {
+      await modelRuntime.refresh({ allowNetwork: false })
+    } catch (error) {
+      pushDiagnostic(`模型目录本地刷新（${record.workspacePath}）：${errorText(error)}`)
+      safeDiagnostics.add('catalog-refresh-failed')
+    }
+    record.workspaceBinding.loadedInstructionPaths = loader
+      .getAgentsFiles()
+      .agentsFiles.map((file) => file.path)
+    for (const { path: file, error } of extensions.errors) {
+      pushDiagnostic(`扩展装配重载（${record.workspacePath}）：${file}：${error}`)
+      safeDiagnostics.add('assembly-warning')
+    }
+    const runtime = projectRuntimes.get(record.workspacePath)
+    if (runtime) runtime.lastLoader = { loader, settings: record.settingsManager }
+  }
+
+  /** 会话目标的重载结果投影（成功时附带权威快照）。 */
+  const reloadedResultOf = (
+    record: ThreadRecord,
+    operation: HarnessReloadOperation,
+  ): HarnessReloadResult => ({
+    status: 'reloaded',
+    kind: 'session',
+    threadId: record.threadId,
+    workspacePath: record.workspacePath,
+    operation: { ...operation },
+    resourceRevision: operation.resourceRevision,
+    ...(record.retired ? {} : { snapshot: snapshotOf(record) }),
+  })
+
+  /**
+   * 在同一 Pi 会话内重载设置、指令、扩展与资源。
+   *
+   * 生命周期的关键顺序：
+   * 1) 占用结构闸门（与运行/发送/Shell/其他结构操作互斥，busy 如实返回）；
+   * 2) 广播 reload_start 并结算旧交互（pending + 会话作用域启动请求）；
+   * 3) 清空旧扩展 UI 状态，进入 startup 模式，使 reload 期间的 session_start
+   *    请求经宿主交互通道可发现、可从任一窗口应答（断开前端不取消工作）；
+   * 4) flush 设置 → 公开 AgentSession.reload（loader 重载前由宿主信任包装检查）；
+   * 5) 结算为 succeeded/failed/cancelled，广播 reload_end 与权威快照。
+   *
+   * 失败不清空消息/草稿，也不伪报成功；旧扩展可能已被关闭，可修复后重试。
+   */
+  const reloadThreadNow = async (
+    record: ThreadRecord,
+    trigger: HarnessReloadTrigger,
+  ): Promise<HarnessReloadResult> => {
+    assertActive()
+    const workspacePath = record.workspacePath
+    reloadCounter += 1
+    const operation: HarnessReloadOperation = {
+      id: `${record.threadId}:reload:${reloadCounter}`,
+      trigger,
+      status: 'running',
+      threadId: record.threadId,
+      workspacePath,
+      startedAt: new Date().toISOString(),
+      fromResourceRevision: record.resourceRevision,
+      resourceRevision: record.resourceRevision,
+    }
+    let structure: StructureOperation
+    try {
+      structure = beginStructure(record, 'reload')
+    } catch (error) {
+      if (!(error instanceof ThreadStructureBusyError)) throw error
+      return {
+        status: 'busy',
+        message: error.message,
+        threadId: record.threadId,
+        workspacePath,
+      }
+    }
+    // 退休/销毁时先解除阻断请求，避免重载卡在无人应答的启动期对话。
+    structure.cancel = () => record.uiBridge.dismissAll()
+    record.reload = operation
+    emit(record, { type: 'reload_start', operation: { ...operation } })
+    emitSnapshot(record)
+
+    const fail = (
+      reason: 'trust' | 'assembly' | 'disposed',
+      message: string,
+    ): HarnessReloadResult => {
+      operation.status = reason === 'disposed' ? 'cancelled' : 'failed'
+      operation.finishedAt = new Date().toISOString()
+      operation.message = message
+      if (!record.retired) {
+        emit(record, {
+          type: 'reload_end',
+          operation: { ...operation },
+          resourceRevision: record.resourceRevision,
+        })
+      }
+      if (operation.status === 'cancelled') {
+        return { status: 'cancelled', message, operation: { ...operation } }
+      }
+      return { status: 'failed', reason, message, operation: { ...operation } }
+    }
+
+    try {
+      // 1) 旧交互不能跨运行时存活：本地 pending 与宿主级会话作用域请求一起结算。
+      record.uiBridge.dismissAll()
+      resetHostUiForReload(record)
+      record.uiBridge.setStartup(true)
+      // 2) 先排空本会话的设置写入，避免 reload 丢弃尚未落盘的修改。
+      try {
+        await record.settingsManager.flush()
+      } catch (error) {
+        pushDiagnostic(`设置落盘（${workspacePath}）：${errorText(error)}`)
+      }
+      await record.session.reload({
+        beforeSessionStart: async () => {
+          if (record.retired || disposed) throw new Error('会话正在关闭')
+          await applyReloadedResources(record)
+          if (record.retired || disposed) throw new Error('会话正在关闭')
+        },
+      })
+      if (record.retired || disposed) {
+        return fail('disposed', '会话正在关闭，资源重载已取消；请重新打开会话后再试。')
+      }
+      resourceRevisionSeq += 1
+      record.resourceRevision = resourceRevisionSeq
+      operation.status = 'succeeded'
+      operation.finishedAt = new Date().toISOString()
+      operation.resourceRevision = resourceRevisionSeq
+      delete operation.message
+      emit(record, {
+        type: 'reload_end',
+        operation: { ...operation },
+        resourceRevision: resourceRevisionSeq,
+      })
+      return reloadedResultOf(record, operation)
+    } catch (error) {
+      if (record.retired || disposed) {
+        return fail('disposed', '会话正在关闭，资源重载已取消；请重新打开会话后再试。')
+      }
+      if (error instanceof ResourceReloadTrustError) {
+        pushDiagnostic(`资源重载信任（${workspacePath}）：${error.message}`)
+        safeDiagnostics.add('assembly-warning')
+        return fail('trust', error.message)
+      }
+      pushDiagnostic(`资源重载（${workspacePath}）：${errorText(error)}`)
+      safeDiagnostics.add('assembly-warning')
+      return fail(
+        'assembly',
+        `资源重载失败：${errorText(error)}。旧扩展可能已关闭；修复后可在同一会话重试。`,
+      )
+    } finally {
+      record.uiBridge.setStartup(false)
+      structure.cancel = () => {}
+      releaseStructure(record, structure)
+    }
+  }
+
+  /**
+   * 空白页目标：只刷新该 cwd 的待消费装配。
+   *
+   * 不创建会话、不停止同 cwd 的其他会话；已有的 live 会话使用自己的 loader，
+   * 不会被本操作替换。结果明确标记 kind=workspace，便于页面提示“只重载本目标”。
+   */
+  const reloadWorkspaceNow = async (
+    cwd: string,
+    trigger: HarnessReloadTrigger,
+  ): Promise<HarnessReloadResult> => {
+    assertActive()
+    reloadCounter += 1
+    const workspacePath = canonicalProjectPath(cwd)
+    const operation: HarnessReloadOperation = {
+      id: `workspace:${workspacePath}:reload:${reloadCounter}`,
+      trigger,
+      status: 'running',
+      workspacePath,
+      startedAt: new Date().toISOString(),
+      fromResourceRevision: resourceRevisionSeq,
+      resourceRevision: resourceRevisionSeq,
+    }
+    if (workspaceReloads.has(workspacePath) || pendingProjects.has(workspacePath)) {
+      return { status: 'busy', message: '该起始目录正在装配或重载', workspacePath }
+    }
+    workspaceReloads.add(workspacePath)
+    try {
+      const runtime = projectRuntimes.get(workspacePath)
+      let prepared: PreparedProject
+      if (runtime?.pending) {
+        // 已有待消费装配：用带信任检查的 loader.reload 刷新（不重复装配工厂）。
+        prepared = runtime.pending
+        await prepared.trust.resourceLoader.reload()
+        // 待消费 loader 没有 runner 负责登记 provider；下次会话复用它之前补上。
+        registerPreparedProviders(prepared.trust.resourceLoader.getExtensions())
+      } else {
+        // 无待消费装配：经正常受信装配路径准备一次（首次查询不猜测信任）。
+        prepared = await prepareProjectSession(
+          workspacePath,
+          explicitTrust.get(pathKey(workspacePath)),
+        )
+        if (disposed) throw new Error('宿主已关闭')
+        if (prepared.trust.state.status === 'needs-trust') {
+          throw new ResourceReloadTrustError(prepared.trust.state)
+        }
+        projectRuntimeFrom(prepared)
+      }
+      if (disposed) throw new Error('宿主已关闭')
+      // 只物化本地目录；联网刷新仍由显式 refreshModels 触发。
+      await modelRuntime.refresh({ allowNetwork: false })
+      if (disposed) throw new Error('宿主已关闭')
+      prepared.workspaceBinding.loadedInstructionPaths = prepared.trust.resourceLoader
+        .getAgentsFiles()
+        .agentsFiles.map((file) => file.path)
+      const target = projectRuntimes.get(workspacePath)
+      if (target) {
+        target.lastLoader = {
+          loader: prepared.trust.resourceLoader,
+          settings: prepared.trust.settingsManager,
+        }
+      }
+      resourceRevisionSeq += 1
+      operation.status = 'succeeded'
+      operation.finishedAt = new Date().toISOString()
+      operation.resourceRevision = resourceRevisionSeq
+      return {
+        status: 'reloaded',
+        kind: 'workspace',
+        workspacePath,
+        operation: { ...operation },
+        resourceRevision: resourceRevisionSeq,
+      }
+    } catch (error) {
+      if (disposed) {
+        operation.status = 'cancelled'
+        operation.finishedAt = new Date().toISOString()
+        return { status: 'cancelled', message: '宿主已关闭，资源重载已取消', operation }
+      }
+      if (error instanceof ResourceReloadTrustError || error instanceof ProjectTrustRequiredError) {
+        const message =
+          error instanceof ResourceReloadTrustError
+            ? error.message
+            : '项目需要信任决定；请先在项目信任面板完成允许/拒绝，再重试资源重载。'
+        pushDiagnostic(`待消费装配重载信任（${workspacePath}）：${message}`)
+        safeDiagnostics.add('assembly-warning')
+        operation.status = 'failed'
+        operation.finishedAt = new Date().toISOString()
+        operation.message = message
+        return { status: 'failed', reason: 'trust', message, operation: { ...operation } }
+      }
+      const message = `资源重载失败：${errorText(error)}。请修正后重试。`
+      pushDiagnostic(`待消费装配重载（${workspacePath}）：${errorText(error)}`)
+      safeDiagnostics.add('assembly-warning')
+      operation.status = 'failed'
+      operation.finishedAt = new Date().toISOString()
+      operation.message = message
+      return { status: 'failed', reason: 'assembly', message, operation: { ...operation } }
+    } finally {
+      workspaceReloads.delete(workspacePath)
+    }
+  }
+
+  /** 资源重载入口：会话与空白页目标二选一（与设置/资源查询同形）。 */
+  const reloadResourcesNow = async (
+    input: HarnessReloadTargetInput,
+  ): Promise<HarnessReloadResult> => {
+    assertActive()
+    const trigger = input.trigger ?? 'api'
+    const resolved = await resolveConfigTarget(input)
+    if (resolved.target.kind === 'session') {
+      const threadId = resolved.target.threadId
+      if (!threadId) throw new Error('资源重载缺少会话 ID')
+      const record = resolved.record ?? (await ensureOpen(threadId))
+      return reloadThreadNow(record, trigger)
+    }
+    return reloadWorkspaceNow(resolved.cwd, trigger)
   }
 
   const client: HarnessClient = {
@@ -5261,6 +5656,10 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
     async getResources(input) {
       return resourceInventoryNow(input)
+    },
+
+    async reloadResources(input) {
+      return reloadResourcesNow(input)
     },
 
     async searchFiles(

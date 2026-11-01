@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：718 项测试、54 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 累计实测：738 项测试、59 条 Chromium、lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.4b 资源重载与基础内置装配（✅ 开发完成，`feat`）
+
+记录：[资源重载](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)
+
+- 协议 12，/reload 与设置面板同会话重载、空白页待消费装配刷新、资源版本/多窗命令目录更新与启动交互应答；codemode/tool-search 按命名内置工厂装配。
+- 主 agent 修复重载信任裁决、新增资源门控、空白装配并发/销毁与面板旧响应；亲验 738 项测试、59 条 Chromium、lint/类型/build。MCP 工厂仍未注入。
 
 ### G1.4a 设置与资源清单（✅ 开发完成，`feat`）
 

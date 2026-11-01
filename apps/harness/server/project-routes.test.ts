@@ -93,6 +93,7 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     getSettings: vi.fn(),
     saveSettings: vi.fn(),
     getResources: vi.fn(),
+    reloadResources: vi.fn(),
     searchFiles: vi.fn(async () => ({ files: [], truncated: false })),
     getThreadTree: vi.fn(),
     navigateThreadTree: vi.fn(),

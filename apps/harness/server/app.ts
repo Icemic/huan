@@ -335,6 +335,32 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     )
   })
 
+  // 资源重载：会话或空白页目标二选一；busy/failed 都如实返回，不伪报成功。
+  // 触发来源只用于展示，不参与授权；省略时按 api 处理。
+  app.post('/api/pi/reload', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      target?: unknown
+      trigger?: unknown
+    }
+    const target = parseConfigTargetObject(body.target)
+    if (!target) return c.json({ error: 'invalid-config-target' }, 400)
+    if (
+      body.trigger !== undefined &&
+      body.trigger !== 'command' &&
+      body.trigger !== 'settings' &&
+      body.trigger !== 'extension' &&
+      body.trigger !== 'api'
+    ) {
+      return c.json({ error: 'invalid-reload-trigger' }, 400)
+    }
+    return c.json(
+      await piClient.reloadResources({
+        ...target,
+        ...(body.trigger !== undefined ? { trigger: body.trigger } : {}),
+      }),
+    )
+  })
+
   // 扩展参数补全：按需调用，空结果表示该命令没有补全。
   app.post('/api/pi/commands/arguments', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {

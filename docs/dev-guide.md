@@ -84,7 +84,7 @@ huan/
 
 - 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
-- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 54 条流程，单 worker，不并行运行多套实例。
+- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 59 条流程，单 worker，不并行运行多套实例。
 - 主题验证：顶栏主题选择写入浏览器 localStorage `huan.theme`，只影响当前浏览器；不改 Pi 配置、`settings.json` 或 huan `state.json`。
 - 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与宿主 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意无效，先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
 - 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。
@@ -146,7 +146,7 @@ G1.1 起可在页面“宿主信息与诊断”查看用户目录、会话存储
 
 ### 7.5 已知行为（非 bug）
 
-- 顶栏“设置与资源”或 `/settings` 打开同一面板，支持用户/可信项目常用项与 JSON 原文，保留未知字段；保存前校验，revision 不符明确冲突。保存只写磁盘，当前会话不自动应用；重载接入见当前 G1.4 迭代。资源清单来自实际 loader，指令/system prompt 文本仅显式请求时加载；未信任项目配置不返回原文。
+- 顶栏“设置与资源”或 `/settings` 打开同一面板，支持用户/可信项目常用项与 JSON 原文，保留未知字段；保存前校验，revision 不符明确冲突。保存只写磁盘，当前会话不自动应用；`/reload` 或面板“应用资源重载”在空闲时刷新当前会话设置/指令/扩展。原“重新加载”只重读磁盘原文，不是应用资源重载；空白页重载只更新目标 cwd 的待消费装配。sessionDir/代理等按提示重启宿主。资源清单来自实际 loader，指令/system prompt 文本仅显式请求时加载；未信任项目配置不返回原文。
 - 会话上下文栏的“运行操作”面板集中提供直接 Shell（`!` / `!!`）、手动/自动压缩与模型目录/范围设置。Shell 与压缩、分叉、树导航互斥；取消 Shell 不停止模型运行。Shell 输出在宿主侧有界（120k 字符），持久历史以 `bashExecution` 消息为准。自动压缩开关保存到当前 `agentDir` 用户设置，写盘失败会如实报错，未确认保存时不修改live缓存。模型范围默认只作用于当前会话，勾选“保存为用户默认”才写入用户设置。
 - 空闲会话的实时订阅由应用层 `PiLiveSubscription` 组件维持（运行时默认只在运行中自动连接）；组件在 `src/components/pi-live-subscription.tsx`，调用 `@huan/react` 的 `useHarnessController().connect()`（M2 起为公共类型声明的能力）。
 - 输入框支持`/`命令目录/补全、`@`成员文件引用、`!`/`!!`直接Shell；命令按钮可查看可用来源及未实施命令。Shift+Enter换行，Enter发送，Ctrl/Cmd+Enter运行中转向；可显式选转向/后续、整体取回队列。上下键浏览本窗口输入历史，展开编辑支持长输入。

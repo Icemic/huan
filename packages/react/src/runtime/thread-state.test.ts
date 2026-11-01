@@ -750,3 +750,73 @@ describe('用户 Shell 与压缩运行态', () => {
     expect(s.compaction).toEqual({ active: false })
   })
 })
+
+describe('资源重载与嵌套工具事件', () => {
+  const operation = {
+    id: 't1:reload:1',
+    trigger: 'settings' as const,
+    status: 'running' as const,
+    threadId: 't1',
+    workspacePath: '/workspace',
+    startedAt: '2026-11-01T00:00:00.000Z',
+    fromResourceRevision: 0,
+    resourceRevision: 0,
+  }
+
+  it('reload_start/reload_end 更新元数据与资源版本', () => {
+    let s = apply(createHarnessThreadState('t1'), ev({ type: 'reload_start', operation }))
+    expect(s.metadata.reload).toEqual(operation)
+    expect(s.metadata.resourceRevision).toBeUndefined()
+
+    const finished = {
+      ...operation,
+      status: 'succeeded' as const,
+      finishedAt: '2026-11-01T00:00:01.000Z',
+      resourceRevision: 1,
+    }
+    s = apply(s, ev({ type: 'reload_end', operation: finished, resourceRevision: 1 }))
+    expect(s.metadata.reload).toEqual(finished)
+    expect(s.metadata.resourceRevision).toBe(1)
+
+    // 失败如实反映，不伪装成功。
+    s = apply(
+      s,
+      ev({
+        type: 'reload_end',
+        operation: { ...finished, status: 'failed', message: '信任被拒绝' },
+        resourceRevision: 1,
+      }),
+    )
+    expect(s.metadata.reload?.status).toBe('failed')
+    expect(s.metadata.reload?.message).toBe('信任被拒绝')
+  })
+
+  it('嵌套工具调用记录 parentToolCallId，普通调用不写该字段', () => {
+    let s = apply(
+      createHarnessThreadState('t1'),
+      ev({ type: 'tool_execution_start', toolCallId: 'call-1', toolName: 'codemode', args: {} }),
+      ev({
+        type: 'tool_execution_start',
+        toolCallId: 'call-1/1',
+        toolName: 'read',
+        args: { path: '/workspace/a.txt' },
+        parentToolCallId: 'call-1',
+      }),
+    )
+    expect(s.toolExecutions['call-1']?.parentToolCallId).toBeUndefined()
+    expect(s.toolExecutions['call-1/1']?.parentToolCallId).toBe('call-1')
+
+    s = apply(
+      s,
+      ev({
+        type: 'tool_execution_end',
+        toolCallId: 'call-1/1',
+        result: { content: [{ type: 'text', text: 'ok' }] },
+        isError: false,
+        parentToolCallId: 'call-1',
+      }),
+    )
+    expect(s.toolExecutions['call-1/1']?.status).toBe('complete')
+    expect(s.toolExecutions['call-1/1']?.parentToolCallId).toBe('call-1')
+  })
+})

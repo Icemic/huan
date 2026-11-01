@@ -8,7 +8,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { createHarnessHost, type HarnessHost, UnsupportedHostCommandActionError } from './host.js'
+import { createHarnessHost, type HarnessHost } from './host.js'
 import {
   createIsolatedPiEnv,
   type IsolatedPiEnv,
@@ -578,7 +578,7 @@ export default function (pi) {
     ])
   })
 
-  it('fork/navigateTree/switchSession 与独立会话操作衔接；reload 明确不支持', async () => {
+  it('fork/navigateTree/switchSession 与独立会话操作衔接；reload 走真实重载', async () => {
     const marker = join(env.root, 'command.marker')
     host = await startHost(`import { appendFileSync } from 'node:fs'
 export default function (pi) {
@@ -658,10 +658,19 @@ export default function (pi) {
     await host.sendMessage(parent, { content: `/switchcmd ${otherFile}` })
     expect(await readLines(marker)).toContain('switch:false')
 
+    // ctx.reload：真实重载（不是空成功），同一会话、同一消息记录不被替换。
+    const beforeReload = await host.getThread(parent)
     await host.sendMessage(parent, { content: '/reloadcmd' })
-    expect(await readLines(marker)).toContain('reload:UnsupportedHostCommandActionError')
-    expect(new UnsupportedHostCommandActionError('reload').code).toBe(
-      'host-command-action-unsupported',
+    expect(await readLines(marker)).toContain('reload:no-error')
+    const afterReload = await host.getThread(parent)
+    expect(afterReload.metadata.id).toBe(beforeReload.metadata.id)
+    expect(afterReload.metadata.reload).toMatchObject({
+      trigger: 'extension',
+      status: 'succeeded',
+    })
+    expect(afterReload.metadata.resourceRevision).toBeGreaterThan(
+      beforeReload.metadata.resourceRevision ?? 0,
     )
+    expect(afterReload.messages).toEqual(beforeReload.messages)
   })
 })

@@ -86,9 +86,8 @@ export const HARNESS_BUILTIN_COMMANDS: readonly HarnessBuiltinCommand[] = [
   },
   {
     name: 'reload',
-    description: '重载设置、指令与资源',
-    stage: 'g1.4',
-    availability: '资源重载在 G1.4 实施；当前请重启宿主。',
+    description: '重载设置、指令与资源（保持同一会话）',
+    stage: 'available',
   },
   {
     name: 'export',

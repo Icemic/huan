@@ -19,7 +19,7 @@ import type {
 } from '@huan/protocol'
 import { HarnessHttpError, useHarnessThreadState } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { Loader2Icon, RefreshCwIcon, Settings2Icon } from 'lucide-react'
+import { Loader2Icon, RefreshCwIcon, RotateCwIcon, Settings2Icon } from 'lucide-react'
 import {
   type ChangeEvent,
   type ReactNode,
@@ -49,6 +49,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { clearPiIntent, usePiIntent } from './pi-command-intents'
 import { harnessHttpClient } from './pi-http-client'
+import { bumpResourceVersion } from './resource-version'
 import { useWorkspace } from './workspace-context'
 
 const PENDING_THREAD_ID = '__pending__'
@@ -537,6 +538,8 @@ const sourceLabel = (info: { source: string; scope: string; origin: string }): s
 
 export function SettingsResourcesDialog() {
   const metadata = useHarnessThreadState((state) => state.metadata)
+  // 会话资源重载状态（另一窗口发起时也能看到）；空白页没有会话元数据。
+  const sessionReload = useHarnessThreadState((state) => state.metadata.reload)
   const { workspaces, activeWorkspaceId, startProjectFor } = useWorkspace()
   const intent = usePiIntent()
   const [open, setOpen] = useState(false)
@@ -554,6 +557,8 @@ export function SettingsResourcesDialog() {
   const resourceGeneration = useRef(0)
 
   const pending = !metadata.id || metadata.id === PENDING_THREAD_ID
+  /** 同一会话的资源重载（可能由另一窗口发起）进行中：按钮显示进度并禁用。 */
+  const reloadRunning = !pending && sessionReload?.status === 'running'
   const workspace = metadata.workspaceId
     ? workspaces.find((item) => item.id === metadata.workspaceId)
     : workspaces.find((item) => item.id === activeWorkspaceId)
@@ -677,6 +682,28 @@ export function SettingsResourcesDialog() {
     }
   }, [open, fetchSettings, fetchResources])
 
+  // 资源版本变化（本窗口或其他窗口完成重载）：只重读，不重置草稿、不覆盖未保存改动。
+  // 目标切换由上面的打开效应负责首读，这里只处理同一目标内的版本推进。
+  const seenResourceRevision = useRef<number | undefined>(undefined)
+  const seenTargetKey = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!open) {
+      seenResourceRevision.current = undefined
+      seenTargetKey.current = undefined
+      return
+    }
+    const revision = metadata.resourceRevision
+    if (seenTargetKey.current !== targetKey) {
+      seenTargetKey.current = targetKey
+      seenResourceRevision.current = revision
+      return
+    }
+    if (seenResourceRevision.current === revision) return
+    seenResourceRevision.current = revision
+    void fetchSettings()
+    void fetchResources(showText)
+  }, [open, targetKey, metadata.resourceRevision, fetchSettings, fetchResources, showText])
+
   const updateDraft = (content: string) => {
     setDrafts((current) => {
       const existing = current[key]
@@ -698,10 +725,47 @@ export function SettingsResourcesDialog() {
     setNotice(undefined)
   }
 
+  // 「重新加载」只重读磁盘原文（会丢弃当前作用域的未保存改动）。
   const reload = () => {
     setNotice(undefined)
     void fetchSettings({ resetScope: scope })
     void fetchResources(false)
+  }
+
+  /**
+   * 「应用资源重载」：让宿主在同一 Pi 会话内重载设置/指令/扩展（空白页只刷新
+   * 该 cwd 的待消费装配）。与「重新加载」语义不同：不重置原文草稿，也不覆盖
+   * 未保存改动；成功后只刷新读取结果与资源版本。
+   */
+  const applyResourceReload = async () => {
+    if (!target || busy) return
+    const saveVersion = ++saveGeneration.current
+    const isCurrent = () => saveVersion === saveGeneration.current
+    setBusy('reload')
+    setNotice(undefined)
+    try {
+      const result = await harnessHttpClient.reloadResources({ ...target, trigger: 'settings' })
+      if (!isCurrent()) return
+      if (result.status !== 'reloaded') {
+        setNotice(result.message)
+        return
+      }
+      // 会话目标的命令目录由元数据 revision 驱动；空白页只能靠本窗口信号。
+      if (result.kind === 'workspace') bumpResourceVersion()
+      await fetchSettings()
+      await fetchResources(showText)
+      // fetchSettings 自身推进 loadGeneration；关闭/换目标则 saveVersion 已失效。
+      if (saveVersion !== saveGeneration.current) return
+      setNotice(
+        result.kind === 'session'
+          ? `已重载并应用到当前会话（资源版本 ${result.resourceRevision}）；消息、分支与未保存草稿保持不变。`
+          : `已重载该起始目录的待消费装配（资源版本 ${result.resourceRevision}）；不会创建会话，也不影响其他会话。`,
+      )
+    } catch (error) {
+      if (saveVersion === saveGeneration.current) setNotice(errorText(error))
+    } finally {
+      if (saveVersion === saveGeneration.current) setBusy(undefined)
+    }
   }
 
   const save = async () => {
@@ -730,7 +794,9 @@ export function SettingsResourcesDialog() {
         }))
         setNotice(
           `${result.apply.message}${
-            result.apply.reloadRequired ? '（已保存，待重载；G1.4b 提供重载入口）' : ''
+            result.apply.reloadRequired
+              ? '（已保存，待重载；点“应用资源重载”即可让当前会话使用新设置）'
+              : ''
           }`,
         )
         return
@@ -784,7 +850,8 @@ export function SettingsResourcesDialog() {
             <DialogDescription>
               <Trans>
                 编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。
-                保存只写磁盘；常用运行设置与资源需要重载宿主后才会应用。
+                保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源，
+                “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。
               </Trans>
             </DialogDescription>
           </DialogHeader>
@@ -879,7 +946,7 @@ export function SettingsResourcesDialog() {
                     size="sm"
                     variant="outline"
                     aria-label="重新加载设置与资源"
-                    disabled={!ready || busy === 'save'}
+                    disabled={!ready || busy === 'save' || busy === 'reload'}
                     onClick={reload}
                   >
                     {busy === 'settings' ? (
@@ -888,6 +955,19 @@ export function SettingsResourcesDialog() {
                       <RefreshCwIcon aria-hidden className="size-3.5" />
                     )}
                     <Trans>重新加载</Trans>
+                  </Button>
+                  <Button
+                    size="sm"
+                    aria-label="应用资源重载"
+                    disabled={!ready || busy === 'save' || busy === 'reload' || reloadRunning}
+                    onClick={() => void applyResourceReload()}
+                  >
+                    {busy === 'reload' || reloadRunning ? (
+                      <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                    ) : (
+                      <RotateCwIcon aria-hidden className="size-3.5" />
+                    )}
+                    <Trans>应用资源重载</Trans>
                   </Button>
                 </div>
               </div>
@@ -903,7 +983,7 @@ export function SettingsResourcesDialog() {
                 <p role="status" data-slot="huan-settings-unsaved" className="text-xs">
                   <Trans>
                     当前作用域有未保存改动；切换到另一作用域会保留草稿，
-                    重新加载会丢弃该作用域的未保存改动。
+                    “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。
                   </Trans>
                 </p>
               )}

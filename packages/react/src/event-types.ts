@@ -37,6 +37,8 @@ const KNOWN_HARNESS_CLIENT_EVENT_TYPES = {
   thinking_level_changed: true,
   context_usage: true,
   extension_ui_request: true,
+  reload_start: true,
+  reload_end: true,
   host_ui_update: true,
   extension_ui_resolved: true,
   error: true,
