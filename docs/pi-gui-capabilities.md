@@ -111,7 +111,7 @@ huan 已确认增加多项目工作区：会话归属工作区而非单项目，
 
 ### 3.6 MCP
 
-huan 的 MCP 内建方案仅使用官方实现：复用 Pi 内置 MCP 集成，或基于官方 `@earendil-works/pi-mcp` 集成；不引入 `pi-mcp-adapter` 等第三方替代品。实现路线的决策由 roadmap 维护，下列验收语义不因路线而降低。
+huan 的 MCP 集成层为 `@huan/mcp`，依赖官方 `@earendil-works/pi-mcp` 协议库，与 Pi 内置 MCP 集成同层；不引入 `pi-mcp-adapter` 等第三方替代品。未来实现路线的调整由 roadmap 维护，下列验收语义不因路线而降低。
 
 | ID | Pi 基准 / 接入方向 | GUI 要求与关键验收 |
 | --- | --- | --- |

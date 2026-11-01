@@ -67,6 +67,8 @@ apps/harness
 - 公共包不得 import 应用内部模块；应用之间无直接代码依赖。
 - 宿主特殊接口（Electron、Tauri、未来的原生桥）只出现在应用的 `bridge/` 或独立 adapter 包中。
 
+**MCP 集成包边界（已确定设计，尚未创建包）**：新增 `packages/mcp`（`@huan/mcp`）作为 Node 集成层，由 core 消费，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；具体首期设计见[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)。
+
 ---
 
 ## 3. Agent 运行时架构（@huan/core）
