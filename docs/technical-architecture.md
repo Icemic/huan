@@ -235,7 +235,7 @@ apps/harness（页面、应用业务绑定与布局）
 
 当前没有此前图示的独立features目录，也没有`@huan/react`公共Thread/Composer组件或`rendererId + schemaVersion`注册接口。工具/data渲染使用aui机制与应用本地回退；未知data的可读回退存在遗漏，见整改AR-14/24。
 
-目标为Zustand状态与业务动作、React绑定、展示单向依赖。R1详细方案将公共浏览器状态规范化为serviceStore与windowStore，应用feature store保存面板业务，Node按装配/会话/操作与共享资源所有权分解；包入口、动作时序、资源关闭与旧文件处理见[R1设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，R1结构已确认，协议细节仍待R2核定。工具输出保持语义数据，工具内与独立Host UI入口继续可用；专用渲染按当前消费者静态组织。
+目标为Zustand状态与业务动作、React绑定、展示单向依赖。R1详细方案将公共浏览器状态规范化为serviceStore与windowStore，应用feature store保存面板业务，Node按装配/会话/操作与共享资源所有权分解；包入口、动作时序、资源关闭与旧文件处理见[R1设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，R1结构已确认，协议细节仍待R2核定。客户端消息/运行/队列以服务端为准，传输失败恢复同步，业务请求保持单次派发；扩展命令通过自己的消息/通知/交互反馈业务结果，公共层不为任意副作用建立确认系统。工具输出保持语义数据，工具内与独立Host UI入口继续可用；专用渲染按当前消费者静态组织。
 
 ### 6.2 展示组合原则
 
