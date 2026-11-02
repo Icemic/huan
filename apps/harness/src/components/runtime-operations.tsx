@@ -1,17 +1,14 @@
 /**
  * 运行操作面板：直接 Shell、上下文压缩与模型范围。
  *
- * 入口放在会话上下文栏（与工作区/项目信息同一行），打开后是紧凑的多段面板。
- * 所有动作经 `@huan/react` 的稳定 actions → 宿主 RPC；面板只展示权威状态，不自行
- * 猜测成功（压缩失败、自动压缩保存失败都会如实显示）。
+ * 入口放在会话上下文栏；`/compact`、`/scoped-models` 命令打开对应分段。
+ * 业务状态（固定 target、表单、busy、模型范围 patterns 原文与目录查询）
+ * 全部在 runtime feature Zustand；本组件只选择状态并触发动作。
+ * Shell/压缩结果始终来自服务端事件，不猜测成功；取消不伪装为完成。
  */
-import type {
-  HarnessBashRun,
-  HarnessCompactionOutcome,
-  HarnessModelInfo,
-  HarnessModelScope,
-} from '@huan/protocol'
-import { useHarnessActions, useHarnessThreadState } from '@huan/react'
+
+import type { HarnessBashRun } from '@huan/protocol'
+import { selectHarnessModelCatalog, useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import {
   BanIcon,
@@ -22,7 +19,7 @@ import {
   SlidersHorizontalIcon,
   TerminalIcon,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -33,17 +30,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { clearPiIntent, usePiIntent } from './pi-command-intents'
-import { harnessHttpClient } from './pi-http-client'
-import { useWorkspace } from './workspace-context'
-
-const PENDING_THREAD_ID = '__pending__'
-
-const modelKey = (model: { provider: string; modelId: string }) =>
-  `${model.provider}/${model.modelId}`
-
-const errorText = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
+import { useRuntimeStore } from '@/state/app-context'
+import { scopeModelKeysForPatterns } from '@/state/runtime-store'
 
 /** Shell/压缩共用的状态行。 */
 function StatusLine({ tone, children }: { tone: 'muted' | 'error'; children: ReactNode }) {
@@ -121,207 +109,98 @@ function compactionReasonLabel(reason: 'manual' | 'threshold' | 'overflow' | und
   return '自动'
 }
 
-/** 压缩结果的可读提示；失败与取消都不伪装成成功。 */
-function compactionNotice(outcome: HarnessCompactionOutcome): string {
-  switch (outcome.status) {
-    case 'compacted':
-      return `压缩完成（${outcome.tokensBefore ?? '?'} → ${outcome.estimatedTokensAfter ?? '?'} tokens）`
-    case 'cancelled':
-      return outcome.message ?? '压缩已取消，原始消息树保持不变'
-    case 'busy':
-      return outcome.message
-    case 'failed':
-      return outcome.message
-  }
-}
-
 export function RuntimeOperationsPanel() {
-  const threadId = useHarnessThreadState((state) => state.metadata.id)
-  return <RuntimeOperationsPanelContent key={threadId} />
-}
+  const open = useRuntimeStore((state) => state.open)
+  const target = useRuntimeStore((state) => state.target)
+  const section = useRuntimeStore((state) => state.section)
+  const shellCommand = useRuntimeStore((state) => state.shellCommand)
+  const shellExcludeFromContext = useRuntimeStore((state) => state.shellExcludeFromContext)
+  const compactInstructions = useRuntimeStore((state) => state.compactInstructions)
+  const patternsText = useRuntimeStore((state) => state.patternsText)
+  const basePatternsText = useRuntimeStore((state) => state.basePatternsText)
+  const saveAsDefault = useRuntimeStore((state) => state.saveAsDefault)
+  const busy = useRuntimeStore((state) => state.busy)
+  const notice = useRuntimeStore((state) => state.notice)
+  const error = useRuntimeStore((state) => state.error)
+  const scopeError = useRuntimeStore((state) => state.scopeError)
+  const scope = useRuntimeStore((state) => state.scope)
+  const scopeLoading = useRuntimeStore((state) => state.scopeLoading)
+  const openPanel = useRuntimeStore((state) => state.openPanel)
+  const close = useRuntimeStore((state) => state.close)
+  const setShellCommand = useRuntimeStore((state) => state.setShellCommand)
+  const setShellExcludeFromContext = useRuntimeStore((state) => state.setShellExcludeFromContext)
+  const setCompactInstructions = useRuntimeStore((state) => state.setCompactInstructions)
+  const setSaveAsDefault = useRuntimeStore((state) => state.setSaveAsDefault)
+  const loadCatalog = useRuntimeStore((state) => state.loadCatalog)
+  const refreshCatalog = useRuntimeStore((state) => state.refreshCatalog)
+  const loadScope = useRuntimeStore((state) => state.loadScope)
+  const updatePatternsText = useRuntimeStore((state) => state.updatePatternsText)
+  const resetPatternsDraft = useRuntimeStore((state) => state.resetPatternsDraft)
+  const toggleScopeModel = useRuntimeStore((state) => state.toggleScopeModel)
+  const saveScope = useRuntimeStore((state) => state.saveScope)
+  const runShell = useRuntimeStore((state) => state.runShell)
+  const abortShell = useRuntimeStore((state) => state.abortShell)
+  const compact = useRuntimeStore((state) => state.compact)
+  const abortCompaction = useRuntimeStore((state) => state.abortCompaction)
+  const toggleAutoCompaction = useRuntimeStore((state) => state.toggleAutoCompaction)
 
-function RuntimeOperationsPanelContent() {
-  const actions = useHarnessActions()
-  const metadata = useHarnessThreadState((state) => state.metadata)
-  const bash = useHarnessThreadState((state) => state.bash)
-  const compaction = useHarnessThreadState((state) => state.compaction)
-  const { workspaces, activeWorkspaceId, startProjectFor, hostInfo } = useWorkspace()
+  const threadId = target?.threadId
+  const workspacePath = target?.workspacePath
+  const metadata = useServiceStore((state) => (threadId ? state.threadsById[threadId] : undefined))
+  const session = useServiceStore((state) =>
+    threadId ? state.sessionDataById[threadId] : undefined,
+  )
+  const entry = useServiceStore((state) =>
+    target
+      ? selectHarnessModelCatalog(state, {
+          workspacePath: target.workspacePath,
+          ...(target.threadId ? { threadId: target.threadId } : {}),
+        })
+      : undefined,
+  )
+  const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
+  const catalog = entry?.models ?? []
+  const catalogLoading = entry?.loading === true
+  const selectedKeys = useMemo(
+    () => scopeModelKeysForPatterns(patternsText, catalog),
+    [patternsText, catalog],
+  )
 
-  const pendingThread = !metadata.id || metadata.id === PENDING_THREAD_ID
-  const threadId = pendingThread ? undefined : metadata.id
-  const workspace = metadata.workspaceId
-    ? workspaces.find((item) => item.id === metadata.workspaceId)
-    : workspaces.find((item) => item.id === activeWorkspaceId)
-  const cwd = metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : undefined)
-
-  const [open, setOpen] = useState(false)
-  const intent = usePiIntent()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 认证/目录版本是 serviceStore 查询键
   useEffect(() => {
-    if (intent?.kind !== 'runtime-operations') return
-    setOpen(true)
-    clearPiIntent(intent.id)
-  }, [intent])
-  const [command, setCommand] = useState('')
-  const [excludeFromContext, setExcludeFromContext] = useState(false)
-  const [instructions, setInstructions] = useState('')
-  const [catalog, setCatalog] = useState<readonly HarnessModelInfo[]>([])
-  const [scope, setScope] = useState<HarnessModelScope | undefined>(undefined)
-  const [selected, setSelected] = useState<readonly string[]>([])
-  const [saveAsDefault, setSaveAsDefault] = useState(false)
-  const [busy, setBusy] = useState<string | undefined>(undefined)
-  const [notice, setNotice] = useState<string | undefined>(undefined)
+    if (!open || !target) return
+    // 认证版本/会话目录版本变化时重新读取；serviceStore 以同一目标版本为键。
+    void loadCatalog()
+  }, [open, target, authRevision, metadata?.modelCatalogRevision, loadCatalog])
 
-  const autoCompaction = metadata.autoCompactionEnabled
-
-  /** 目录 + 会话范围：打开面板时读取；空白页只读目录（仍需要固定起始目录）。 */
-  useEffect(() => {
-    if (!open || !cwd) return
-    let active = true
-    void (async () => {
-      try {
-        const models = await harnessHttpClient.getAvailableModels({ workspacePath: cwd })
-        if (!active) return
-        setCatalog(models)
-        if (threadId) {
-          const current = await actions.getModelScope()
-          if (!active) return
-          setScope(current)
-          setSelected(
-            current.patterns.length > 0
-              ? current.models.map(modelKey)
-              : models.map((model) => modelKey(model)),
-          )
-        }
-      } catch (error) {
-        if (active) setNotice(errorText(error))
-      }
-    })()
-    return () => {
-      active = false
-    }
-  }, [actions, open, threadId, cwd])
-
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-
-  const run = (label: string, action: () => Promise<void>) => {
-    setBusy(label)
-    setNotice(undefined)
-    void action()
-      .catch((error: unknown) => {
-        if (mounted.current) setNotice(errorText(error))
-      })
-      .finally(() => {
-        if (mounted.current) setBusy(undefined)
-      })
-  }
-
-  const submitShell = () =>
-    run('shell', async () => {
-      const result = await actions.runBash({
-        command,
-        ...(excludeFromContext ? { excludeFromContext: true } : {}),
-      })
-      if (!mounted.current) return
-      if (result.status === 'started') {
-        setCommand('')
-        return
-      }
-      setNotice(result.message)
-    })
-
-  const submitCompact = () =>
-    run('compact', async () => {
-      const outcome = await actions.compact({
-        ...(instructions.trim() ? { customInstructions: instructions.trim() } : {}),
-      })
-      if (mounted.current) setNotice(compactionNotice(outcome))
-    })
-
-  const toggleAuto = () =>
-    run('auto', async () => {
-      if (autoCompaction === undefined) {
-        setNotice('会话尚未就绪，暂时无法修改自动压缩设置')
-        return
-      }
-      const result = await actions.setAutoCompaction(!autoCompaction)
-      if (!mounted.current) return
-      if (result.status === 'failed') {
-        setNotice(result.message)
-        return
-      }
-      setNotice(
-        result.overridden
-          ? (result.message ?? '用户默认已保存，但项目设置覆盖了当前会话')
-          : `自动压缩已${result.enabled ? '开启' : '关闭'}（已保存到当前用户设置）`,
-      )
-    })
-
-  const refreshCatalog = () =>
-    run('refresh', async () => {
-      const result = await actions.refreshModels(
-        threadId || !cwd ? undefined : { workspacePath: cwd },
-      )
-      if (!mounted.current) return
-      setCatalog(result.models)
-      setNotice(
-        result.failedProviders.length === 0
-          ? '模型目录已刷新'
-          : result.failedProviders.includes('*')
-            ? '模型目录刷新未完成（超时或异常），仍显示缓存目录'
-            : `部分 provider 目录刷新失败：${result.failedProviders.join('、')}（仍显示缓存目录）`,
-      )
-    })
-
-  const saveScope = () =>
-    run('scope', async () => {
-      const result = await actions.setModelScope({
-        patterns: [...selected],
-        ...(saveAsDefault ? { saveAsDefault: true } : {}),
-      })
-      if (!mounted.current) return
-      setScope(result)
-      // 以宿主返回的权威范围回显选择（无匹配时不会把未生效的选择留在界面上）。
-      setSelected(result.patterns.length > 0 ? result.models.map(modelKey) : catalog.map(modelKey))
-      setNotice(
-        result.message ??
-          (result.persistence === 'saved'
-            ? '会话范围已应用并保存为用户默认'
-            : '会话范围已应用到当前会话'),
-      )
-      if (result.diagnostics.length > 0) {
-        setNotice(
-          `${result.message ?? '会话范围已应用'}\n${result.diagnostics
-            .map((item) => item.message)
-            .join('\n')}`,
-        )
-      }
-    })
-
-  const toggleModel = (key: string) => {
-    setSelected((current) =>
-      current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
-    )
-  }
+  const bash = session?.bash
+  const compactionActive = metadata?.compactionActive === true
+  const autoCompaction = metadata?.autoCompactionEnabled
+  const compactionError = session?.compactionError
+  const patternsDirty = patternsText !== basePatternsText
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+    >
       <Button
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
         aria-label="运行操作"
-        onClick={() => setOpen(true)}
+        onClick={() => void openPanel()}
       >
         <TerminalIcon aria-hidden className="size-3.5" />
         <Trans>运行操作</Trans>
       </Button>
-      <DialogContent data-slot="huan-runtime-operations" className="max-w-xl">
+      <DialogContent
+        data-slot="huan-runtime-operations"
+        data-active-section={section}
+        className="max-w-xl"
+      >
         <DialogHeader>
           <DialogTitle>
             <Trans>运行操作</Trans>
@@ -337,6 +216,16 @@ function RuntimeOperationsPanelContent() {
               {notice}
             </div>
           )}
+          {error && (
+            <p role="status" className="text-destructive text-xs">
+              {error}
+            </p>
+          )}
+          {scopeError && (
+            <p role="status" className="text-destructive text-xs">
+              {scopeError}
+            </p>
+          )}
 
           {/* ---- 直接 Shell ---- */}
           <section className="flex flex-col gap-2" aria-label="用户 Shell">
@@ -344,9 +233,9 @@ function RuntimeOperationsPanelContent() {
               <h3 className="font-medium">
                 <Trans>用户 Shell</Trans>
               </h3>
-              {cwd && (
+              {workspacePath && (
                 <span className="text-muted-foreground max-w-64 truncate font-mono text-xs">
-                  {cwd}
+                  {workspacePath}
                 </span>
               )}
             </div>
@@ -358,9 +247,9 @@ function RuntimeOperationsPanelContent() {
             </StatusLine>
             <div className="flex flex-wrap items-end gap-2">
               <Select
-                value={excludeFromContext ? 'exclude' : 'include'}
+                value={shellExcludeFromContext ? 'exclude' : 'include'}
                 items={{ include: '纳入上下文', exclude: '不进入上下文（!!）' }}
-                onValueChange={(value) => setExcludeFromContext(value === 'exclude')}
+                onValueChange={(value) => setShellExcludeFromContext(value === 'exclude')}
                 disabled={!threadId}
               >
                 <SelectTrigger size="sm" aria-label="Shell 上下文" className="w-45">
@@ -375,8 +264,8 @@ function RuntimeOperationsPanelContent() {
             <Textarea
               aria-label="Shell 命令"
               rows={2}
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
+              value={shellCommand}
+              onChange={(event) => setShellCommand(event.target.value)}
               placeholder="echo hello"
               disabled={!threadId || bash?.status === 'running'}
             />
@@ -384,9 +273,12 @@ function RuntimeOperationsPanelContent() {
               <Button
                 size="sm"
                 disabled={
-                  !threadId || busy === 'shell' || !command.trim() || bash?.status === 'running'
+                  !threadId ||
+                  busy === 'shell' ||
+                  !shellCommand.trim() ||
+                  bash?.status === 'running'
                 }
-                onClick={submitShell}
+                onClick={() => void runShell()}
               >
                 <PlayIcon aria-hidden className="size-3.5" />
                 <Trans>运行 Shell</Trans>
@@ -394,8 +286,8 @@ function RuntimeOperationsPanelContent() {
               <Button
                 size="sm"
                 variant="outline"
-                disabled={bash?.status !== 'running'}
-                onClick={() => run('shell-abort', () => actions.abortBash().then(() => {}))}
+                disabled={bash?.status !== 'running' || busy === 'shell-abort'}
+                onClick={() => void abortShell()}
               >
                 <CircleStopIcon aria-hidden className="size-3.5" />
                 <Trans>取消 Shell</Trans>
@@ -415,10 +307,10 @@ function RuntimeOperationsPanelContent() {
               <h3 className="font-medium">
                 <Trans>上下文压缩</Trans>
               </h3>
-              {compaction.active ? (
+              {compactionActive ? (
                 <span className="inline-flex items-center gap-1 text-xs">
                   <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                  <Trans>压缩中（{compactionReasonLabel(compaction.reason)}）</Trans>
+                  <Trans>压缩中（{compactionReasonLabel(metadata?.compactionReason)}）</Trans>
                 </span>
               ) : (
                 <span className="text-muted-foreground text-xs">
@@ -426,7 +318,7 @@ function RuntimeOperationsPanelContent() {
                 </span>
               )}
             </div>
-            {compaction.error && <StatusLine tone="error">{compaction.error}</StatusLine>}
+            {compactionError && <StatusLine tone="error">{compactionError}</StatusLine>}
             <StatusLine tone="muted">
               <Trans>
                 压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。
@@ -435,24 +327,24 @@ function RuntimeOperationsPanelContent() {
             <Textarea
               aria-label="压缩指令"
               rows={2}
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
+              value={compactInstructions}
+              onChange={(event) => setCompactInstructions(event.target.value)}
               placeholder="可选：告诉模型摘要应重点保留什么"
-              disabled={!threadId || compaction.active}
+              disabled={!threadId || compactionActive}
             />
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
-                disabled={!threadId || compaction.active || busy === 'compact'}
-                onClick={submitCompact}
+                disabled={!threadId || compactionActive || busy === 'compact'}
+                onClick={() => void compact()}
               >
                 <Trans>压缩上下文</Trans>
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                disabled={!compaction.active}
-                onClick={() => run('compact-abort', () => actions.abortCompaction().then(() => {}))}
+                disabled={!compactionActive || busy === 'compact-abort'}
+                onClick={() => void abortCompaction()}
               >
                 <Trans>取消压缩</Trans>
               </Button>
@@ -464,14 +356,13 @@ function RuntimeOperationsPanelContent() {
                 aria-pressed={autoCompaction === true}
                 aria-label="自动压缩"
                 disabled={!threadId || autoCompaction === undefined || busy === 'auto'}
-                onClick={toggleAuto}
+                onClick={() => void toggleAutoCompaction()}
               >
                 <Trans>自动压缩：{autoCompaction ? '开' : '关'}</Trans>
               </Button>
               <StatusLine tone="muted">
                 <Trans>
-                  开关保存到当前 agentDir 用户设置（{hostInfo?.agentDir ?? '用户目录'}），
-                  对所有会话生效；项目设置若覆盖会如实提示。
+                  开关保存到当前 agentDir 用户设置，对所有会话生效；项目设置若覆盖会如实提示。
                 </Trans>
               </StatusLine>
             </div>
@@ -491,8 +382,8 @@ function RuntimeOperationsPanelContent() {
               <Button
                 size="xs"
                 variant="outline"
-                disabled={busy === 'refresh' || !cwd}
-                onClick={refreshCatalog}
+                disabled={busy === 'refresh' || !workspacePath}
+                onClick={() => void refreshCatalog()}
               >
                 {busy === 'refresh' ? (
                   <Loader2Icon aria-hidden className="size-3 animate-spin" />
@@ -501,70 +392,112 @@ function RuntimeOperationsPanelContent() {
                 )}
                 <Trans>刷新目录</Trans>
               </Button>
+              {threadId && (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={scopeLoading || busy !== undefined}
+                  onClick={() => void loadScope()}
+                >
+                  <Trans>{scopeLoading ? '读取范围…' : '重新读取范围'}</Trans>
+                </Button>
+              )}
             </div>
             <StatusLine tone="muted">
               <Trans>
                 刷新只更新共享目录，不重建会话、不发起模型请求。范围默认只作用于当前会话；
-                勾选“保存为用户默认”才写入用户设置并影响未来会话。
+                勾选“保存为用户默认”才写入用户设置并影响未来会话。patterns 原文保留 Thinking
+                后缀，未编辑时不会改写。
               </Trans>
             </StatusLine>
             {threadId ? (
               <>
                 <div className="flex flex-col gap-1">
-                  {catalog.map((model) => {
-                    const key = modelKey(model)
-                    const checked = selected.includes(key)
-                    return (
-                      <Button
-                        key={key}
-                        size="sm"
-                        variant={checked ? 'secondary' : 'outline'}
-                        aria-pressed={checked}
-                        aria-label={`会话模型 ${key}`}
-                        className="justify-start"
-                        onClick={() => toggleModel(key)}
-                      >
-                        <span className="truncate">{model.name ?? model.modelId}</span>
-                        <span className="text-muted-foreground ms-auto flex items-center gap-1 text-xs">
-                          <span>{model.provider}</span>
-                          {model.input?.includes('image') && (
-                            <span className="rounded bg-muted px-1">
-                              <Trans>图像</Trans>
-                            </span>
-                          )}
-                          {model.availableThinkingLevels?.includes('max') && (
-                            <span className="rounded bg-muted px-1">max</span>
-                          )}
-                        </span>
-                      </Button>
-                    )
-                  })}
-                  {catalog.length === 0 && (
+                  {catalogLoading && catalog.length === 0 ? (
+                    <StatusLine tone="muted">
+                      <Loader2Icon aria-hidden className="me-1 inline size-3 animate-spin" />
+                      <Trans>正在读取模型目录…</Trans>
+                    </StatusLine>
+                  ) : (
+                    catalog.map((model) => {
+                      const key = `${model.provider}/${model.modelId}`
+                      const checked = selectedKeys.includes(key)
+                      return (
+                        <Button
+                          key={key}
+                          size="sm"
+                          variant={checked ? 'secondary' : 'outline'}
+                          aria-pressed={checked}
+                          aria-label={`会话模型 ${key}`}
+                          className="justify-start"
+                          onClick={() => toggleScopeModel(model, catalog)}
+                        >
+                          <span className="truncate">{model.name ?? model.modelId}</span>
+                          <span className="text-muted-foreground ms-auto flex items-center gap-1 text-xs">
+                            <span>{model.provider}</span>
+                            {model.input?.includes('image') && (
+                              <span className="rounded bg-muted px-1">
+                                <Trans>图像</Trans>
+                              </span>
+                            )}
+                            {model.availableThinkingLevels?.includes('max') && (
+                              <span className="rounded bg-muted px-1">max</span>
+                            )}
+                          </span>
+                        </Button>
+                      )
+                    })
+                  )}
+                  {!catalogLoading && catalog.length === 0 && (
                     <StatusLine tone="muted">
                       <Trans>目录为空；请先刷新模型目录。</Trans>
                     </StatusLine>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={saveAsDefault ? 'secondary' : 'outline'}
-                    aria-pressed={saveAsDefault}
-                    aria-label="同时保存为用户默认"
-                    onClick={() => setSaveAsDefault((value) => !value)}
-                  >
-                    <Trans>同时保存为用户默认</Trans>
-                  </Button>
-                  <Button size="sm" disabled={busy === 'scope'} onClick={saveScope}>
-                    <SlidersHorizontalIcon aria-hidden className="size-3.5" />
-                    <Trans>保存会话范围</Trans>
-                  </Button>
-                  {scope?.savedPatterns && (
-                    <StatusLine tone="muted">
-                      <Trans>已保存用户默认：{scope.savedPatterns.join('、')}</Trans>
-                    </StatusLine>
-                  )}
+                <div className="flex flex-col gap-1">
+                  <span className="text-muted-foreground text-xs">
+                    <Trans>patterns 原文（每行一个，可保留 :thinking 后缀）</Trans>
+                  </span>
+                  <Textarea
+                    aria-label="模型范围 patterns"
+                    rows={4}
+                    className="font-mono text-xs"
+                    value={patternsText}
+                    onChange={(event) => updatePatternsText(event.target.value)}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={!patternsDirty || busy !== undefined}
+                      onClick={resetPatternsDraft}
+                    >
+                      <Trans>重置 patterns</Trans>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={saveAsDefault ? 'secondary' : 'outline'}
+                      aria-pressed={saveAsDefault}
+                      aria-label="同时保存为用户默认"
+                      onClick={() => setSaveAsDefault(!saveAsDefault)}
+                    >
+                      <Trans>同时保存为用户默认</Trans>
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy === 'scope' || scopeLoading}
+                      onClick={() => void saveScope()}
+                    >
+                      <SlidersHorizontalIcon aria-hidden className="size-3.5" />
+                      <Trans>保存会话范围</Trans>
+                    </Button>
+                  </div>
                 </div>
+                {scope?.savedPatterns && (
+                  <StatusLine tone="muted">
+                    <Trans>已保存用户默认：{scope.savedPatterns.join('、')}</Trans>
+                  </StatusLine>
+                )}
                 {scope && scope.diagnostics.length > 0 && (
                   <ul className="text-destructive list-disc ps-4 text-xs">
                     {scope.diagnostics.map((item) => (

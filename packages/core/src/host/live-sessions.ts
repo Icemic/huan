@@ -313,6 +313,7 @@ export class LiveSessions {
         workspaceBinding: prepared.workspaceBinding,
         lastError: undefined,
         modelFallback,
+        scopePatterns: savedScope.scopedModels.length ? [...(savedScopePatterns ?? [])] : [],
         activeTools: new Map(),
         resourceLoader: prepared.trust.resourceLoader,
         trustBinding: prepared.trustBinding,

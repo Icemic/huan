@@ -12,6 +12,9 @@ import { applyThemeToDocument, type ThemeStorage } from './lib/theme'
 import { type AuthFeatureState, createAuthFeatureStore } from './state/auth-store'
 import { type ComposerFeatureState, createComposerFeatureStore } from './state/composer-store'
 import { createHostFeatureStore, type HostFeatureState } from './state/host-store'
+import { createMcpFeatureStore, type McpFeatureState } from './state/mcp-store'
+import { createModelFeatureStore, type ModelFeatureState } from './state/model-store'
+import { createRuntimeFeatureStore, type RuntimeFeatureState } from './state/runtime-store'
 import { createSessionsFeatureStore, type SessionsFeatureState } from './state/sessions-store'
 import { createSettingsFeatureStore, type SettingsFeatureState } from './state/settings-store'
 import { createThemeStore, type ThemeStoreState } from './state/theme-store'
@@ -25,6 +28,9 @@ export interface HarnessApp {
   settingsStore: StoreApi<SettingsFeatureState>
   authStore: StoreApi<AuthFeatureState>
   hostStore: StoreApi<HostFeatureState>
+  mcpStore: StoreApi<McpFeatureState>
+  runtimeStore: StoreApi<RuntimeFeatureState>
+  modelStore: StoreApi<ModelFeatureState>
   composerStore: StoreApi<ComposerFeatureState>
   themeStore: StoreApi<ThemeStoreState>
   dispose(): void
@@ -92,29 +98,36 @@ export const createHarnessApp = (): HarnessApp => {
     browser,
     onNotice: (message) => workspaceStore.getState().showNotice(message),
   })
+  const fallbackWorkspacePath = () => {
+    const workspaceId = workspaceStore.getState().activeWorkspaceId
+    if (!workspaceId) return browser.serviceStore.getState().host?.workspacePath
+    return (
+      workspaceStore.getState().startProjectFor(workspaceId) ??
+      browser.serviceStore.getState().host?.workspacePath
+    )
+  }
   const composerRef: { current?: StoreApi<ComposerFeatureState> } = {}
   const settingsStore = createSettingsFeatureStore({
     browser,
-    fallbackWorkspacePath: () => {
-      const workspaceId = workspaceStore.getState().activeWorkspaceId
-      if (!workspaceId) return browser.serviceStore.getState().host?.workspacePath
-      return (
-        workspaceStore.getState().startProjectFor(workspaceId) ??
-        browser.serviceStore.getState().host?.workspacePath
-      )
-    },
+    fallbackWorkspacePath,
     onResourceReloaded: () => {
       void composerRef.current?.getState().refreshCatalog()
     },
   })
   const authStore = createAuthFeatureStore({ browser })
   const hostStore = createHostFeatureStore({ browser })
+  const mcpStore = createMcpFeatureStore({ browser, fallbackWorkspacePath })
+  const runtimeStore = createRuntimeFeatureStore({ browser, fallbackWorkspacePath })
+  const modelStore = createModelFeatureStore({ browser, fallbackWorkspacePath })
   const composerStore = createComposerFeatureStore({
     browser,
     workspaceStore,
     sessionsStore,
     settingsStore,
     authStore,
+    mcpStore,
+    runtimeStore,
+    modelStore,
   })
   composerRef.current = composerStore
   composerStore
@@ -154,6 +167,8 @@ export const createHarnessApp = (): HarnessApp => {
       previousSelection = state.selection
       workspaceStore.getState().syncSelection()
       composerStore.getState().onSelectionChanged()
+      runtimeStore.getState().close()
+      modelStore.getState().close()
     }
   })
 
@@ -177,6 +192,9 @@ export const createHarnessApp = (): HarnessApp => {
     settingsStore,
     authStore,
     hostStore,
+    mcpStore,
+    runtimeStore,
+    modelStore,
     composerStore,
     themeStore,
     dispose: () => {
@@ -195,6 +213,21 @@ export const createHarnessApp = (): HarnessApp => {
       }
       try {
         composerStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        mcpStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        runtimeStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        modelStore.getState().dispose()
       } catch (error) {
         errors.push(error)
       }

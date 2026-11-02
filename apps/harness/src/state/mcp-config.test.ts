@@ -8,7 +8,7 @@ import {
   parseMcpDraft,
   parseToolExposure,
   removeDraftServer,
-} from './pi-mcp-config'
+} from './mcp-config'
 
 describe('MCP 配置草稿', () => {
   it('保留未知顶层字段与完整 mcpServers 语义', () => {

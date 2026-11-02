@@ -17,6 +17,8 @@ import {
   Loader2Icon,
   Trash2Icon,
 } from 'lucide-react'
+import { PiModelSelector } from '@/components/pi-model-selector'
+import { RuntimeOperationsPanel } from '@/components/runtime-operations'
 import { Button } from '@/components/ui/button'
 import { useSessionsStore, useWorkspaceStore } from '@/state/app-context'
 import { SessionTreeDialog } from './session-tree-dialog'
@@ -54,6 +56,10 @@ export function SessionContextBar() {
         <span>
           <Trans>发送首条消息时创建；管理面板可按该起始目录打开。</Trans>
         </span>
+        <div className="ms-auto flex items-center gap-2">
+          <PiModelSelector />
+          <RuntimeOperationsPanel />
+        </div>
       </div>
     )
   }
@@ -116,6 +122,10 @@ export function SessionContextBar() {
         </>
       )}
 
+      <div className="ms-auto flex items-center gap-2">
+        <PiModelSelector />
+        <RuntimeOperationsPanel />
+      </div>
       <SessionTreeDialog />
       <Button
         variant="ghost"

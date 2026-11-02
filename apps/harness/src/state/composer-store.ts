@@ -32,6 +32,9 @@ import {
   mergeCommandCatalog,
 } from '../components/pi-builtin-commands'
 import type { AuthFeatureState } from './auth-store'
+import type { McpFeatureState } from './mcp-store'
+import type { ModelFeatureState } from './model-store'
+import type { RuntimeFeatureState } from './runtime-store'
 import type { SessionsFeatureState } from './sessions-store'
 import type { SettingsFeatureState, SettingsTarget } from './settings-store'
 import type { WorkspaceFeatureState } from './workspace-store'
@@ -150,6 +153,9 @@ export interface CreateComposerFeatureStoreOptions {
   sessionsStore: StoreApi<SessionsFeatureState>
   settingsStore: StoreApi<SettingsFeatureState>
   authStore: StoreApi<AuthFeatureState>
+  mcpStore: StoreApi<McpFeatureState>
+  runtimeStore: StoreApi<RuntimeFeatureState>
+  modelStore: StoreApi<ModelFeatureState>
 }
 
 const errorText = (error: unknown): string =>
@@ -220,7 +226,16 @@ const mentionToken = (
 export const createComposerFeatureStore = (
   options: CreateComposerFeatureStoreOptions,
 ): StoreApi<ComposerFeatureState> => {
-  const { browser, workspaceStore, sessionsStore, settingsStore, authStore } = options
+  const {
+    browser,
+    workspaceStore,
+    sessionsStore,
+    settingsStore,
+    authStore,
+    mcpStore,
+    runtimeStore,
+    modelStore,
+  } = options
   const client = browser.client
   let catalogEpoch = 0
   let completionEpoch = 0
@@ -564,8 +579,12 @@ export const createComposerFeatureStore = (
     const models = await loadModels()
     const needle = args.trim().toLowerCase()
     if (!needle) {
-      setIfAlive((current) => ({ ...current, notice: '用法：/model <provider/model>' }))
-      return false
+      const opened = await modelStore.getState().openPanel({ focus: 'model' })
+      if (!opened) {
+        setIfAlive((current) => ({ ...current, notice: '当前没有可选择的会话或起始目录。' }))
+        return false
+      }
+      return true
     }
     const exact = models?.find(
       (model) => `${model.provider}/${model.modelId}`.toLowerCase() === needle,
@@ -625,7 +644,16 @@ export const createComposerFeatureStore = (
   }
 
   const runThinkingCommand = async (args: string): Promise<boolean> => {
-    const level = args.trim() as HarnessThinkingLevel
+    const raw = args.trim()
+    if (!raw) {
+      const opened = await modelStore.getState().openPanel({ focus: 'thinking' })
+      if (!opened) {
+        setIfAlive((current) => ({ ...current, notice: '当前没有可选择的会话或起始目录。' }))
+        return false
+      }
+      return true
+    }
+    const level = raw as HarnessThinkingLevel
     if (!THINKING_LEVELS.includes(level)) {
       setIfAlive((current) => ({
         ...current,
@@ -755,14 +783,27 @@ export const createComposerFeatureStore = (
         }))
         return true
       case 'compact':
+        await runtimeStore.getState().openPanel({
+          section: 'compact',
+          ...(args.trim() ? { instructions: args.trim() } : {}),
+        })
+        return true
       case 'scoped-models':
-      case 'mcp':
-        // R6b：运行/模型与 MCP 管理不在此包重复实现。
-        setIfAlive((current) => ({
-          ...current,
-          notice: `/${command.name} 的运行管理将在展示接入阶段接通；输入未发送给模型。`,
-        }))
-        return false
+        await runtimeStore.getState().openPanel({ section: 'scope' })
+        return true
+      case 'mcp': {
+        const tokens = args.trim().split(/\s+/).filter(Boolean)
+        const first = tokens[0]
+        const mode =
+          first === 'login' || first === 'logout' || first === 'reconnect' ? first : undefined
+        if (mode) tokens.shift()
+        const server = tokens[0]
+        await mcpStore.getState().openPanel({
+          ...(mode ? { mode } : {}),
+          ...(server ? { server } : {}),
+        })
+        return true
+      }
       default:
         setIfAlive((current) => ({
           ...current,

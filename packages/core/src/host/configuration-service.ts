@@ -145,7 +145,7 @@ export class ConfigurationService {
     // 已保存默认的解析诊断只在读取时计算（可能含 no-match/ambiguous），不影响会话。
     const savedResolution = saved?.length ? await this.resolveScopePatterns(saved) : undefined
     return {
-      patterns: scoped.map((item) => `${item.model.provider}/${item.model.id}`),
+      patterns: record.scopePatterns,
       models: scoped.map((item) => ({
         provider: item.model.provider,
         modelId: item.model.id,
@@ -605,6 +605,7 @@ export class ConfigurationService {
           ...(item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}),
         })),
       )
+      record.scopePatterns = patterns
       let persistence: HarnessModelScopeUpdateResult['persistence'] = 'skipped'
       let message: string | undefined
       if (input.saveAsDefault === true) {

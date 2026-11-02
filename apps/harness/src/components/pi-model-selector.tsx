@@ -1,6 +1,14 @@
-import type { HarnessThinkingLevel } from '@huan/protocol'
-import { useHarnessActions, useHarnessSession, useHarnessThreadState } from '@huan/react'
-import { memo, useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+/**
+ * 模型选择器：目录来自 serviceStore 的目标/版本查询，选择动作归 model feature store。
+ *
+ * 新会话（windowStore selection.kind === 'new'）写入窗口草稿，随创建请求生效；
+ * 已有会话走公共 sessionActions.setModel / setThinkingLevel，真实改变会话配置。
+ * 不在组件里缓存 models，也不使用模块级草稿单例。
+ */
+
+import type { HarnessModelInfo, HarnessThinkingLevel } from '@huan/protocol'
+import { draftIdOf, selectHarnessModelCatalog, useServiceStore, useWindowStore } from '@huan/react'
+import { memo, useEffect, useMemo } from 'react'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -8,37 +16,15 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/assistant-ui/elements/model-selector'
-import { clearPiIntent, usePiIntent } from './pi-command-intents'
-import { harnessHttpClient } from './pi-http-client'
-import { setModelCatalogCache } from './pi-model-catalog'
-import { getDraftModel, setDraftModel, subscribeDraftModel } from './pi-model-draft'
-import { useProviderAuthRevision } from './pi-provider-auth-store'
-import { useWorkspace } from './workspace-context'
+import { useModelStore } from '@/state/app-context'
+import type { ModelTarget } from '@/state/model-store'
 
-type CatalogModel = {
-  provider: string
-  modelId: string
-  name?: string
-  availableThinkingLevels?: readonly string[]
-}
-
-/**
- * 运行时在空白会话（尚未创建后端会话）时的占位 threadId。
- * 来源：`EMPTY_THREAD_STATE = createHarnessThreadState("__pending__")`。
- */
-const PENDING_THREAD_ID = '__pending__'
-
-/**
- * 把宿主返回的模型目录映射为选择器条目。
- *
- * id 采用 `provider/modelId` 复合形式（与 setModel 的参数拆分一致）。
- */
-function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
+/** 把宿主模型目录映射为选择器条目；Thinking 级别完整来自模型能力（含 max）。 */
+function toModelOptions(infos: readonly HarnessModelInfo[]): ModelOption[] {
   return infos.map((info) => ({
     id: `${info.provider}/${info.modelId}`,
     name: info.name ?? info.modelId,
     description: info.provider,
-    // 只有 off 的模型不显示 Thinking 控件；其余按模型声明的级别展示（含 max）。
     ...(info.availableThinkingLevels && info.availableThinkingLevels.length > 1
       ? {
           efforts: info.availableThinkingLevels.map((level) => ({ id: level, name: level })),
@@ -47,130 +33,134 @@ function toModelOptions(infos: readonly CatalogModel[]): ModelOption[] {
   }))
 }
 
-/**
- * 模型选择器接线：模型目录来自宿主真实注册表（含扩展 provider）；
- * 当前值来自当前会话 metadata.config；切换经 useHarnessActions 的 setModel / setThinkingLevel。
- *
- * 新会话（空白页，threadId 为占位值）的特殊处理：
- * 运行时此时使用 NOOP controller，`setModel` 是空操作（会被静默丢弃）。
- * 因此把选择写入草稿 store，由包装客户端在创建请求中携带（见 pi-http-client.ts），
- * 保证首条消息就使用选定模型。
- */
-export const PiModelSelector = memo(function PiModelSelector({
-  openOnCommand = false,
-}: {
-  openOnCommand?: boolean
-}) {
-  const { workspaces, activeWorkspaceId, startProjectFor, hostInfo } = useWorkspace()
-  const metadata = useHarnessThreadState((state) => state.metadata)
-  const metadataWorkspace = metadata.workspaceId
-    ? workspaces.find((item) => item.id === metadata.workspaceId)
-    : undefined
-  const activeWorkspace = workspaces.find((item) => item.id === activeWorkspaceId)
-  const workspace = metadataWorkspace ?? activeWorkspace
-  const projectPath =
-    metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : hostInfo?.workspacePath)
-  const session = useHarnessSession()
-  const actions = useHarnessActions()
-  const [models, setModels] = useState<readonly ModelOption[]>([])
-  const [open, setOpen] = useState(false)
-  const intent = usePiIntent()
-  // 认证完成后宿主的可用模型可能变化；认证版本作为目录失效信号。
-  const authRevision = useProviderAuthRevision()
+const targetKeyOf = (target: ModelTarget | undefined): string => {
+  if (!target) return 'none'
+  if (target.threadId) return `t:${target.threadId}`
+  return `w:${target.workspaceId ?? ''}:${target.workspacePath}`
+}
 
-  // /model 与 /thinking 打开同一模型选择器；模型目录缓存也供提交前能力校验。
-  useEffect(() => {
-    if (!openOnCommand || intent?.kind !== 'model') return
-    setOpen(true)
-    clearPiIntent(intent.id)
-  }, [intent, openOnCommand])
-
-  // 草稿（模块级 store，同步可读）；订阅以便展示即时反馈。
-  const draft = useSyncExternalStore(subscribeDraftModel, getDraftModel, getDraftModel)
-
-  // 目录刷新代数或认证版本变化时必须重读共享目录，即使固定 cwd 未变。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 宿主刷新代数是目录失效信号
-  useEffect(() => {
-    if (!projectPath) return
-    let active = true
-    harnessHttpClient
-      .getAvailableModels({ workspacePath: projectPath })
-      .then((infos) => {
-        if (!active) return
-        setModelCatalogCache(infos)
-        setModels(toModelOptions(infos as readonly CatalogModel[]))
-      })
-      .catch(() => {
-        // 目录拉取失败不阻塞 UI：选择器保持为空，具体错误由会话区呈现。
-      })
-    return () => {
-      active = false
-    }
-  }, [projectPath, metadata.modelCatalogRevision, authRevision])
-
-  // 会话确认后清除草稿（此后以会话自身的 config 为准）。
-  const isPendingThread = !session?.id || session.id === PENDING_THREAD_ID
-  useEffect(() => {
-    if (!isPendingThread) setDraftModel(undefined)
-  }, [isPendingThread])
-
-  const provider = session?.config?.provider
-  const modelId = session?.config?.modelId
-  const confirmedKey = provider && modelId ? `${provider}/${modelId}` : undefined
-  const draftKey = draft ? `${draft.provider}/${draft.modelId}` : undefined
-  // 展示优先级：新会话草稿 > 会话实际配置。
-  const displayKey = isPendingThread ? (draftKey ?? confirmedKey) : (confirmedKey ?? draftKey)
-
-  const onValueChange = useCallback(
-    (key: string) => {
-      if (key === displayKey) return
-      const next = models.find((model) => model.id === key)
-      if (!next) return
-      const [nextProvider, ...rest] = key.split('/')
-      const providerId = nextProvider ?? ''
-      const nextModelId = rest.join('/')
-      if (isPendingThread) {
-        // 新会话：写入草稿，等创建请求携带（首条消息即生效）。
-        setDraftModel({
-          provider: providerId,
-          modelId: nextModelId,
-          ...(draft?.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
-        })
-        return
-      }
-      void actions.setModel({ provider: providerId, modelId: nextModelId })
-    },
-    [displayKey, models, isPendingThread, draft?.thinkingLevel, actions],
+export const PiModelSelector = memo(function PiModelSelector() {
+  const selection = useWindowStore((state) => state.selection)
+  const metadata = useServiceStore((state) =>
+    selection?.kind === 'thread' ? state.threadsById[selection.threadId] : undefined,
   )
+  const host = useServiceStore((state) => state.host)
+  const currentTarget = useMemo<ModelTarget | undefined>(() => {
+    if (selection?.kind === 'new') {
+      return {
+        workspacePath: selection.startProjectPath,
+        ...(selection.workspaceId ? { workspaceId: selection.workspaceId } : {}),
+      }
+    }
+    if (selection?.kind !== 'thread') return undefined
+    const workspacePath = metadata?.workspacePath ?? host?.workspacePath
+    return workspacePath ? { workspacePath, threadId: selection.threadId } : undefined
+  }, [selection, metadata?.workspacePath, host?.workspacePath])
+  const currentTargetKey = targetKeyOf(currentTarget)
+  const entry = useServiceStore((state) =>
+    currentTarget ? selectHarnessModelCatalog(state, currentTarget) : undefined,
+  )
+  const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
+  const models = entry?.models ?? []
 
-  const scopeKeys = metadata.scopedModelKeys
+  const open = useModelStore((state) => state.open)
+  const panelTargetKey = useModelStore((state) => state.targetKey)
+  const busy = useModelStore((state) => state.busy)
+  const notice = useModelStore((state) => state.notice)
+  const error = useModelStore((state) => state.error)
+  const openPanel = useModelStore((state) => state.openPanel)
+  const close = useModelStore((state) => state.close)
+  const loadCatalog = useModelStore((state) => state.loadCatalog)
+  const chooseModel = useModelStore((state) => state.chooseModel)
+  const chooseThinking = useModelStore((state) => state.chooseThinking)
+
+  const draft = useWindowStore((state) =>
+    selection ? state.draftsById[draftIdOf(selection)] : undefined,
+  )
+  const isNew = selection?.kind === 'new'
+  const confirmedKey =
+    metadata?.config?.provider && metadata.config.modelId
+      ? `${metadata.config.provider}/${metadata.config.modelId}`
+      : undefined
+  const draftKey = draft?.model ? `${draft.model.provider}/${draft.model.modelId}` : undefined
+  // 新会话以草稿预选为准；已有会话以服务端实际配置为准。
+  const displayKey = isNew ? draftKey : confirmedKey
+  const effort = isNew
+    ? draft?.thinkingLevel
+    : (metadata?.config?.thinkingLevel as HarnessThinkingLevel | undefined)
+  const fallback = metadata?.modelFallback
+
+  // 目录按目标与认证/资源/目录版本读取；认证刷新会得到新的查询键。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 认证/目录版本是 serviceStore 查询键
+  useEffect(() => {
+    if (!currentTarget) return
+    void loadCatalog(currentTarget)
+  }, [currentTarget, currentTargetKey, authRevision, metadata?.modelCatalogRevision, loadCatalog])
+
+  // 选择器可见目标必须仍是当前窗口目标；切换选择时由 bootstrap 关闭旧面板。
+  const visible = open && panelTargetKey === currentTargetKey
+  const options = useMemo(() => toModelOptions(models), [models])
+  const scopeKeys = metadata?.scopedModelKeys
   const selectableModels =
-    !scopeKeys?.length || isPendingThread
-      ? models
-      : models.map((model) => ({ ...model, disabled: !scopeKeys.includes(model.id) }))
+    !scopeKeys?.length || isNew
+      ? options
+      : options.map((option) => ({ ...option, disabled: !scopeKeys.includes(option.id) }))
+
+  const onValueChange = (key: string) => {
+    const model = models.find((item) => `${item.provider}/${item.modelId}` === key)
+    if (!model) return
+    void chooseModel({ provider: model.provider, modelId: model.modelId })
+  }
 
   return (
-    <ModelSelectorRoot
-      key={session?.id ?? PENDING_THREAD_ID}
-      open={open}
-      onOpenChange={setOpen}
-      models={selectableModels}
-      {...(displayKey ? { value: displayKey } : {})}
-      onValueChange={onValueChange}
-      effort={(isPendingThread ? draft?.thinkingLevel : session?.config?.thinkingLevel) ?? ''}
-      onEffortChange={(level) => {
-        if (isPendingThread) {
-          // 新会话：Thinking 级别一并写入草稿（随创建请求应用）。
-          if (draft) setDraftModel({ ...draft, thinkingLevel: level as HarnessThinkingLevel })
-          return
-        }
-        void actions.setThinkingLevel(level as HarnessThinkingLevel)
-      }}
+    <div
+      className="flex min-w-0 items-center gap-1"
+      data-slot="huan-model-selector"
+      data-model-fallback={fallback?.reason}
+      title={fallback?.message}
     >
-      <ModelSelectorTrigger>
-        <ModelSelectorValue showEffort />
-      </ModelSelectorTrigger>
-      <ModelSelectorContent />
-    </ModelSelectorRoot>
+      <ModelSelectorRoot
+        key={currentTargetKey}
+        models={selectableModels}
+        value={displayKey ?? ''}
+        onValueChange={onValueChange}
+        effort={effort ?? ''}
+        onEffortChange={(level) => void chooseThinking(level as HarnessThinkingLevel)}
+        open={visible}
+        onOpenChange={(next) => {
+          if (next) void openPanel()
+          else close()
+        }}
+      >
+        <ModelSelectorTrigger
+          size="sm"
+          variant="ghost"
+          aria-label="选择模型"
+          disabled={!currentTarget}
+        >
+          <ModelSelectorValue showEffort placeholder="选择模型" />
+        </ModelSelectorTrigger>
+        <ModelSelectorContent />
+      </ModelSelectorRoot>
+      {busy ? (
+        <span className="text-muted-foreground text-[10px]">…</span>
+      ) : error ? (
+        <span
+          role="status"
+          className="text-destructive max-w-40 truncate text-[10px]"
+          title={error}
+        >
+          {error}
+        </span>
+      ) : notice ? (
+        <span
+          role="status"
+          className="text-muted-foreground max-w-40 truncate text-[10px]"
+          title={notice}
+        >
+          {notice}
+        </span>
+      ) : null}
+    </div>
   )
 })

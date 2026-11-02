@@ -150,7 +150,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | R3 Zustand与浏览器运行时 | 替换Controller/aui/分散store，建立目录/会话/窗口状态与连接资源所有权 | R1/R2 | [基础与应用接入已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-browser.md)，WIP；提交/面板/展示与最终验收继续R4～R8 |
 | R4 创建、提交与分支业务 | 首条/普通发送、命令/Shell、附件/草稿/历史/队列、树/fork/import/定向编辑器动作 | R1/R2/R3 | [动作已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-actions.md)，最终界面与完整验证继续R6～R8 |
 | R5 Node服务职责与生命周期 | 分解大闭包，统一准入/结算/关闭顺序，复核装配/目录/结构/配置/认证/MCP边界 | R1/R2；与R3/R4按协议协调 | [Node与协议已实施](iteration/2026-11/2026-11-02-refactor-architecture-remediation-node.md)，最终集成/资源验证继续R8 |
-| R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | 未启动 |
+| R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | [管理业务已接入](iteration/2026-11/2026-11-02-refactor-architecture-remediation-management.md)，最终完整验证继续R8 |
 | R7 展示接入与依赖清理 | 官方shadcn组合接最终状态，消息/工具/data回退、Markdown/SSE替代、滚动/焦点/键盘/i18n、移除aui依赖 | R3/R4/R6；布局设计可在R1后进行 | 未启动 |
 | R8 最终集成与问题修复 | 迁移正式测试、完整验证、性能、生命周期与平台/环境问题诊断；发现问题回清单 | R2～R7实现接通 | 未启动 |
 | R9 文档与合并审查 | 逐项关闭问题，核对代码/导出/依赖/许可/文档、移除过渡残留，给出合并证据与恢复决定 | R8；文档纠正持续进行 | 未启动 |

@@ -10,6 +10,7 @@ import { useEffect } from 'react'
 import { ImportThreadButton, ImportThreadDialog } from '@/components/import-thread-dialog'
 import { PiHostInteractions } from '@/components/pi-host-interactions'
 import { PiHostStatus } from '@/components/pi-host-status'
+import { McpDialog } from '@/components/pi-mcp-panel'
 import { ProviderAuthDialog } from '@/components/pi-provider-auth'
 import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
 import { SessionContextBar } from '@/components/session-context-bar'
@@ -161,6 +162,7 @@ function AppShell() {
           ) : null}
           <ImportThreadButton />
           <SettingsResourcesDialog />
+          <McpDialog />
           <ProviderAuthDialog />
           <PiHostStatus />
           <ThemeSelector />

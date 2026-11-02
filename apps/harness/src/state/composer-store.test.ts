@@ -9,6 +9,9 @@ import { createHarnessBrowser, type HarnessBrowser } from '@huan/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAuthFeatureStore } from './auth-store'
 import { createComposerFeatureStore } from './composer-store'
+import { createMcpFeatureStore } from './mcp-store'
+import { createModelFeatureStore } from './model-store'
+import { createRuntimeFeatureStore } from './runtime-store'
 import { createSessionsFeatureStore } from './sessions-store'
 import { createSettingsFeatureStore } from './settings-store'
 import { createWorkspaceFeatureStore } from './workspace-store'
@@ -281,6 +284,9 @@ const createApp = (
   sessions: ReturnType<typeof createSessionsFeatureStore>
   settings: ReturnType<typeof createSettingsFeatureStore>
   auth: ReturnType<typeof createAuthFeatureStore>
+  mcp: ReturnType<typeof createMcpFeatureStore>
+  runtime: ReturnType<typeof createRuntimeFeatureStore>
+  model: ReturnType<typeof createModelFeatureStore>
 } => {
   const browser = createHarnessBrowser({
     client,
@@ -292,14 +298,29 @@ const createApp = (
   const sessions = createSessionsFeatureStore({ browser })
   const settingsStore = createSettingsFeatureStore({ browser })
   const authStore = createAuthFeatureStore({ browser })
+  const mcp = createMcpFeatureStore({ browser })
+  const runtime = createRuntimeFeatureStore({ browser })
+  const model = createModelFeatureStore({ browser })
   const composer = createComposerFeatureStore({
     browser,
     workspaceStore,
     sessionsStore: sessions,
     settingsStore,
     authStore,
+    mcpStore: mcp,
+    runtimeStore: runtime,
+    modelStore: model,
   })
-  return { browser, composer, sessions, settings: settingsStore, auth: authStore }
+  return {
+    browser,
+    composer,
+    sessions,
+    settings: settingsStore,
+    auth: authStore,
+    mcp,
+    runtime,
+    model,
+  }
 }
 
 const selectThread = (browser: HarnessBrowser, threadId = 't1') => {
@@ -522,6 +543,29 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     expect(auth.getState().open).toBe(false)
     expect(composer.getState().notice).toContain('未知 provider')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/login unknown-provider')
+  })
+
+  it('/compact 打开运行面板 compact 分段并预填指令', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, runtime } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/compact 保留决策与风险')
+    await composer.getState().submit()
+    expect(runtime.getState().open).toBe(true)
+    expect(runtime.getState().section).toBe('compact')
+    expect(runtime.getState().compactInstructions).toBe('保留决策与风险')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/scoped-models 打开运行面板范围分段', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, runtime } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/scoped-models')
+    await composer.getState().submit()
+    expect(runtime.getState().open).toBe(true)
+    expect(runtime.getState().section).toBe('scope')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 
   it('/clone 只打开 fork 确认，不在命令处理器里直接创建', async () => {

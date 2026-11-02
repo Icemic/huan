@@ -255,6 +255,8 @@ export type ThreadRecord = {
   workspaceBinding: PreparedProject['workspaceBinding']
   lastError: string | undefined
   /** SDK 在恢复/默认解析时回退模型的原因；只保存受控字段。 */
+  /** 已应用的模型范围原文，仅会话内存，不写Pi历史。 */
+  scopePatterns: readonly string[]
   modelFallback: HarnessThreadMetadata['modelFallback']
   /** 活动工具调用瞬态（重连快照可恢复；工具结束后移除）。 */
   activeTools: Map<string, ActiveToolExecution>

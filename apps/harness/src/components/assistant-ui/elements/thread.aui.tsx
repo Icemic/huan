@@ -525,7 +525,7 @@ const ComposerAction: FC<{ controller: PiComposerController }> = ({ controller }
           onOpenPalette={controller.openPalette}
           onInsertMention={controller.insertMention}
         />
-        <PiModelSelector openOnCommand />
+        <PiModelSelector />
       </div>
       <div className="flex items-center gap-1.5">
         <ComposerQueueMode

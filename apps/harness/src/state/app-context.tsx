@@ -11,6 +11,9 @@ import type { HarnessApp } from '../bootstrap'
 import type { AuthFeatureState } from './auth-store'
 import type { ComposerFeatureState } from './composer-store'
 import type { HostFeatureState } from './host-store'
+import type { McpFeatureState } from './mcp-store'
+import type { ModelFeatureState } from './model-store'
+import type { RuntimeFeatureState } from './runtime-store'
 import type { SessionsFeatureState } from './sessions-store'
 import type { SettingsFeatureState } from './settings-store'
 import type { ThemeStoreState } from './theme-store'
@@ -59,6 +62,18 @@ export const useAuthStore = <T,>(selector: (state: AuthFeatureState) => T): T =>
 /** 订阅宿主交互/状态 feature。 */
 export const useHostStore = <T,>(selector: (state: HostFeatureState) => T): T =>
   useStore(useHarnessApp().hostStore, selector)
+
+/** 订阅 MCP 管理 feature 状态。 */
+export const useMcpStore = <T,>(selector: (state: McpFeatureState) => T): T =>
+  useStore(useHarnessApp().mcpStore, selector)
+
+/** 订阅运行管理 feature 状态。 */
+export const useRuntimeStore = <T,>(selector: (state: RuntimeFeatureState) => T): T =>
+  useStore(useHarnessApp().runtimeStore, selector)
+
+/** 订阅模型选择 feature 状态。 */
+export const useModelStore = <T,>(selector: (state: ModelFeatureState) => T): T =>
+  useStore(useHarnessApp().modelStore, selector)
 
 /** 订阅主题状态。 */
 export const useThemeStore = <T,>(selector: (state: ThemeStoreState) => T): T =>

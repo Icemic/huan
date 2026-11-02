@@ -14,4 +14,8 @@ R6必须将实际管理入口挂回App；R7负责聊天/输入/工具/data最终
 
 worker实际local/deepseek-v4.1-flash/max，设置/认证/Host交互/信任与会话面板实际挂回App，业务进入feature store。主agent通读settings/auth/host状态及会话/信任异步路径，亲自修正Host待答索引二次遍历、关闭设置释放资源正文、重载后迟到刷新写新面板。亲验公共包和应用state测试通过；最终chat/MCP/runtime仍断开，全量验证继续R8。本包不将单独vite打包成功算完整构建。
 
-R6b继续MCP、模型与运行管理。
+### R6b执行记录
+
+worker实际local/deepseek-v4.1-flash/max。MCP/model/runtime feature及实际面板、builtin入口接通，配置原文与常用项同源，认证安全快照仍公共service唯一。主agent核对模型目标/目录、MCP保存与身份请求、Shell/压缩和范围流程；亲自修正busy阻止取消Shell/压缩、范围重开丢通配原文。范围原文留record内存，现有patterns字段返回原文，不新增协议层或持久化。
+
+主agent亲验core类型与应用state/core运行操作针对性测试通过。chat/composer/replay旧API断点归R7/R8。R6业务接通，最终GUI内容/竞态/完整能力证据留R8。
