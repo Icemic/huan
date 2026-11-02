@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小可用应用（迭代②）、M1.5 Node运行时自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前状态**：`refactor`分支进行整体架构整改；已交付启动研究、[R0能力/历史验收盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)及[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，业务代码尚未改造。R1已获用户确认；[R2协议研究](iteration/2026-11/2026-11-02-feat-architecture-remediation-protocol.md)已按用户要求重审，删除无需求的恢复机制，明确服务端权威与扩展反馈责任。原功能主线继续阻塞，已发现遗漏与后续修复状态统一见[整改问题清单](architecture-remediation-roadmap.md)。
+- **当前状态**：`refactor`分支进行整体架构整改；已交付启动研究、[R0能力/历史验收盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)及[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，业务代码尚未改造。R1已获用户确认；[R2协议研究](iteration/2026-11/2026-11-02-feat-architecture-remediation-protocol.md)已按用户要求重审，删除无需求的恢复机制，明确服务端权威与扩展反馈责任；随后完成指定子代理与主agent的[全范围复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)，删减已回写启动研究和R0/R1/R2。原功能主线继续阻塞，已发现遗漏与后续修复状态统一见[整改问题清单](architecture-remediation-roadmap.md)。
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 

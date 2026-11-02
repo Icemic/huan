@@ -1,6 +1,6 @@
 # 整体架构整改：所有权与启动设计
 
-日期：2026-11-02。分类：feat（涉及公共API与架构变更）。关联：[整改子路线图](../../architecture-remediation-roadmap.md) R0/R1；步骤和问题状态仅由子路线图维护。本文记录启动调研与设计建议，尚未授权编码。
+日期：2026-11-02。分类：feat（涉及公共API与架构变更）。关联：[整改子路线图](../../architecture-remediation-roadmap.md) R0/R1；步骤和问题状态仅由子路线图维护。本文保存当时启动研究。候选结构与待定项现由[R1所有权设计](2026-11-02-feat-architecture-remediation-ownership.md)、[R2协议方案](2026-11-02-feat-architecture-remediation-protocol.md)及[复杂度审查](2026-11-02-refactor-architecture-design-complexity.md)取代；以下旧候选不再形成实施要求，历史检查记录保持原样。
 
 ## 1. 已确认目标与研究方式
 

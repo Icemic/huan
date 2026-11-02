@@ -8,7 +8,7 @@
 
 覆盖全部37个稳定能力ID：32项属于G1.1～G1.4已交付范围，MOD-05经用户确认排除，OUT-01～04仍属G1.5。另核对多项目工作区、主题与刷新性能等已交付要求。能力的具体遗漏在子路线图登记，本文只保存盘点证据。
 
-本次由主agent阅读规范、源码、测试断言、历史迭代与Git记录；没有运行应用、构建、业务测试或探针，没有修改业务源码、依赖与测试。表内“已有断言”表示读取了现存测试，执行结果仅引用历史记录。没有逐行证明全部实现正确，也没有将源码阅读作为运行或视觉验证。
+本次由主agent阅读规范、源码、测试断言、历史迭代与Git记录；没有运行应用、构建、业务测试或探针，没有修改业务源码、依赖与测试。本次再审查以[复杂度审查记录](2026-11-02-refactor-architecture-design-complexity.md)为依据。表内“已有断言”表示已阅读测试，执行结果仅引用历史记录；表格保存行为要求与证据入口，验证按缺失行为选择合适层级，不要求每项都新增独立浏览器流程或排列全部组合。已有有效证据可复用；验证不足本身不证明实现错误。没有逐行证明全部实现正确，也没有将源码阅读作为运行或视觉验证。
 
 ### 1.1 证据引用约定
 
@@ -47,7 +47,7 @@ M = packages/mcp/src/
 | ID | 必须保留的子要求与实现 | 已读断言和历史证据 | 整改后证据要求与问题关联 |
 | --- | --- | --- | --- |
 | ENV-01 | 默认Pi目录、显式agentDir与来源展示：`C/session-dir.ts`的resolveAgentDir；`C/host.ts`初始化与getHostInfo；`A/pi-host-status.tsx` | `C/session-dir.test.ts:76`显式优先；`:120`临时HOME下与SDK目录对照；`C/host-info.test.ts:59`目录/来源及无凭据；`E/browser.spec.ts:42`诊断摘要与空白页选模型；D1 | 保留默认规则和自定义目录两条路径；浏览器状态统一后仍能在无效默认模型下读取目录。界面认证重启提示纠正见AR-42 |
-| ENV-02 | sessionDir的option/env/settings/default顺序、平铺共享与分组隔离；创建/枚举/打开/删除、fork/import共用作用域：`C/session-dir.ts`、host目录入口、`session-fork.ts`、`session-import.ts` | `C/host-directory.test.ts:108/138/237/281/310/347/433`分别断言默认、平铺、顺序、双空间、跨cwd、重复ID与链接越界；`C/host-session-fork.test.ts:476`平铺分支；`C/host-session-import.test.ts:406`源cwd默认目录与上传文件名；D1/D3 | 保留作用域一致性和越界拒绝；组合验证自定义空间内创建→分支→导入→删除，不以单个路径辅助函数替代。资源所有权与协议校验归AR-18/22 |
+| ENV-02 | sessionDir的option/env/settings/default顺序、平铺共享与分组隔离；创建/枚举/打开/删除、fork/import共用作用域：`C/session-dir.ts`、host目录入口、`session-fork.ts`、`session-import.ts` | `C/host-directory.test.ts:108/138/237/281/310/347/433`分别断言默认、平铺、顺序、双空间、跨cwd、重复ID与链接越界；`C/host-session-fork.test.ts:476`平铺分支；`C/host-session-import.test.ts:406`源cwd默认目录与上传文件名；D1/D3 | 保留作用域一致性和越界拒绝；补足创建、分支、导入、删除共用作用域的具体不足，复用现有分层证据；没有跨层差异时不再机械新增全流程组合。资源所有权与协议校验归AR-18/22 |
 | ENV-03 | 项目路径输入/重进、固定cwd、信任允许/拒绝/保存/重启；启动project_trust交互：`C/project-trust.ts`、host项目入口、`A/workspace-manager.tsx` | `C/host-project.test.ts:126/165/209/231`分别检查未授权不执行、保存重启、拒绝仍用用户资源、目标项目默认模型；`C/host-ui-host.test.ts:365/405`检查启动交互和HTTP可用；`E/project.spec.ts:282/305`检查标记文件与GUI决定；D2/D4 | 保留扩展决定顺序、每cwd装配与未信任冷读；浏览器刷新只证明页面恢复，进程重启由core断言支持。跨层装配/销毁归AR-17/22 |
 | ENV-04 | 临时用户空间、合成模型、限制资源发现、网络允许列表及失败清理：`C/test-support.ts`、`E/server.ts`/`model-control.ts`、`E/config.ts` | `C/host.test.ts:1704/1729`检查初始化失败清理、继承环境恢复和意外网络拒绝；`E/server.ts`删除继承PI环境并传TEST_RESOURCE_ISOLATION；端口8899/8898；D1/D6 | 迁移后继续检查个人/祖先资源隔离、测试专属入口和进程回收；新测试不读取开发助手MCP配置。平台跳过与环境异常单列，归AR-34 |
 
@@ -72,8 +72,8 @@ M = packages/mcp/src/
 | RUN-03 | 工作区路径搜索/补全、中文空格/别名、图片选择/粘贴/拖入、能力校验及来源区分：`C/resource-queries.ts`、`A/pi-composer-controller.ts`、当前附件adapter | `C/host-command-input.test.ts:210/232/255/314/331`图片拒绝、首条拒绝、成员/忽略/链接；`E/command-input.spec.ts:93/106/132`路径插入、拒绝保留、粘贴移除；`E/ui-base.spec.ts:65`预览焦点；D4 | 现有@浏览器用例只验证插入文本，需关联实际工具路径解析；图片正向发送/结果呈现、拖入和准备期间换目标需补最终证据。缓存按目标隔离归AR-07，提交时固定文本/附件/模型归AR-08 |
 | RUN-04 | 直接Shell执行、输出增量与有界截断、取消、!进入上下文/!!排除、历史卡与独立于模型的生命周期：host的runThreadBash、`A/runtime-operations.tsx`和composer | `C/host-runtime-operations.test.ts:293/340/363/389/447/468/479/521/551/583/601`验证上下文、取消、模型并存、结构互斥、清理、扩展委托及历史匹配；`E/runtime-operations.spec.ts:78/121`输出/双窗/取消；`E/command-input.spec.ts:228`输入命令分流；D4 | 浏览器Shell“断线重连”用例在断开后等待500ms并检查旧运行文字，未检查新订阅或断开期间新输出；补确定性恢复断言，归AR-33。Shell启动响应清新输入归AR-12，运行面板跨目标迟到状态归AR-16 |
 | RUN-05 | 运行、工具/交互等待、重试、自动/手动压缩、取消/失败和最终结算可区分；自动继续结束前保持运行：host的currentRun、reducer及PiRunStatus | `C/host.test.ts`结算与取消竞态；`R/runtime/thread-state.test.ts:500`错误要求willRetry=false即idle；`apps/harness/src/event-replay.test.ts:166`同样认可提前idle；`E/runtime-operations.spec.ts:166`仅手动压缩成功/取消；D4 | AR-11确认提前空闲，AR-33包含两处相反断言。补agent_end到agent_settled间等待、自动重试失败/成功、超窗压缩后继续、取消结算和UI状态；嵌套等待入口归AR-37/39 |
-| RUN-06 | 首连/断流/关闭再连/刷新/多窗的消息、分支、队列、交互恢复；关闭窗口不停止任务：host快照、`H/sse.ts`、`R/client/event-source.ts`、controller和长期订阅 | `H/sse-link.test.ts:115`起使用假发送源验证生产SSE路由/解码/恢复；controller测试检查迟到load与seq重置；`E/browser.spec.ts:114/155`离线完成补齐与关闭发起窗；`E/session-tree.spec.ts:145`分支同步；D1/D3/D4 | 区分假源传输、SDK事件回放和浏览器三种证据，不能称同一测试覆盖完整SDK。补队列/交互在断开期间变化以及服务重启的组合；状态/资源代次与关闭规则归AR-09/19/22/26/33 |
-| RUN-07 | 多行/长输入、IME与键盘、窗口草稿和本窗历史、错误恢复、分支编辑：composer、sessionStorage及fork入口 | `E/command-input.spec.ts:152/167/201`双窗草稿/刷新、长输入取消应用、旧历史不补记；controller检查图片准备取消与失败；D4/D7 | AR-12同目标异步完成清新草稿，AR-13他窗消息记入本窗历史。handled命令历史也不能从共享消息推断。补IME/快捷键执行断言、发送拒绝/未知结果、首条创建等待、同目标新输入和切走再返回；AR-08/33/40 |
+| RUN-06 | 首连/断流/关闭再连/刷新/多窗的消息、分支、队列、交互恢复；关闭窗口不停止任务：host快照、`H/sse.ts`、`R/client/event-source.ts`、controller和长期订阅 | `H/sse-link.test.ts:115`起使用假发送源验证生产SSE路由/解码/恢复；controller测试检查迟到load与seq重置；`E/browser.spec.ts:114/155`离线完成补齐与关闭发起窗；`E/session-tree.spec.ts:145`分支同步；D1/D3/D4 | 区分假源传输、SDK事件回放和浏览器三种证据，不能称同一测试覆盖完整SDK。补队列/交互离线变化与重启后的代表性恢复证据，不做全部对象×断线方式的组合矩阵；状态/资源代次与关闭规则归AR-09/19/22/26/33 |
+| RUN-07 | 多行/长输入、IME与键盘、窗口草稿和本窗历史、错误恢复、分支编辑：composer、sessionStorage及fork入口 | `E/command-input.spec.ts:152/167/201`双窗草稿/刷新、长输入取消应用、旧历史不补记；controller检查图片准备取消与失败；D4/D7 | AR-12同目标异步完成清新草稿，AR-13他窗消息记入本窗历史。handled命令历史也不能从共享消息推断。补组合输入期间不误发的事件断言及快捷键路径；实际输入法行为按平台适用性检查，合成事件仅证明组合输入事件处理。另补发送拒绝/未知结果、首条创建等待、同目标新输入和切走再返回；AR-08/33/40 |
 
 ## 4. 模型、配置、资源与交互
 
@@ -93,7 +93,7 @@ M = packages/mcp/src/
 | --- | --- | --- | --- |
 | RES-01 | 指令/system prompt/扩展/skill/模板/主题/packages来源与诊断；遵守信任与已配置加载规则：`C/resource-inventory.ts`、host资源查询、设置资源面板 | `C/host-settings.test.ts:386/461/479/491`实际loader来源、未信任不执行、packages两种声明与快照无原文；`E/settings-resources.spec.ts:51`检查扩展文件名及文本按钮切换；D5 | 浏览器“显示文本”按钮变为“隐藏”只证明请求状态变化，未证明具体指令正文正确显示；补精确内容/来源断言，归AR-33。保留查询加载态与磁盘态区别、原文按需读取 |
 | RES-02 | 目录/参数/补全/执行、内置与扩展→skill→模板覆盖顺序、未知slash语义及空白页不误建会话：`C/resource-queries.ts`、`P/commands.ts`、应用命令索引与composer | `C/host-command-input.test.ts:101/132/168/184/201`目录、SDK模板/skill展开、空白页、守卫、未知slash；`A/pi-builtin-commands.test.ts`同名优先；`E/command-input.spec.ts:32/65`内置面板/扩展参数且无消息；D4 | 保留实际执行与不支持提示的区别；扩展handled的本窗输入历史归AR-13；命令等待后草稿归AR-12。旧g1.4阶段标签已由后续交付更新，G1.5仍显示未实施 |
-| RES-03 | 同会话reload、设置/指令/资源和多窗目录刷新、旧交互结束、新启动请求可答、MCP回收：host重载、`C/resource-reload.ts`、composer/设置面板 | `C/host-reload.test.ts:323/398/464/523/556/591/636/704/718`检查会话不替换、设置/指令、启动UI、busy、销毁、新资源信任和空白目标；`E/resource-reload.spec.ts:81/103/134/164/183`命令/草稿/双窗/交互/空白；`C/host-mcp.test.ts:536`PID回收；D5/D6 | 保留保存≠应用、失败可能已关闭旧扩展、目标固定和单次装配。回收和取消顺序归AR-22，环境EBUSY归AR-34；命令完成草稿保护归AR-12 |
+| RES-03 | 同会话reload、设置/指令/资源和多窗目录刷新、旧交互结束、新启动请求可答、MCP回收：host重载、`C/resource-reload.ts`、composer/设置面板 | `C/host-reload.test.ts:323/398/464/523/556/591/636/704/718`检查会话不替换、设置/指令、启动UI、busy、销毁、新资源信任和空白目标；`E/resource-reload.spec.ts:81/103/134/164/183`命令/草稿/双窗/交互/空白；`C/host-mcp.test.ts:536`PID回收；D5/D6 | 保留保存≠应用、失败可能已关闭旧扩展、目标固定和单次装配。回收和取消顺序归AR-22，本次EBUSY尚未确定为环境原因，仍归AR-34；命令完成草稿保护归AR-12 |
 | RES-04 | confirm/select/input/editor、通知/status/widget、编辑器定向与恢复、取消/超时/幂等、启动交互和诚实的不支持反馈：`C/host-ui.ts`/`host-interactions.ts`、浏览器工具/游离交互 | `C/host-ui-host.test.ts:121/158/178/200/243/297/321/348/365/456/482/520/581`四种返回、超时/中止、状态、定向、不支持、启动、销毁及独立会话动作；`E/host-ui.spec.ts:33/66/88/109/140`通知/定向/游离confirm/接管/启动；D4/D5 | 现有core四种应答通过不代表GUI四种输入完整；工具关联editor丢prefill，应答组件虽使用Textarea支持多行，初始原文仍为空（AR-39）。同目标连续请求、工具/游离路径、默认折叠时待答可发现及迟到领取须有GUI证据；命令目标切换归AR-40 |
 | RES-05 | MCP/codemode/tool_search按named builtin启停替换/defaultTools，工具权限与嵌套进度/父子关系：`C/builtin-extensions.ts`、`M/integration.ts`和host装配 | `C/host-reload.test.ts:770/852/873`codemode子调用、禁用、同名替换；`C/host-mcp.test.ts:293/314/365/386/631/645/661`direct/codemode/deferred/权限/禁用/替换/空配置；`M/integration.test.ts:478`嵌套SDK事件；D5/D6 | 服务端与reducer保留parentToolCallId，但当前投影未消费，GUI关系与进度未完成验收，归AR-37。保留共享唯一manager，运行测试从SDK执行一直检查到可见子调用及等待入口 |
 
@@ -151,7 +151,7 @@ AR-33补充证据：提前idle断言同时存在于reducer测试和应用回放�
 | 改正错误断言 | `R/runtime/thread-state.test.ts:500`、`apps/harness/src/event-replay.test.ts:166`中提前结束的断言，以及host-ui/message-projection测试中editor省略prefill的断言 | 正常运行保持到agent_settled；editor保留预填；预检拒绝、取消前未启动和失败另按R2规范处理 |
 | 替换实现相关测试 | useHarnessRuntime系列、Controller私有存储/listeners、aui extras/repository/NOOP、MessageNotSentError桥接 | 改为Zustand动作、提交结果、资源所有权和React订阅行为；仅服务旧aui接入且无保留行为的测试随实现删除，逐项说明 |
 | 迁移浏览器定位与计数 | aui data-slot/class、复制/附件/工具审批控件、性能源码注入 | 使用最终组件的可访问名称和稳定标记；保留业务断言与无关行/SSE约束，不能保留旧外壳只为满足定位器 |
-| 补充组合与异常证据 | AR-08/11～15/20/22/26/32～34/37～43及表内不足 | 覆盖同目标新输入、换目标/重开、同文跨窗、接受结果未知、自动继续、图片/子调用/editor、秘密、销毁和环境异常；按临时空间/合成模型/本地服务实施 |
+| 补充组合与异常证据 | AR-08/11～15/20/22/26/32～34/37～43及表内不足 | 覆盖同目标新输入、换目标/重开、同文跨窗、接受结果未知、自动继续、图片/子调用/editor、秘密与销毁的具体不足；历史异常按AR-34证据要求判断，不机械增加排列组合；使用临时空间/合成模型/本地服务 |
 
 R0交付的是可追踪的盘点，问题仍由后续步骤处理。R1以本文每行的要求确定唯一状态/资源所有者与迁移去向；R2明确状态/提交/版本/JSON-safe及错误语义；R8将最终实现与每项证据逐项对应。R3移除aui状态后旧界面允许不可用，R7接通最终展示并清理剩余引用；无需为中间可用增加同步适配。
 
