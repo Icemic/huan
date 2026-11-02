@@ -1,107 +1,105 @@
 /**
- * 当前会话上下文条：所属工作区、项目数量、固定起始目录与实际生效 revision。
+ * 当前会话上下文条：工作区、固定起始目录、实际生效 revision 与管理入口。
  *
- * 会话归属只在元数据中读取；新会话（尚未创建）使用本窗口当前工作区。
+ * 会话归属只读目录元数据；树/fork/详情/归档/删除/未归属加入都触发 sessions
+ * feature 动作；工作区编辑触发 workspace feature。聊天输入主体留 R7。
  */
-import { useHarnessThreadState } from '@huan/react'
+
+import { useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { FolderCogIcon, GitForkIcon } from 'lucide-react'
-import { useState } from 'react'
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  FolderCogIcon,
+  FolderPlusIcon,
+  GitForkIcon,
+  InfoIcon,
+  Loader2Icon,
+  Trash2Icon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { RuntimeOperationsPanel } from './runtime-operations'
-import { clearForkThreadRequest, useForkThreadRequest } from './session-fork-bridge'
-import { ForkThreadDialog } from './session-fork-dialog'
+import { useSessionsStore, useWorkspaceStore } from '@/state/app-context'
 import { SessionTreeDialog } from './session-tree-dialog'
-import { useWorkspace } from './workspace-context'
-import { WorkspaceManagerDialog } from './workspace-manager'
-
-const PENDING_ID = '__pending__'
-
-/** 历史消息/上下文栏共用的 fork 弹层（挂在常驻组件，避免消息动作卸载时丢失）。 */
-function ForkDialogHost() {
-  const request = useForkThreadRequest()
-  if (!request) return null
-  return (
-    <ForkThreadDialog
-      open
-      onOpenChange={(open) => {
-        if (!open) clearForkThreadRequest()
-      }}
-      position={request.position}
-      {...(request.entryId ? { entryId: request.entryId } : {})}
-      onCompleted={() => clearForkThreadRequest()}
-    />
-  )
-}
-
-/** 当前落点 clone 的紧凑入口（未归属会话也可用）。 */
-function CloneSessionButton() {
-  const metadata = useHarnessThreadState((state) => state.metadata)
-  const [open, setOpen] = useState(false)
-  if (!metadata.id || metadata.id === PENDING_ID) return null
-  return (
-    <>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        aria-label="克隆到新会话"
-        onClick={() => setOpen(true)}
-      >
-        <GitForkIcon aria-hidden className="size-3.5" />
-        <Trans>克隆到新会话</Trans>
-      </Button>
-      <ForkThreadDialog open={open} onOpenChange={setOpen} position="at" />
-    </>
-  )
-}
 
 export function SessionContextBar() {
-  const metadata = useHarnessThreadState((state) => state.metadata)
-  const { workspaces, activeWorkspaceId, startProjectFor, state } = useWorkspace()
-  const [managerOpen, setManagerOpen] = useState(false)
-  const pendingThread = !metadata.id || metadata.id === PENDING_ID
-  const threadWorkspace = metadata.workspaceId
-    ? workspaces.find((workspace) => workspace.id === metadata.workspaceId)
-    : undefined
-  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-  const workspace = threadWorkspace ?? (pendingThread ? activeWorkspace : undefined)
-  const cwd = metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : undefined)
-  const revisionPending =
-    workspace &&
-    metadata.workspaceRevision !== undefined &&
-    metadata.workspaceAppliedRevision !== undefined &&
-    metadata.workspaceRevision !== metadata.workspaceAppliedRevision
+  const selection = useWindowStore((state) => state.selection)
+  const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
+  const metadata = useServiceStore((state) => (threadId ? state.threadsById[threadId] : undefined))
+  const workspace = useServiceStore((state) =>
+    metadata?.workspaceId ? state.workspacesById[metadata.workspaceId] : undefined,
+  )
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId)
+  const activeWorkspace = useServiceStore((state) =>
+    activeWorkspaceId ? state.workspacesById[activeWorkspaceId] : undefined,
+  )
+  const startProjectFor = useWorkspaceStore((state) => state.startProjectFor)
+  const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
+  const openFork = useSessionsStore((state) => state.openFork)
+  const openDetails = useSessionsStore((state) => state.openDetails)
+  const openDelete = useSessionsStore((state) => state.openDelete)
+  const openAssign = useSessionsStore((state) => state.openAssign)
+  const setThreadArchived = useSessionsStore((state) => state.setThreadArchived)
+  const archiveBusy = useSessionsStore((state) => state.archiveBusy)
 
-  if (!workspace && !metadata.workspaceId) {
+  if (selection?.kind === 'new') {
     return (
       <div
         data-slot="huan-session-context"
         className="text-muted-foreground flex flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs"
       >
-        <Trans>未归属会话；可在左侧明确加入工作区。</Trans>
-        <SessionTreeDialog />
-        <CloneSessionButton />
-        <ForkDialogHost />
-        <RuntimeOperationsPanel />
+        <span className="font-medium text-foreground">
+          <Trans>新会话目标</Trans>
+        </span>
+        <span className="max-w-80 truncate">{selection.startProjectPath}</span>
+        <span>
+          <Trans>发送首条消息时创建；管理面板可按该起始目录打开。</Trans>
+        </span>
       </div>
     )
   }
+
+  if (!threadId || !metadata) return null
+
+  const currentWorkspace = workspace ?? activeWorkspace
+  const cwd =
+    metadata.workspacePath ?? (currentWorkspace ? startProjectFor(currentWorkspace.id) : undefined)
+  const revisionPending =
+    metadata.workspaceRevision !== undefined &&
+    metadata.workspaceAppliedRevision !== undefined &&
+    metadata.workspaceRevision !== metadata.workspaceAppliedRevision
+  const fallback = metadata.modelFallback
 
   return (
     <div
       data-slot="huan-session-context"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1.5 text-xs"
     >
-      <span className="inline-flex items-center gap-1 font-medium">
-        <FolderCogIcon aria-hidden className="size-3.5" />
-        {workspace?.name ?? <Trans>工作区不可用</Trans>}
-      </span>
-      {workspace && (
+      {!metadata.workspaceId ? (
         <>
           <span className="text-muted-foreground">
-            <Trans>{workspace.projects.length} 个项目</Trans>
+            <Trans>未归属会话；可明确加入工作区。</Trans>
           </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-xs"
+            onClick={() => openAssign(threadId)}
+          >
+            <FolderPlusIcon aria-hidden className="size-3.5" />
+            <Trans>加入工作区</Trans>
+          </Button>
+        </>
+      ) : (
+        <>
+          <span className="inline-flex items-center gap-1 font-medium">
+            <FolderCogIcon aria-hidden className="size-3.5" />
+            {workspace?.name ?? <Trans>工作区不可用</Trans>}
+          </span>
+          {workspace && (
+            <span className="text-muted-foreground">
+              <Trans>{workspace.projects.length} 个项目</Trans>
+            </span>
+          )}
           {cwd && <span className="text-muted-foreground max-w-80 truncate">{cwd}</span>}
           <span className="text-muted-foreground">
             {revisionPending ? (
@@ -115,27 +113,69 @@ export function SessionContextBar() {
               <Trans>成员变更将在下一次运行生效</Trans>
             )}
           </span>
-          <SessionTreeDialog />
-          <CloneSessionButton />
-          <ForkDialogHost />
-          <RuntimeOperationsPanel />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ms-auto h-6 px-1.5 text-xs"
-            disabled={state !== 'ok'}
-            onClick={() => setManagerOpen(true)}
-          >
-            <Trans>管理项目</Trans>
-          </Button>
         </>
       )}
-      {workspace && (
-        <WorkspaceManagerDialog
-          open={managerOpen}
-          onOpenChange={setManagerOpen}
-          workspace={workspace}
-        />
+
+      <SessionTreeDialog />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs"
+        aria-label="克隆到新会话"
+        onClick={() => openFork({ threadId, position: 'at' })}
+      >
+        <GitForkIcon aria-hidden className="size-3.5" />
+        <Trans>克隆到新会话</Trans>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs"
+        onClick={() => void openDetails(threadId)}
+      >
+        <InfoIcon aria-hidden className="size-3.5" />
+        <Trans>详情</Trans>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs"
+        disabled={archiveBusy === threadId}
+        onClick={() => void setThreadArchived(threadId, metadata.archived !== true)}
+      >
+        {archiveBusy === threadId ? (
+          <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+        ) : metadata.archived ? (
+          <ArchiveRestoreIcon aria-hidden className="size-3.5" />
+        ) : (
+          <ArchiveIcon aria-hidden className="size-3.5" />
+        )}
+        {metadata.archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 gap-1 px-1.5 text-xs text-destructive"
+        onClick={() => openDelete(threadId)}
+      >
+        <Trash2Icon aria-hidden className="size-3.5" />
+        <Trans>删除</Trans>
+      </Button>
+      {metadata.workspaceId && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ms-auto h-6 px-1.5 text-xs"
+          onClick={() => openWorkspaceForm(metadata.workspaceId)}
+        >
+          <Trans>管理项目</Trans>
+        </Button>
+      )}
+      {fallback && (
+        <span className="text-destructive w-full" data-slot="huan-session-fallback">
+          <Trans>模型回退：</Trans>
+          {fallback.message}
+        </span>
       )}
     </div>
   )

@@ -1,57 +1,37 @@
 /**
  * 宿主级交互面板：启动装配期的 project_trust/session_start 请求与可见通知。
  *
- * 该组件不依赖当前选中会话，始终挂在页面级；关闭页面不会取消请求，
- * 重新打开后会以权威快照恢复待答项。
+ * 请求快照来自公共 serviceStore；答案草稿、忙/错误与忽略状态在 host feature
+ * Zustand。原始 confirm/select/input/editor 类型直接应答，不转换成 approval。
  */
-import type { HarnessHostInteractionRequest, HarnessHostInteractionSnapshot } from '@huan/protocol'
+
+import type { HarnessHostInteractionRequest } from '@huan/protocol'
+import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
-import { harnessHttpClient } from './pi-http-client'
-
-const errorText = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { useHostStore } from '@/state/app-context'
 
 const scopeLabel = (request: HarnessHostInteractionRequest): string => {
   if (request.scope.kind === 'project') return `项目 ${request.scope.cwd}`
   return `会话 ${request.scope.sessionId}${request.scope.cwd ? `（${request.scope.cwd}）` : ''}`
 }
 
-type AnswerDraft = {
-  text: string
-}
-
-/** 单条待答请求：按 kind 渲染对应的阻断交互。 */
+/** 单条待答请求：按 kind 渲染阻断交互；editor 用 prefill 作为初值。 */
 function HostInteractionCard({ request }: { request: HarnessHostInteractionRequest }) {
-  const [draft, setDraft] = useState<AnswerDraft>({
-    text: request.kind === 'editor' ? (request.prefill ?? '') : '',
-  })
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | undefined>()
-
-  const answer = async (
-    response: Parameters<typeof harnessHttpClient.respondToHostInteraction>[0],
-  ) => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      const result = await harnessHttpClient.respondToHostInteraction(response)
-      if (!result.accepted) setError('该请求已结束或应答无效')
-    } catch (cause) {
-      setError(errorText(cause))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const dismiss = () => answer({ requestId: request.id, dismissed: true })
+  const draft = useHostStore((state) => state.interactionDrafts[request.id])
+  const setAnswer = useHostStore((state) => state.setInteractionAnswer)
+  const respond = useHostStore((state) => state.respondInteraction)
+  if (!draft) return null
+  const busy = draft.busy
 
   return (
     <div
       data-slot="huan-host-interaction"
       data-request-id={request.id}
+      data-kind={request.kind}
       className="rounded-md border bg-background p-3 text-sm shadow-sm"
     >
       <div className="text-muted-foreground mb-1 text-xs">{scopeLabel(request)}</div>
@@ -67,7 +47,7 @@ function HostInteractionCard({ request }: { request: HarnessHostInteractionReque
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, value: option })}
+              onClick={() => void respond(request.id, { requestId: request.id, value: option })}
             >
               {option}
             </Button>
@@ -75,20 +55,22 @@ function HostInteractionCard({ request }: { request: HarnessHostInteractionReque
         </div>
       ) : null}
       {request.kind === 'input' ? (
-        <input
-          className="border-input mt-2 w-full rounded border bg-transparent px-2 py-1"
+        <Input
+          className="mt-2"
           aria-label="交互输入"
           placeholder={request.placeholder}
           value={draft.text}
-          onChange={(event) => setDraft({ text: event.target.value })}
+          disabled={busy}
+          onChange={(event) => setAnswer(request.id, event.target.value)}
         />
       ) : null}
       {request.kind === 'editor' ? (
-        <textarea
-          className="border-input mt-2 min-h-24 w-full rounded border bg-transparent px-2 py-1"
+        <Textarea
+          className="mt-2 min-h-24"
           aria-label="交互编辑器"
           value={draft.text}
-          onChange={(event) => setDraft({ text: event.target.value })}
+          disabled={busy}
+          onChange={(event) => setAnswer(request.id, event.target.value)}
         />
       ) : null}
       <div className="mt-2 flex items-center gap-2">
@@ -97,7 +79,7 @@ function HostInteractionCard({ request }: { request: HarnessHostInteractionReque
             <Button
               size="sm"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, confirmed: true })}
+              onClick={() => void respond(request.id, { requestId: request.id, confirmed: true })}
             >
               <Trans>允许</Trans>
             </Button>
@@ -105,52 +87,43 @@ function HostInteractionCard({ request }: { request: HarnessHostInteractionReque
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, confirmed: false })}
+              onClick={() => void respond(request.id, { requestId: request.id, confirmed: false })}
             >
               <Trans>拒绝</Trans>
             </Button>
           </>
         ) : null}
         {request.kind === 'input' || request.kind === 'editor' ? (
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => void answer({ requestId: request.id, value: draft.text })}
-          >
+          <Button size="sm" disabled={busy} onClick={() => void respond(request.id)}>
             <Trans>提交</Trans>
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => void dismiss()}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => void respond(request.id, { requestId: request.id, dismissed: true })}
+        >
           <Trans>取消</Trans>
         </Button>
-        {error ? <span className="text-destructive text-xs">{error}</span> : null}
+        {draft.error ? <span className="text-destructive text-xs">{draft.error}</span> : null}
       </div>
     </div>
   )
 }
 
-/** 页面级常驻订阅与待答列表。 */
+/** 页面级常驻 Host 交互与通知；关闭页面不取消请求，重开以快照恢复。 */
 export function PiHostInteractions() {
-  const [snapshot, setSnapshot] = useState<HarnessHostInteractionSnapshot | undefined>()
-  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set())
-  const [error, setError] = useState<string | undefined>()
-
-  useEffect(() => {
-    const release = harnessHttpClient.subscribeHostInteractions((event) => {
-      setSnapshot(event.snapshot)
-      setError(undefined)
-    })
-    return release
-  }, [])
+  const snapshot = useServiceStore((state) => state.hostInteractions)
+  const dismissed = useHostStore((state) => state.dismissedNotifications)
+  const dismissNotification = useHostStore((state) => state.dismissNotification)
 
   if (!snapshot) return null
   const notifications = snapshot.notifications.filter((item) => !dismissed.has(item.id))
   if (snapshot.requests.length === 0 && notifications.length === 0) return null
 
-  const dismissNotification = (id: string) => setDismissed((current) => new Set(current).add(id))
-
   return (
-    <Dialog open={snapshot.requests.length > 0 || notifications.length > 0}>
+    <Dialog open>
       <DialogContent showCloseButton={false} className="z-[100] max-w-xl">
         <DialogTitle>
           <Trans>宿主交互</Trans>
@@ -196,7 +169,6 @@ export function PiHostInteractions() {
               ))}
             </ul>
           ) : null}
-          {error ? <div className="text-destructive mt-1 text-xs">{error}</div> : null}
         </section>
       </DialogContent>
     </Dialog>

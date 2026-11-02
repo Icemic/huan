@@ -1,17 +1,11 @@
 /**
  * JSONL 导入弹层：宿主路径或浏览器上传、预览、cwd 修复、冲突副本与信任入口。
  *
- * 预览只读文件/目录/冲突，不装配项目；确认时宿主重新读取并校验源。
- * 上传文本按 20MiB 上限在浏览器先拦截（宿主仍会再次校验）。
+ * 输入、文件读取代次、预览、冲突确认与错误都在 sessions feature Zustand；
+ * 预览只读文件/目录/冲突，确认时宿主再次校验源指纹。上传文本不持久化。
  */
-import { useAui } from '@assistant-ui/react'
-import type {
-  HarnessThreadImportPreview,
-  HarnessThreadImportResult,
-  HarnessThreadImportSource,
-} from '@huan/protocol'
-import { msg } from '@lingui/core/macro'
-import { useLingui } from '@lingui/react'
+
+import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import {
   AlertTriangleIcon,
@@ -20,7 +14,7 @@ import {
   Loader2Icon,
   ShieldAlertIcon,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -38,197 +32,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { clearPiIntent, usePiIntent } from './pi-command-intents'
-import { harnessHttpClient } from './pi-http-client'
-import { useWorkspace } from './workspace-context'
+import { useSessionsStore, useWorkspaceStore } from '@/state/app-context'
 import { TrustDecisionPanel } from './workspace-manager'
 
-/** 与宿主一致的浏览器上传文本上限（20MiB）。 */
-const IMPORT_UPLOAD_LIMIT = 20 * 1024 * 1024
+const SOURCE_SENTINEL = '__source__'
 
-const errorMessage = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
+export function ImportThreadDialog() {
+  const panel = useSessionsStore((state) => state.importPanel)
+  const closeImport = useSessionsStore((state) => state.closeImport)
+  const setMode = useSessionsStore((state) => state.setImportMode)
+  const setPath = useSessionsStore((state) => state.setImportPath)
+  const readFile = useSessionsStore((state) => state.readImportFile)
+  const configureImport = useSessionsStore((state) => state.configureImport)
+  const setCopyConfirmed = useSessionsStore((state) => state.setImportCopyConfirmed)
+  const openExisting = useSessionsStore((state) => state.openExistingImport)
+  const openImported = useSessionsStore((state) => state.openImportedThread)
+  const previewImport = useSessionsStore((state) => state.previewImport)
+  const confirmImport = useSessionsStore((state) => state.confirmImport)
+  const workspaceIds = useServiceStore((state) => state.workspaceIds)
+  const workspacesById = useServiceStore((state) => state.workspacesById)
+  const openTrust = useWorkspaceStore((state) => state.openTrust)
+  const trust = useWorkspaceStore((state) => state.trust)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-type SourceMode = 'path' | 'upload'
+  if (!panel.open) return null
 
-export type ImportThreadDialogProps = {
-  open: boolean
-  initialPath?: string
-  onOpenChange: (open: boolean) => void
-}
-
-export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportThreadDialogProps) {
-  const { i18n } = useLingui()
-  const aui = useAui()
-  const { workspaces, activeWorkspaceId, refresh, selectWorkspace, showNotice } = useWorkspace()
-  const [workspaceId, setWorkspaceId] = useState<string>()
-  const [mode, setMode] = useState<SourceMode>('path')
-  const [path, setPath] = useState('')
-  const [upload, setUpload] = useState<{ filename: string; content: string }>()
-  const [cwdOverride, setCwdOverride] = useState('')
-  const [preview, setPreview] = useState<HarnessThreadImportPreview>()
-  const [existingId, setExistingId] = useState<string>()
-  const [copyConfirmed, setCopyConfirmed] = useState(false)
-  const [trustPath, setTrustPath] = useState<string>()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-
-  // 打开时重置输入与预览；目标工作区默认跟随当前窗口。
-  // 只用 open 作为触发条件：工作区列表刷新不应清空正在填写的导入输入。
-  const defaultsRef = useRef({ activeWorkspaceId, workspaces, initialPath })
-  defaultsRef.current = { activeWorkspaceId, workspaces, initialPath }
-  useEffect(() => {
-    if (!open) return
-    const defaults = defaultsRef.current
-    setWorkspaceId(defaults.activeWorkspaceId ?? defaults.workspaces[0]?.id)
-    setMode('path')
-    setPath(defaults.initialPath ?? '')
-    setUpload(undefined)
-    setCwdOverride('')
-    setPreview(undefined)
-    setExistingId(undefined)
-    setCopyConfirmed(false)
-    setTrustPath(undefined)
-    setBusy(false)
-    setError(undefined)
-  }, [open])
-
-  const workspace = workspaces.find((item) => item.id === workspaceId)
+  const workspaces = workspaceIds.flatMap((id) => {
+    const workspace = workspacesById[id]
+    return workspace ? [workspace] : []
+  })
+  const workspace = panel.workspaceId ? workspacesById[panel.workspaceId] : undefined
   const availableProjects = workspace?.projects.filter((project) => project.available) ?? []
-  const source: HarnessThreadImportSource | undefined =
-    mode === 'path'
-      ? path.trim()
-        ? { kind: 'path', path: path.trim() }
-        : undefined
-      : upload
-        ? { kind: 'upload', filename: upload.filename, content: upload.content }
-        : undefined
-
-  const requestGeneration = useRef(0)
-  const clearPreview = () => {
-    requestGeneration.current += 1
-    setPreview(undefined)
-    setExistingId(undefined)
-    setCopyConfirmed(false)
-    setError(undefined)
-    setTrustPath(undefined)
-  }
-
-  const pickFile = async (file: File | undefined) => {
-    clearPreview()
-    if (!file) {
-      setUpload(undefined)
-      return
-    }
-    if (file.size > IMPORT_UPLOAD_LIMIT) {
-      setUpload(undefined)
-      setError(i18n._(msg`文件超过 20MiB 上限，无法导入。`))
-      return
-    }
-    const content = await file.text()
-    if (content.length > IMPORT_UPLOAD_LIMIT) {
-      setUpload(undefined)
-      setError(i18n._(msg`文件超过 20MiB 上限，无法导入。`))
-      return
-    }
-    setUpload({ filename: file.name, content })
-  }
-
-  const runPreview = async () => {
-    if (!source || !workspaceId) return
-    if (source.kind === 'upload' && source.content.length > IMPORT_UPLOAD_LIMIT) {
-      setError(i18n._(msg`上传内容超过 20MiB 上限。`))
-      return
-    }
-    setBusy(true)
-    const generation = ++requestGeneration.current
-    setError(undefined)
-    setTrustPath(undefined)
-    try {
-      const next = await harnessHttpClient.previewThreadImport({
-        source,
-        workspaceId,
-        ...(cwdOverride ? { cwdOverride } : {}),
-      })
-      if (generation !== requestGeneration.current) return
-      setPreview(next)
-      setExistingId(next.existingThreadId)
-      setCopyConfirmed(false)
-      if (next.status !== 'ok') setError(next.message ?? i18n._(msg`导入预览失败。`))
-    } catch (caught) {
-      if (generation === requestGeneration.current) setError(errorMessage(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const openExisting = async () => {
-    if (!existingId) return
-    if (workspaceId) selectWorkspace(workspaceId)
-    onOpenChange(false)
-    await aui.threads.switchToThread(existingId)
-  }
-
-  const runImport = async () => {
-    if (!source || !workspaceId || !preview || preview.status !== 'ok' || !preview.cwd) return
-    if (preview.conflict === 'conflict' && !copyConfirmed) {
-      setError(i18n._(msg`请先勾选“作为独立副本导入”。`))
-      return
-    }
-    setBusy(true)
-    setError(undefined)
-    try {
-      // 与新建会话一致的信任入口：需要信任时先由用户决定，再重试导入。
-      const info = await harnessHttpClient.getProject({ path: preview.cwd })
-      if (info.status === 'needs-trust') {
-        setTrustPath(preview.cwd)
-        return
-      }
-      if (info.status === 'failed') {
-        setError(i18n._(msg`目标项目装配失败，请检查路径与宿主诊断。`))
-        return
-      }
-      const result: HarnessThreadImportResult = await harnessHttpClient.importThread({
-        source,
-        workspaceId,
-        ...(cwdOverride ? { cwdOverride } : {}),
-        ...(preview.conflict === 'conflict' ? { asCopy: true } : {}),
-        ...(preview.source?.id ? { expectedSourceId: preview.source.id } : {}),
-        ...(preview.source?.fingerprint
-          ? { expectedSourceFingerprint: preview.source.fingerprint }
-          : {}),
-      })
-      if (result.status === 'imported' && result.threadId) {
-        selectWorkspace(workspaceId)
-        await refresh()
-        onOpenChange(false)
-        // 导入后由 GUI 明确切入；宿主不会替换当前会话。
-        await aui.threads.switchToThread(result.threadId)
-        showNotice(i18n._(msg`会话已导入并打开。`))
-        return
-      }
-      if (result.preview) setPreview(result.preview)
-      if (result.existingThreadId) setExistingId(result.existingThreadId)
-      if (result.status === 'metadata-failed' || result.status === 'imported') {
-        await refresh()
-      }
-      setError(result.message ?? i18n._(msg`导入未完成。`))
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const canPreview = Boolean(source && workspaceId) && !busy
+  const preview = panel.preview
+  const canPreview = Boolean(panel.source && panel.workspaceId) && !panel.busy && !panel.fileReading
   const canImport =
-    Boolean(preview && preview.status === 'ok' && source && workspaceId) &&
-    !busy &&
+    Boolean(preview && preview.status === 'ok' && panel.source && panel.workspaceId) &&
+    !panel.busy &&
     preview?.conflict !== 'already-exists' &&
-    (preview?.conflict !== 'conflict' || copyConfirmed)
+    (preview?.conflict !== 'conflict' || panel.copyConfirmed)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) closeImport()
+      }}
+    >
       <DialogContent
         aria-label="导入会话"
         data-slot="huan-import-dialog"
@@ -251,12 +100,10 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
               <Trans>目标工作区</Trans>
             </span>
             <Select
-              value={workspaceId ?? ''}
+              value={panel.workspaceId ?? ''}
               items={Object.fromEntries(workspaces.map((item) => [item.id, item.name]))}
               onValueChange={(value) => {
-                setWorkspaceId(value ?? undefined)
-                setCwdOverride('')
-                clearPreview()
+                if (value) configureImport({ workspaceId: value, cwdOverride: '' })
               }}
             >
               <SelectTrigger
@@ -287,11 +134,8 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
                   type="radio"
                   className="size-3.5 accent-current"
                   name="import-source-mode"
-                  checked={mode === 'path'}
-                  onChange={() => {
-                    setMode('path')
-                    clearPreview()
-                  }}
+                  checked={panel.mode === 'path'}
+                  onChange={() => setMode('path')}
                 />
                 <Trans>宿主路径</Trans>
               </label>
@@ -300,20 +144,15 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
                   type="radio"
                   className="size-3.5 accent-current"
                   name="import-source-mode"
-                  checked={mode === 'upload'}
-                  onChange={() => {
-                    setMode('upload')
-                    clearPreview()
-                  }}
+                  checked={panel.mode === 'upload'}
+                  onChange={() => setMode('upload')}
                 />
                 <Trans>上传 JSONL</Trans>
               </label>
             </div>
           </fieldset>
 
-          {mode === 'path' ? (
-            // 两种来源的输入框结构相似；显式 key 避免 React 复用同一 DOM 节点，
-            // 否则切换来源时受控 value 消失会产生 controlled→uncontrolled 警告。
+          {panel.mode === 'path' ? (
             <label key="path" htmlFor="huan-import-path" className="flex flex-col gap-1">
               <span className="text-muted-foreground text-xs">
                 <Trans>宿主机器上的 JSONL 绝对路径（不是浏览器本地文件）</Trans>
@@ -323,13 +162,10 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
                 <Input
                   id="huan-import-path"
                   aria-label="宿主 JSONL 路径"
-                  value={path}
+                  value={panel.path}
                   placeholder="/path/to/session.jsonl"
                   className="h-8 text-sm"
-                  onChange={(event) => {
-                    setPath(event.target.value)
-                    clearPreview()
-                  }}
+                  onChange={(event) => setPath(event.target.value)}
                 />
               </div>
             </label>
@@ -341,17 +177,34 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
               <div className="flex items-center gap-2">
                 <FileUpIcon aria-hidden className="text-muted-foreground size-4 shrink-0" />
                 <Input
+                  ref={fileRef}
                   id="huan-import-file"
                   aria-label="选择 JSONL 文件"
                   type="file"
                   accept=".jsonl,application/jsonl,application/x-ndjson"
                   className="h-8 text-xs"
-                  onChange={(event) => void pickFile(event.target.files?.[0])}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    void readFile(file)
+                    // 允许再次选择同一文件。
+                    event.target.value = ''
+                  }}
                 />
               </div>
-              {upload && (
+              {panel.fileReading && (
+                <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                  <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                  <Trans>正在读取文件…</Trans>
+                </span>
+              )}
+              {panel.upload && (
                 <span className="text-muted-foreground truncate text-xs">
-                  {upload.filename} · {Math.ceil(upload.content.length / 1024)} KiB
+                  {panel.upload.filename} · {Math.ceil(panel.upload.content.length / 1024)} KiB
+                </span>
+              )}
+              {panel.fileError && (
+                <span role="alert" className="text-destructive text-xs">
+                  {panel.fileError}
                 </span>
               )}
             </label>
@@ -362,16 +215,15 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
               <Trans>替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）</Trans>
             </span>
             <Select
-              value={cwdOverride || '__source__'}
+              value={panel.cwdOverride || SOURCE_SENTINEL}
               items={{
-                __source__: i18n._(msg`使用源会话起始目录`),
+                [SOURCE_SENTINEL]: '使用源会话起始目录',
                 ...Object.fromEntries(
                   availableProjects.map((project) => [project.path, project.path]),
                 ),
               }}
               onValueChange={(value) => {
-                setCwdOverride(value === '__source__' ? '' : (value ?? ''))
-                clearPreview()
+                configureImport({ cwdOverride: value === SOURCE_SENTINEL ? '' : (value ?? '') })
               }}
             >
               <SelectTrigger
@@ -383,7 +235,7 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__source__">
+                <SelectItem value={SOURCE_SENTINEL}>
                   <Trans>使用源会话起始目录</Trans>
                 </SelectItem>
                 {availableProjects.map((project) => (
@@ -395,7 +247,7 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
             </Select>
           </div>
 
-          <p className="text-muted-foreground rounded-md border bg-muted/40 px-2.5 py-2 text-xs">
+          <p className="text-muted-foreground bg-muted/40 rounded-md border px-2.5 py-2 text-xs">
             <Trans>
               导入内容只保存在本机宿主，不会上传到第三方；请确认 JSONL
               中没有不希望持久化的敏感信息。原文件不会被修改。
@@ -452,7 +304,7 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
                     type="checkbox"
                     aria-label="作为独立副本导入"
                     className="mt-0.5 size-3.5 accent-current"
-                    checked={copyConfirmed}
+                    checked={panel.copyConfirmed}
                     onChange={(event) => setCopyConfirmed(event.target.checked)}
                   />
                   <span>
@@ -463,13 +315,13 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
               {preview.conflict === 'already-exists' && (
                 <div className="mt-1 flex items-center gap-2">
                   <span className="text-muted-foreground">
-                    <Trans>已有会话 ID：{existingId}</Trans>
+                    <Trans>已有会话 ID：{preview.existingThreadId}</Trans>
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    onClick={() => void openExisting()}
+                    onClick={() => openExisting()}
                   >
                     <Trans>打开已有会话</Trans>
                   </Button>
@@ -491,41 +343,63 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
             </div>
           )}
 
-          {trustPath && (
+          {panel.trustPath && (
             <div className="rounded-md border p-2">
               <div className="mb-2 flex items-center gap-1.5 text-xs">
                 <ShieldAlertIcon aria-hidden className="text-destructive size-3.5" />
                 <Trans>导入目标项目需要信任决定；拒绝后仍会使用用户级资源导入。</Trans>
               </div>
-              <TrustDecisionPanel
-                path={trustPath}
-                onDone={(info) => {
-                  setTrustPath(undefined)
-                  if (info?.status === 'ready') void runImport()
-                }}
-              />
+              {trust.open && trust.path === panel.trustPath ? (
+                <TrustDecisionPanel path={panel.trustPath} />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void openTrust(panel.trustPath ?? '')}
+                >
+                  <Trans>决定信任</Trans>
+                </Button>
+              )}
             </div>
           )}
 
-          {error && (
+          {panel.error && (
             <p role="alert" className="text-destructive text-sm">
-              {error}
+              {panel.error}
             </p>
+          )}
+          {panel.notice && (
+            <div
+              role="status"
+              className="bg-muted/50 flex flex-wrap items-center gap-2 rounded-md px-2.5 py-2 text-xs"
+            >
+              <span>{panel.notice}</span>
+              {panel.importedThreadId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => openImported()}
+                >
+                  <Trans>打开已导入会话</Trans>
+                </Button>
+              )}
+            </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={panel.busy} onClick={closeImport}>
             <Trans>取消</Trans>
           </Button>
-          <Button variant="outline" disabled={!canPreview} onClick={() => void runPreview()}>
-            {busy ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}
+          <Button variant="outline" disabled={!canPreview} onClick={() => void previewImport()}>
+            {panel.busy ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}
             <Trans>预览导入</Trans>
           </Button>
           <Button
             data-slot="huan-import-confirm"
             disabled={!canImport}
-            onClick={() => void runImport()}
+            onClick={() => void confirmImport()}
           >
             <Trans>确认导入</Trans>
           </Button>
@@ -537,28 +411,17 @@ export function ImportThreadDialog({ open, onOpenChange, initialPath }: ImportTh
 
 /** 侧栏导入入口。 */
 export function ImportThreadButton() {
-  const [open, setOpen] = useState(false)
-  const [initialPath, setInitialPath] = useState<string>()
-  const intent = usePiIntent()
-  useEffect(() => {
-    if (intent?.kind !== 'import') return
-    setInitialPath(intent.payload?.path)
-    setOpen(true)
-    clearPiIntent(intent.id)
-  }, [intent])
-  const { i18n } = useLingui()
+  const openImport = useSessionsStore((state) => state.openImport)
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId)
   return (
-    <>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-8 shrink-0"
-        aria-label={i18n._(msg`导入 JSONL`)}
-        onClick={() => setOpen(true)}
-      >
-        <FileUpIcon aria-hidden className="size-4" />
-      </Button>
-      <ImportThreadDialog open={open} onOpenChange={setOpen} initialPath={initialPath} />
-    </>
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-8 shrink-0"
+      aria-label="导入 JSONL"
+      onClick={() => openImport(activeWorkspaceId ? { workspaceId: activeWorkspaceId } : {})}
+    >
+      <FileUpIcon aria-hidden className="size-4" />
+    </Button>
   )
 }

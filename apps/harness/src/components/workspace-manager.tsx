@@ -1,14 +1,22 @@
 /**
- * 工作区创建/编辑与新建会话弹层。
+ * 工作区创建/编辑、新建会话预检与信任决定。
  *
- * 表单、列表控制与提示状态在应用工作区 Zustand store；工作区定义只在公共
- * serviceStore。成员路径健康与信任决定面板暂留 R6，本包只保留工作区保存与
- * 选择起始项目的业务动作，不恢复旧的模块级目录/HTTP 包装。
+ * 表单、路径健康、信任查询和忙状态都在工作区 feature Zustand；组件只选择
+ * 状态并触发动作。工作区定义与目录仍只来自公共 serviceStore。
  */
 
+import type { HarnessProjectInfo } from '@huan/protocol'
 import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { Loader2Icon, PlusIcon, Trash2Icon } from 'lucide-react'
+import {
+  CheckCircle2Icon,
+  Loader2Icon,
+  PlusIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  ShieldXIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,9 +28,131 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useWorkspaceStore } from '@/state/app-context'
+import type { WorkspaceMemberDraft } from '@/state/workspace-store'
 
 const mutationDisabled = (state: string | undefined): boolean =>
   state !== undefined && state !== 'ok'
+
+function TrustBadge({ info }: { info: HarnessProjectInfo | undefined }) {
+  if (!info) return null
+  if (info.status === 'failed') {
+    return (
+      <span className="text-destructive inline-flex items-center gap-1 text-xs">
+        <ShieldAlertIcon aria-hidden className="size-3.5" />
+        <Trans>装配失败</Trans>
+      </span>
+    )
+  }
+  if (info.status === 'needs-trust') {
+    return (
+      <span className="text-destructive inline-flex items-center gap-1 text-xs">
+        <ShieldAlertIcon aria-hidden className="size-3.5" />
+        <Trans>需要信任决定</Trans>
+      </span>
+    )
+  }
+  if (info.trust.decision === 'trusted') {
+    return (
+      <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+        <ShieldCheckIcon aria-hidden className="size-3.5" />
+        <Trans>已信任</Trans>
+      </span>
+    )
+  }
+  return (
+    <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+      <ShieldXIcon aria-hidden className="size-3.5" />
+      <Trans>仅用户资源</Trans>
+    </span>
+  )
+}
+
+/** 信任决定面板：状态来自工作区 store；调用方负责打开。 */
+export function TrustDecisionPanel({
+  path,
+  onDone,
+  intentKind = 'none',
+}: {
+  path: string
+  onDone?: (info: HarnessProjectInfo | undefined) => void
+  /** 同一面板由不同入口打开；只显示匹配来源的信任状态。 */
+  intentKind?: 'none' | 'new-session' | 'standalone'
+}) {
+  const trust = useWorkspaceStore((state) => state.trust)
+  const setRemember = useWorkspaceStore((state) => state.setTrustRemember)
+  const decideTrust = useWorkspaceStore((state) => state.decideTrust)
+  const closeTrust = useWorkspaceStore((state) => state.closeTrust)
+
+  if (!trust.open || trust.path !== path) return null
+  const intentMatches =
+    intentKind === 'none' ? trust.intent === undefined : trust.intent?.kind === intentKind
+  if (!intentMatches) return null
+  const active = trust.info
+  return (
+    <div className="flex flex-col gap-3 rounded-md border p-3" data-slot="huan-trust-panel">
+      <p className="text-sm">
+        <Trans>
+          该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。
+        </Trans>
+      </p>
+      <p className="text-muted-foreground break-all text-xs">{path}</p>
+      {trust.loading ? (
+        <span className="text-muted-foreground inline-flex items-center gap-1 text-sm">
+          <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+          <Trans>正在查询项目信任…</Trans>
+        </span>
+      ) : (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            <Trans>当前状态</Trans>
+          </span>
+          <TrustBadge info={active} />
+        </div>
+      )}
+      {trust.error && (
+        <p role="alert" className="text-destructive text-sm">
+          <Trans>信任查询或保存失败，请查看宿主终端后重试。</Trans>
+        </p>
+      )}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="size-4 accent-current"
+          checked={trust.remember}
+          disabled={trust.busy}
+          onChange={(event) => setRemember(event.target.checked)}
+        />
+        <Trans>记住此决定（写入当前路径的 trust.json）</Trans>
+      </label>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          variant="outline"
+          disabled={trust.busy}
+          onClick={() => {
+            closeTrust()
+            onDone?.(undefined)
+          }}
+        >
+          <Trans>稍后处理</Trans>
+        </Button>
+        <Button
+          variant="outline"
+          disabled={trust.busy}
+          onClick={() => void decideTrust(false).then((info) => onDone?.(info))}
+        >
+          <Trans>本次拒绝</Trans>
+        </Button>
+        <Button
+          disabled={trust.busy}
+          onClick={() => void decideTrust(true).then((info) => onDone?.(info))}
+        >
+          {trust.busy ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}
+          <Trans>本次允许</Trans>
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 /** 工作区管理/创建弹层。 */
 export function WorkspaceManagerDialog() {
@@ -31,6 +161,8 @@ export function WorkspaceManagerDialog() {
   const closeWorkspaceForm = useWorkspaceStore((state) => state.closeWorkspaceForm)
   const setWorkspaceFormName = useWorkspaceStore((state) => state.setWorkspaceFormName)
   const setWorkspaceMember = useWorkspaceStore((state) => state.setWorkspaceMember)
+  const inspectWorkspaceMember = useWorkspaceStore((state) => state.inspectWorkspaceMember)
+  const openTrust = useWorkspaceStore((state) => state.openTrust)
   const addWorkspaceMember = useWorkspaceStore((state) => state.addWorkspaceMember)
   const removeWorkspaceMember = useWorkspaceStore((state) => state.removeWorkspaceMember)
   const saveWorkspaceForm = useWorkspaceStore((state) => state.saveWorkspaceForm)
@@ -82,37 +214,77 @@ export function WorkspaceManagerDialog() {
             </Button>
           </div>
           <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-            {form.members.map((member) => (
+            {form.members.map((member: WorkspaceMemberDraft) => (
               <div
                 key={member.key}
                 data-slot="huan-workspace-member"
-                className="flex items-center gap-2 rounded-md border p-2"
+                className="flex flex-col gap-1 rounded-md border p-2"
               >
-                <Input
-                  className="w-32"
-                  value={member.alias}
-                  onChange={(event) =>
-                    setWorkspaceMember(member.key, { alias: event.target.value })
-                  }
-                  aria-label="项目别名"
-                  placeholder="别名"
-                />
-                <Input
-                  className="min-w-0 flex-1"
-                  value={member.path}
-                  onChange={(event) => setWorkspaceMember(member.key, { path: event.target.value })}
-                  aria-label="项目路径"
-                  placeholder="/home/user/project"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="移除成员"
-                  disabled={form.members.length <= 1}
-                  onClick={() => removeWorkspaceMember(member.key)}
-                >
-                  <Trash2Icon aria-hidden className="size-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Input
+                    className="w-32"
+                    value={member.alias}
+                    onChange={(event) =>
+                      setWorkspaceMember(member.key, { alias: event.target.value })
+                    }
+                    aria-label="项目别名"
+                    placeholder="别名"
+                  />
+                  <Input
+                    className="min-w-0 flex-1"
+                    value={member.path}
+                    onChange={(event) =>
+                      setWorkspaceMember(member.key, { path: event.target.value })
+                    }
+                    onBlur={() => void inspectWorkspaceMember(member.key)}
+                    aria-label="项目路径"
+                    placeholder="/home/user/project"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="移除成员"
+                    disabled={form.members.length <= 1}
+                    onClick={() => removeWorkspaceMember(member.key)}
+                  >
+                    <Trash2Icon aria-hidden className="size-4" />
+                  </Button>
+                </div>
+                <div className="flex min-h-5 flex-wrap items-center gap-2 px-1 text-xs">
+                  {member.checking ? (
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                      <Trans>检查路径与信任…</Trans>
+                    </span>
+                  ) : member.available === true ? (
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <CheckCircle2Icon aria-hidden className="size-3.5" />
+                      <Trans>路径可用</Trans>
+                    </span>
+                  ) : member.available === false ? (
+                    <span className="text-destructive inline-flex items-center gap-1">
+                      <ShieldAlertIcon aria-hidden className="size-3.5" />
+                      <Trans>路径缺失或不是目录；记录会保留，会话仍固定原起始目录。</Trans>
+                    </span>
+                  ) : null}
+                  {member.trustFailed && (
+                    <span className="text-destructive">
+                      <Trans>项目装配检查失败</Trans>
+                    </span>
+                  )}
+                  <TrustBadge info={member.trust} />
+                  {member.trust?.status === 'needs-trust' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 px-1 text-xs"
+                      onClick={() => void openTrust(member.path.trim())}
+                    >
+                      <Trans>决定信任</Trans>
+                    </Button>
+                  )}
+                </div>
+                {member.path.trim() && <TrustDecisionPanel path={member.path.trim()} />}
               </div>
             ))}
           </div>
@@ -146,17 +318,20 @@ export function WorkspaceManagerDialog() {
   )
 }
 
-/** 新建会话：把窗口起始项目写入 windowStore 的新会话目标。 */
+/** 新建会话：选择起始项目并执行路径/信任预检。 */
 export function NewSessionDialog() {
   const newSession = useWorkspaceStore((state) => state.newSession)
   const workspace = useServiceStore((state) =>
     newSession.workspaceId ? state.workspacesById[newSession.workspaceId] : undefined,
   )
+  const workspaceState = useServiceStore((state) => state.workspaceState)
   const closeNewSession = useWorkspaceStore((state) => state.closeNewSession)
   const setNewSessionPath = useWorkspaceStore((state) => state.setNewSessionPath)
   const startNewSession = useWorkspaceStore((state) => state.startNewSession)
+  const trust = useWorkspaceStore((state) => state.trust)
 
   if (!workspace) return null
+  const disabled = mutationDisabled(workspaceState)
 
   return (
     <Dialog
@@ -172,7 +347,8 @@ export function NewSessionDialog() {
           </DialogTitle>
           <DialogDescription>
             <Trans>
-              选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名 读写与执行命令。
+              选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名
+              读写与执行命令；开始前会检查路径与信任。
             </Trans>
           </DialogDescription>
         </DialogHeader>
@@ -213,12 +389,63 @@ export function NewSessionDialog() {
           </div>
         </div>
 
+        {newSession.message && (
+          <p role="alert" className="text-destructive text-sm">
+            {newSession.message}
+          </p>
+        )}
+        {newSession.checking && (
+          <p
+            role="status"
+            className="text-muted-foreground inline-flex items-center gap-1.5 text-sm"
+          >
+            <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+            <Trans>正在检查起始项目与信任…</Trans>
+          </p>
+        )}
+        {trust.open && trust.intent?.kind === 'new-session' && (
+          <TrustDecisionPanel path={trust.path} intentKind="new-session" />
+        )}
+
         <DialogFooter>
-          <Button variant="outline" onClick={closeNewSession}>
+          <Button variant="outline" disabled={newSession.checking} onClick={closeNewSession}>
             <Trans>取消</Trans>
           </Button>
-          <Button disabled={!newSession.selectedPath} onClick={startNewSession}>
+          <Button
+            disabled={newSession.checking || !newSession.selectedPath || disabled}
+            onClick={() => void startNewSession()}
+          >
+            {newSession.checking ? (
+              <Loader2Icon aria-hidden className="size-4 animate-spin" />
+            ) : null}
             <Trans>开始新会话</Trans>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** `/trust` 等独立入口：显示当前全局信任面板，不复制第二份状态。 */
+export function TrustDecisionDialog() {
+  const trust = useWorkspaceStore((state) => state.trust)
+  const closeTrust = useWorkspaceStore((state) => state.closeTrust)
+  if (!trust.open || trust.intent?.kind !== 'standalone') return null
+  return (
+    <Dialog open onOpenChange={(open) => !open && closeTrust()}>
+      <DialogContent data-slot="huan-command-trust" aria-label="项目信任">
+        <DialogHeader>
+          <DialogTitle>
+            <Trans>项目信任</Trans>
+          </DialogTitle>
+          <DialogDescription>
+            <Trans>信任是加载项目资源的前提，不等同于操作系统沙箱。</Trans>
+          </DialogDescription>
+        </DialogHeader>
+        <TrustDecisionPanel path={trust.path} intentKind="standalone" onDone={() => closeTrust()} />
+        <DialogFooter>
+          <Button variant="outline" onClick={closeTrust}>
+            <Trans>关闭</Trans>
           </Button>
         </DialogFooter>
       </DialogContent>

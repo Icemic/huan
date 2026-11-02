@@ -6,9 +6,11 @@ import type {
 } from '@huan/protocol'
 import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { createHarnessBrowser, type HarnessBrowser } from '@huan/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createAuthFeatureStore } from './auth-store'
 import { createComposerFeatureStore } from './composer-store'
 import { createSessionsFeatureStore } from './sessions-store'
+import { createSettingsFeatureStore } from './settings-store'
 import { createWorkspaceFeatureStore } from './workspace-store'
 
 const hostInfo: HarnessHostInfo = {
@@ -77,7 +79,15 @@ const createFakeClient = () => {
     getProviderAuth: vi.fn(async () => ({
       seq: 1,
       authRevision: 1,
-      providers: [],
+      providers: [
+        {
+          providerId: 'provider-a',
+          name: 'Provider A',
+          configured: false,
+          methods: [{ type: 'api_key', label: 'API key', loginable: true }],
+          ambientOnly: false,
+        },
+      ],
       operations: [],
     })),
     getMcpAuth: vi.fn(async () => ({ seq: 1, authRevision: 1, operations: [] })),
@@ -99,6 +109,109 @@ const createFakeClient = () => {
         availableThinkingLevels: ['off', 'high'],
       },
     ]),
+    getSettings: vi.fn(async (input: { threadId?: string; workspacePath?: string }) => ({
+      target: input.threadId
+        ? { kind: 'session' as const, threadId: input.threadId, workspacePath: '/workspace' }
+        : { kind: 'workspace' as const, workspacePath: input.workspacePath ?? '/workspace' },
+      agentDir: '/agent',
+      projectTrusted: true,
+      trust: { decision: 'trusted' as const, requiresTrust: false, origin: 'explicit' },
+      files: {
+        user: {
+          scope: 'user' as const,
+          path: '/agent/settings.json',
+          exists: false,
+          content: '{}\n',
+          revision: null,
+          bytes: 3,
+          readable: true,
+          tooLarge: false,
+          issues: [],
+        },
+        project: {
+          scope: 'project' as const,
+          path: '/workspace/.pi/settings.json',
+          exists: false,
+          content: '{}\n',
+          revision: null,
+          bytes: 3,
+          readable: true,
+          tooLarge: false,
+          issues: [],
+        },
+      },
+      effective: { source: 'disk' as const, values: {}, origins: {} },
+    })),
+    getResources: vi.fn(async (input: { threadId?: string; workspacePath?: string }) => ({
+      target: input.threadId
+        ? { kind: 'session' as const, threadId: input.threadId, workspacePath: '/workspace' }
+        : { kind: 'workspace' as const, workspacePath: input.workspacePath ?? '/workspace' },
+      agentDir: '/agent',
+      trust: { decision: 'trusted' as const, requiresTrust: false, origin: 'explicit' },
+      loadedFrom: 'session' as const,
+      projectResourcesLoaded: true,
+      instructions: [],
+      extensions: [],
+      skills: [],
+      prompts: [],
+      themes: [],
+      packages: [],
+      loaded: [],
+      diagnostics: [],
+    })),
+    reloadResources: vi.fn(async (input: { threadId?: string; workspacePath?: string }) => ({
+      status: 'reloaded' as const,
+      kind: input.threadId ? ('session' as const) : ('workspace' as const),
+      workspacePath: '/workspace',
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      operation: {
+        id: 'reload-1',
+        trigger: 'settings' as const,
+        status: 'succeeded' as const,
+        workspacePath: '/workspace',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        fromResourceRevision: 0,
+        resourceRevision: 1,
+      },
+      resourceRevision: 1,
+    })),
+    getThreadDetails: vi.fn(async (threadId: string) => ({
+      metadata: { id: threadId, status: 'idle' as const, workspacePath: '/workspace' },
+      stats: {
+        userMessages: 0,
+        assistantMessages: 0,
+        toolResults: 0,
+        toolCalls: 0,
+        totalMessages: 0,
+        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        cost: 0,
+      },
+      branchEntryCount: 0,
+    })),
+    inspectProjectTrust: vi.fn(async ({ path }: { path: string }) => ({
+      path,
+      name: 'workspace',
+      status: 'ready' as const,
+      trust: {
+        decision: 'trusted' as const,
+        origin: 'explicit' as const,
+        requiresTrust: false,
+        defaultPolicy: 'ask' as const,
+        extensionErrorCount: 0,
+      },
+    })),
+    getProject: vi.fn(async ({ path }: { path: string }) => ({
+      path,
+      name: 'workspace',
+      status: 'ready' as const,
+      trust: {
+        decision: 'trusted' as const,
+        origin: 'explicit' as const,
+        requiresTrust: false,
+        defaultPolicy: 'ask' as const,
+        extensionErrorCount: 0,
+      },
+    })),
     getCommandArgumentCompletions: vi.fn(async () => []),
     searchFiles: vi.fn(async (input: { query?: string }) => {
       searches.push(input)
@@ -166,6 +279,8 @@ const createApp = (
   browser: HarnessBrowser
   composer: ReturnType<typeof createComposerFeatureStore>
   sessions: ReturnType<typeof createSessionsFeatureStore>
+  settings: ReturnType<typeof createSettingsFeatureStore>
+  auth: ReturnType<typeof createAuthFeatureStore>
 } => {
   const browser = createHarnessBrowser({
     client,
@@ -175,12 +290,16 @@ const createApp = (
   })
   const workspaceStore = createWorkspaceFeatureStore({ browser, storage: null })
   const sessions = createSessionsFeatureStore({ browser })
+  const settingsStore = createSettingsFeatureStore({ browser })
+  const authStore = createAuthFeatureStore({ browser })
   const composer = createComposerFeatureStore({
     browser,
     workspaceStore,
     sessionsStore: sessions,
+    settingsStore,
+    authStore,
   })
-  return { browser, composer, sessions }
+  return { browser, composer, sessions, settings: settingsStore, auth: authStore }
 }
 
 const selectThread = (browser: HarnessBrowser, threadId = 't1') => {
@@ -342,5 +461,136 @@ describe('composer feature：补全、长输入、历史与取回', () => {
     expect(composer.getState().recoveredQueue).toMatchObject({ threadId: 't1' })
     expect(composer.getState().restoreRecoveredQueue()).toBe(false)
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('newer')
+  })
+})
+
+const assistantSnapshot = (threadId: string, text: string): HarnessThreadSnapshot => ({
+  metadata: { id: threadId, status: 'idle', workspacePath: '/workspace' },
+  messages: [
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      api: 'test',
+      provider: 'provider',
+      model: 'model',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'stop',
+      timestamp: 1,
+    },
+  ],
+  messageEntryIds: ['e1'],
+  seq: 1,
+})
+
+describe('composer feature：管理命令路由到 feature 动作', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('/settings 打开设置面板并清空命令文本', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, settings } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/settings')
+
+    await composer.getState().submit()
+    expect(settings.getState().open).toBe(true)
+    expect(settings.getState().target).toEqual({ threadId: 't1' })
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/login 验证 provider 后打开认证面板；未知 provider 保留输入', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, auth } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/login provider-a')
+    await composer.getState().submit()
+    expect(auth.getState().open).toBe(true)
+    expect(auth.getState().focusedProvider).toBe('provider-a')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+
+    auth.getState().closePanel()
+    browser.windowStore.getState().editDraftText(draftId, '/login unknown-provider')
+    await composer.getState().submit()
+    expect(auth.getState().open).toBe(false)
+    expect(composer.getState().notice).toContain('未知 provider')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/login unknown-provider')
+  })
+
+  it('/clone 只打开 fork 确认，不在命令处理器里直接创建', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, sessions } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/clone')
+    await composer.getState().submit()
+    expect(sessions.getState().forkPanel).toMatchObject({
+      open: true,
+      sourceThreadId: 't1',
+      position: 'at',
+    })
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/import 打开导入面板并保留参数路径', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, sessions } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/import /tmp/session.jsonl')
+    await composer.getState().submit()
+    expect(sessions.getState().importPanel.open).toBe(true)
+    expect(sessions.getState().importPanel.path).toBe('/tmp/session.jsonl')
+    expect(sessions.getState().importPanel.source).toEqual({
+      kind: 'path',
+      path: '/tmp/session.jsonl',
+    })
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/session、/trust 与 /reload 使用当前目标动作', async () => {
+    const fake = createFakeClient()
+    const { browser, composer, sessions } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.serviceStore.getState().applyThreadSnapshot('t1', snapshotOf('t1'))
+
+    browser.windowStore.getState().editDraftText(draftId, '/session')
+    await composer.getState().submit()
+    expect(sessions.getState().details.open).toBe(true)
+    expect(sessions.getState().details.threadId).toBe('t1')
+    sessions.getState().closeDetails()
+
+    browser.windowStore.getState().editDraftText(draftId, '/trust')
+    await composer.getState().submit()
+    expect(fake.client.inspectProjectTrust).toHaveBeenCalledWith({ path: '/workspace' })
+
+    browser.windowStore.getState().editDraftText(draftId, '/reload')
+    await composer.getState().submit()
+    expect(fake.client.reloadResources).toHaveBeenCalledWith({
+      threadId: 't1',
+      trigger: 'settings',
+    })
+    expect(composer.getState().notice).toContain('资源版本 1')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/copy 复制最后一条助手文本，不发送新消息', async () => {
+    const fake = createFakeClient()
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    vi.mocked(fake.client.getThread).mockResolvedValueOnce(assistantSnapshot('t1', '最后一条回复'))
+    const { browser, composer } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.windowStore.getState().editDraftText(draftId, '/copy')
+
+    await composer.getState().submit()
+    expect(writeText).toHaveBeenCalledWith('最后一条回复')
+    expect(fake.sent).toEqual([])
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 })

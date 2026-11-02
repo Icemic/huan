@@ -9,8 +9,11 @@ import { createHarnessBrowser, type HarnessBrowser, type HarnessBrowserStorage }
 import { createHarnessHttpClient } from '@huan/react/client'
 import type { StoreApi } from 'zustand/vanilla'
 import { applyThemeToDocument, type ThemeStorage } from './lib/theme'
+import { type AuthFeatureState, createAuthFeatureStore } from './state/auth-store'
 import { type ComposerFeatureState, createComposerFeatureStore } from './state/composer-store'
+import { createHostFeatureStore, type HostFeatureState } from './state/host-store'
 import { createSessionsFeatureStore, type SessionsFeatureState } from './state/sessions-store'
+import { createSettingsFeatureStore, type SettingsFeatureState } from './state/settings-store'
 import { createThemeStore, type ThemeStoreState } from './state/theme-store'
 import { createWorkspaceFeatureStore, type WorkspaceFeatureState } from './state/workspace-store'
 
@@ -19,6 +22,9 @@ export interface HarnessApp {
   browser: HarnessBrowser
   workspaceStore: StoreApi<WorkspaceFeatureState>
   sessionsStore: StoreApi<SessionsFeatureState>
+  settingsStore: StoreApi<SettingsFeatureState>
+  authStore: StoreApi<AuthFeatureState>
+  hostStore: StoreApi<HostFeatureState>
   composerStore: StoreApi<ComposerFeatureState>
   themeStore: StoreApi<ThemeStoreState>
   dispose(): void
@@ -82,12 +88,35 @@ export const createHarnessApp = (): HarnessApp => {
     browser,
     ...(storage ? { storage } : { storage: null }),
   })
-  const sessionsStore = createSessionsFeatureStore({ browser })
+  const sessionsStore = createSessionsFeatureStore({
+    browser,
+    onNotice: (message) => workspaceStore.getState().showNotice(message),
+  })
+  const composerRef: { current?: StoreApi<ComposerFeatureState> } = {}
+  const settingsStore = createSettingsFeatureStore({
+    browser,
+    fallbackWorkspacePath: () => {
+      const workspaceId = workspaceStore.getState().activeWorkspaceId
+      if (!workspaceId) return browser.serviceStore.getState().host?.workspacePath
+      return (
+        workspaceStore.getState().startProjectFor(workspaceId) ??
+        browser.serviceStore.getState().host?.workspacePath
+      )
+    },
+    onResourceReloaded: () => {
+      void composerRef.current?.getState().refreshCatalog()
+    },
+  })
+  const authStore = createAuthFeatureStore({ browser })
+  const hostStore = createHostFeatureStore({ browser })
   const composerStore = createComposerFeatureStore({
     browser,
     workspaceStore,
     sessionsStore,
+    settingsStore,
+    authStore,
   })
+  composerRef.current = composerStore
   composerStore
     .getState()
     .refreshCatalog()
@@ -145,6 +174,9 @@ export const createHarnessApp = (): HarnessApp => {
     browser,
     workspaceStore,
     sessionsStore,
+    settingsStore,
+    authStore,
+    hostStore,
     composerStore,
     themeStore,
     dispose: () => {
@@ -168,6 +200,21 @@ export const createHarnessApp = (): HarnessApp => {
       }
       try {
         sessionsStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        settingsStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        authStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        hostStore.getState().dispose()
       } catch (error) {
         errors.push(error)
       }

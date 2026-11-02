@@ -7,7 +7,11 @@
  * - 本 store 只保存应用侧列表控制、展开、表单草稿与操作提示，不复制目录数据。
  */
 
-import type { HarnessWorkspace, HarnessWorkspaceProjectInput } from '@huan/protocol'
+import type {
+  HarnessProjectInfo,
+  HarnessWorkspace,
+  HarnessWorkspaceProjectInput,
+} from '@huan/protocol'
 import type { HarnessBrowser, HarnessBrowserStorage } from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 
@@ -20,11 +24,15 @@ export type WorkspaceThreadSort = 'recent' | 'created' | 'name'
 /** 会话列表范围：全部工作区（含未归属）或当前工作区。 */
 export type WorkspaceThreadScope = 'all' | 'workspace'
 
-/** 工作区表单成员草稿；路径健康与信任检查留 R6。 */
+/** 工作区表单成员草稿；健康与信任只来自宿主查询，不做浏览器推断。 */
 export interface WorkspaceMemberDraft {
   key: string
   alias: string
   path: string
+  checking?: boolean
+  available?: boolean
+  trust?: HarnessProjectInfo
+  trustFailed?: boolean
 }
 
 /** 工作区创建/编辑表单。 */
@@ -39,10 +47,38 @@ export interface WorkspaceFormState {
   message?: string
 }
 
-/** 新建会话目标选择。 */
+/** 新建会话目标选择与预检状态。 */
 export interface NewSessionState {
   workspaceId?: string
   selectedPath: string
+  /** 每次打开推进；信任回来的迟到结果只应用到同一表单代次。 */
+  epoch: number
+  checking: boolean
+  message?: string
+}
+
+/** 信任决定表单来源；新会话预检完成后直接开始。 */
+export type WorkspaceTrustIntent =
+  | {
+      kind: 'new-session'
+      workspaceId: string
+      startProjectPath: string
+      newSessionEpoch: number
+    }
+  | { kind: 'standalone' }
+  | undefined
+
+/** 信任决定面板状态。 */
+export interface WorkspaceTrustState {
+  open: boolean
+  path: string
+  epoch: number
+  loading: boolean
+  info: HarnessProjectInfo | undefined
+  remember: boolean
+  busy: boolean
+  error: boolean
+  intent: WorkspaceTrustIntent
 }
 
 /** 工作区 feature 状态。 */
@@ -61,6 +97,7 @@ export interface WorkspaceFeatureState {
   notice: string | undefined
   form: WorkspaceFormState
   newSession: NewSessionState
+  trust: WorkspaceTrustState
   disposed: boolean
 
   /** 首次挂载读取宿主工作区与会话目录；重复调用复用首个结果。 */
@@ -82,13 +119,21 @@ export interface WorkspaceFeatureState {
   openNewSession: (workspaceId: string) => void
   closeNewSession: () => void
   setNewSessionPath: (path: string) => void
-  startNewSession: () => void
+  /** 路径与信任预检；需要信任时打开信任面板，完成后继续。 */
+  startNewSession: () => Promise<void>
   openWorkspaceForm: (workspaceId?: string) => void
   closeWorkspaceForm: () => void
   setWorkspaceFormName: (name: string) => void
   setWorkspaceMember: (key: string, patch: Partial<Omit<WorkspaceMemberDraft, 'key'>>) => void
   addWorkspaceMember: () => void
   removeWorkspaceMember: (key: string) => void
+  /** 查询成员路径可用性与只读信任摘要；迟到结果按成员路径保护。 */
+  inspectWorkspaceMember: (key: string) => Promise<void>
+  openTrust: (path: string, intent?: WorkspaceTrustIntent) => Promise<void>
+  closeTrust: () => void
+  setTrustRemember: (remember: boolean) => void
+  /** 保存本次信任决定；返回权威项目摘要供调用方继续。 */
+  decideTrust: (trusted: boolean) => Promise<HarnessProjectInfo | undefined>
   saveWorkspaceForm: () => Promise<void>
   setSearch: (search: string) => void
   setScope: (scope: WorkspaceThreadScope) => void
@@ -181,6 +226,20 @@ const emptyForm = (): WorkspaceFormState => ({
 
 const emptyNewSession = (): NewSessionState => ({
   selectedPath: '',
+  epoch: 0,
+  checking: false,
+})
+
+const emptyTrust = (): WorkspaceTrustState => ({
+  open: false,
+  path: '',
+  epoch: 0,
+  loading: false,
+  info: undefined,
+  remember: false,
+  busy: false,
+  error: false,
+  intent: undefined,
 })
 
 const mutationErrorText = (
@@ -206,6 +265,9 @@ export const createWorkspaceFeatureStore = (
   let initialized = false
   let refreshEpoch = 0
   let memberSeed = 0
+  let newSessionEpoch = 0
+  let trustEpoch = 0
+  const memberEpochs = new Map<string, number>()
   const nextMemberKey = () => {
     memberSeed += 1
     return `member-${memberSeed}`
@@ -262,11 +324,31 @@ export const createWorkspaceFeatureStore = (
       key: nextMemberKey(),
       alias: project.alias,
       path: project.path,
+      available: project.available,
     })),
     busy: false,
   })
 
   return createStore<WorkspaceFeatureState>()((set, get) => {
+    /** 信任决定后若新会话表单仍属于同一来源，则完成预检并开始新会话。 */
+    const finalizeNewSession = (
+      intent: Extract<WorkspaceTrustIntent, { kind: 'new-session' }>,
+    ): boolean => {
+      const state = get()
+      const panel = state.newSession
+      if (
+        panel.workspaceId !== intent.workspaceId ||
+        panel.selectedPath !== intent.startProjectPath ||
+        panel.epoch !== intent.newSessionEpoch
+      ) {
+        return false
+      }
+      get().beginNewSession(intent.workspaceId, intent.startProjectPath)
+      set({ newSession: emptyNewSession() })
+      get().showNotice(`新会话将以 ${intent.startProjectPath} 作为固定起始目录。`)
+      return true
+    }
+
     const applyExpanded = (workspaceId: string) => {
       const state = get()
       if (state.disposed) return
@@ -291,6 +373,7 @@ export const createWorkspaceFeatureStore = (
       notice: undefined,
       form: emptyForm(),
       newSession: emptyNewSession(),
+      trust: emptyTrust(),
       disposed: false,
 
       initialize: async () => {
@@ -454,33 +537,118 @@ export const createWorkspaceFeatureStore = (
         const workspace = browser.serviceStore.getState().workspacesById[workspaceId]
         if (!workspace) return
         applyExpanded(workspaceId)
+        newSessionEpoch += 1
+        const workspaceState = browser.serviceStore.getState().workspaceState
         set({
           newSession: {
+            ...emptyNewSession(),
+            epoch: newSessionEpoch,
             workspaceId,
             selectedPath: get().startProjectFor(workspaceId) ?? '',
+            ...(workspaceState !== undefined && workspaceState !== 'ok'
+              ? { message: '工作区元数据不可用；修复 state.json 后才能新建会话。' }
+              : {}),
           },
         })
       },
 
       closeNewSession: () => {
         if (get().disposed) return
+        newSessionEpoch += 1
         set({ newSession: emptyNewSession() })
       },
 
       setNewSessionPath: (path) => {
         const state = get()
-        if (state.disposed) return
-        set({ newSession: { ...state.newSession, selectedPath: path } })
+        if (state.disposed || !state.newSession.workspaceId) return
+        // 更换起始项目即新预检来源；旧的检查状态不沿用。
+        newSessionEpoch += 1
+        set({
+          newSession: {
+            ...state.newSession,
+            epoch: newSessionEpoch,
+            selectedPath: path,
+            checking: false,
+            message: undefined,
+          },
+        })
       },
 
-      startNewSession: () => {
+      startNewSession: async () => {
         const state = get()
         if (state.disposed) return
-        const { workspaceId, selectedPath } = state.newSession
-        if (!workspaceId || !selectedPath) return
-        get().beginNewSession(workspaceId, selectedPath)
-        set({ newSession: emptyNewSession() })
-        get().showNotice(`新会话将以 ${selectedPath} 作为固定起始目录。`)
+        const panel = state.newSession
+        const workspaceId = panel.workspaceId
+        const selectedPath = panel.selectedPath
+        if (!workspaceId || !selectedPath || panel.checking) return
+        const workspaceState = browser.serviceStore.getState().workspaceState
+        if (workspaceState !== undefined && workspaceState !== 'ok') {
+          set({
+            newSession: {
+              ...panel,
+              checking: false,
+              message: '工作区元数据不可用；修复 state.json 后才能新建会话。',
+            },
+          })
+          return
+        }
+        const epoch = panel.epoch
+        const currentPanel = () => {
+          const current = get().newSession
+          return current.epoch === epoch && current.workspaceId === workspaceId
+            ? current
+            : undefined
+        }
+        set({ newSession: { ...panel, checking: true, message: undefined } })
+        try {
+          // 预检只检查路径、项目状态与信任；不在浏览器推断可用性。
+          const check = await browser.client.checkProjectPath(selectedPath)
+          if (get().disposed || !currentPanel()) return
+          if (check.error || !check.exists || !check.isDirectory) {
+            set({
+              newSession: {
+                ...get().newSession,
+                checking: false,
+                message: '起始项目路径不存在或不是目录，请选择其他成员。',
+              },
+            })
+            return
+          }
+          const project = await browser.client.getProject({ path: check.path })
+          if (get().disposed || !currentPanel()) return
+          if (project.status === 'failed') {
+            set({
+              newSession: {
+                ...get().newSession,
+                checking: false,
+                message: '起始项目装配失败，请检查路径与宿主诊断。',
+              },
+            })
+            return
+          }
+          if (project.status === 'needs-trust') {
+            set({ newSession: { ...get().newSession, checking: false } })
+            await get().openTrust(check.path, {
+              kind: 'new-session',
+              workspaceId,
+              startProjectPath: selectedPath,
+              newSessionEpoch: epoch,
+            })
+            return
+          }
+          get().beginNewSession(workspaceId, selectedPath)
+          set({ newSession: emptyNewSession() })
+          get().showNotice(`新会话将以 ${selectedPath} 作为固定起始目录。`)
+        } catch {
+          if (get().disposed || !currentPanel()) return
+          set({
+            newSession: {
+              ...get().newSession,
+              checking: false,
+              message: '无法检查起始项目，请查看宿主连接后重试。',
+            },
+          })
+        }
       },
 
       openWorkspaceForm: (workspaceId) => {
@@ -490,6 +658,9 @@ export const createWorkspaceFeatureStore = (
           const workspace = browser.serviceStore.getState().workspacesById[workspaceId]
           if (!workspace) return
           set({ form: formFromWorkspace(workspace) })
+          // 打开既有工作区时重新检查成员路径与只读信任摘要。
+          const form = get().form
+          for (const member of form.members) void get().inspectWorkspaceMember(member.key)
           return
         }
         set({
@@ -501,6 +672,237 @@ export const createWorkspaceFeatureStore = (
             busy: false,
           },
         })
+      },
+
+      inspectWorkspaceMember: async (key) => {
+        const state = get()
+        if (state.disposed || !state.form.open) return
+        const member = state.form.members.find((item) => item.key === key)
+        if (!member) return
+        const path = member.path.trim()
+        const epoch = (memberEpochs.get(key) ?? 0) + 1
+        memberEpochs.set(key, epoch)
+        if (!path) {
+          set({
+            form: {
+              ...state.form,
+              members: state.form.members.map((item) =>
+                item.key === key
+                  ? {
+                      ...item,
+                      checking: false,
+                      available: undefined,
+                      trust: undefined,
+                      trustFailed: false,
+                    }
+                  : item,
+              ),
+            },
+          })
+          return
+        }
+        const currentMember = (): WorkspaceMemberDraft | undefined =>
+          get().form.members.find((item) => item.key === key)
+        set({
+          form: {
+            ...state.form,
+            members: state.form.members.map((item) =>
+              item.key === key ? { ...item, checking: true } : item,
+            ),
+          },
+        })
+        try {
+          const check = await browser.client.checkProjectPath(path)
+          const current = get()
+          const target = currentMember()
+          if (
+            current.disposed ||
+            epoch !== memberEpochs.get(key) ||
+            !target ||
+            target.path.trim() !== path
+          ) {
+            return
+          }
+          const available = !check.error && check.exists && check.isDirectory
+          if (!available) {
+            set({
+              form: {
+                ...current.form,
+                members: current.form.members.map((item) =>
+                  item.key === key
+                    ? {
+                        ...item,
+                        checking: false,
+                        available: false,
+                        trust: undefined,
+                        trustFailed: false,
+                      }
+                    : item,
+                ),
+              },
+            })
+            return
+          }
+          let trust: HarnessProjectInfo | undefined
+          let trustFailed = false
+          try {
+            trust = await browser.client.inspectProjectTrust({ path: check.path })
+          } catch {
+            trustFailed = true
+          }
+          const latest = get()
+          const latestMember = latest.form.members.find((item) => item.key === key)
+          if (
+            latest.disposed ||
+            epoch !== memberEpochs.get(key) ||
+            !latestMember ||
+            latestMember.path.trim() !== path
+          ) {
+            return
+          }
+          set({
+            form: {
+              ...latest.form,
+              members: latest.form.members.map((item) =>
+                item.key === key
+                  ? {
+                      ...item,
+                      checking: false,
+                      available: true,
+                      trust,
+                      trustFailed,
+                    }
+                  : item,
+              ),
+            },
+          })
+        } catch {
+          const latest = get()
+          const latestMember = latest.form.members.find((item) => item.key === key)
+          if (
+            latest.disposed ||
+            epoch !== memberEpochs.get(key) ||
+            !latestMember ||
+            latestMember.path.trim() !== path
+          ) {
+            return
+          }
+          set({
+            form: {
+              ...latest.form,
+              members: latest.form.members.map((item) =>
+                item.key === key
+                  ? {
+                      ...item,
+                      checking: false,
+                      available: false,
+                      trust: undefined,
+                      trustFailed: false,
+                    }
+                  : item,
+              ),
+            },
+          })
+        }
+      },
+
+      openTrust: async (path, intent) => {
+        const state = get()
+        if (state.disposed) return
+        const epoch = ++trustEpoch
+        set({
+          trust: {
+            open: true,
+            path,
+            epoch,
+            loading: true,
+            info: undefined,
+            remember: false,
+            busy: false,
+            error: false,
+            intent,
+          },
+        })
+        try {
+          const info = await browser.client.inspectProjectTrust({ path })
+          const current = get()
+          if (current.disposed || !current.trust.open || current.trust.epoch !== epoch) return
+          set({ trust: { ...current.trust, loading: false, info } })
+        } catch {
+          const current = get()
+          if (current.disposed || !current.trust.open || current.trust.epoch !== epoch) return
+          set({ trust: { ...current.trust, loading: false, error: true } })
+        }
+      },
+
+      closeTrust: () => {
+        const state = get()
+        if (state.disposed) return
+        trustEpoch += 1
+        set({ trust: emptyTrust() })
+      },
+
+      setTrustRemember: (remember) => {
+        const state = get()
+        if (state.disposed || !state.trust.open || state.trust.busy) return
+        set({ trust: { ...state.trust, remember } })
+      },
+
+      decideTrust: async (trusted) => {
+        const state = get()
+        if (state.disposed || !state.trust.open || state.trust.busy) return undefined
+        const panel = state.trust
+        const path = panel.path
+        const epoch = panel.epoch
+        set({ trust: { ...panel, busy: true, error: false } })
+        try {
+          const info = await browser.client.decideProjectTrust({
+            path,
+            trusted,
+            ...(panel.remember ? { remember: true } : {}),
+          })
+          const current = get()
+          if (current.disposed || !current.trust.open || current.trust.epoch !== epoch) {
+            return undefined
+          }
+          if (info.status === 'failed') {
+            set({ trust: { ...current.trust, info, busy: false, error: true } })
+            return info
+          }
+          // 只在表单仍打开时更新同路径成员；迟到结果不影响后来重新打开的表单。
+          if (current.form.open) {
+            set({
+              form: {
+                ...current.form,
+                members: current.form.members.map((member) =>
+                  member.path.trim() === path
+                    ? {
+                        ...member,
+                        available: info.status !== 'failed',
+                        trust: info,
+                        trustFailed: false,
+                      }
+                    : member,
+                ),
+              },
+            })
+          }
+          set({ trust: emptyTrust() })
+          get().showNotice(
+            trusted
+              ? '已允许该项目加载项目资源；决定只影响当前用户空间。'
+              : '已拒绝项目资源；仍可使用用户级资源，项目扩展不会加载。',
+          )
+          if (panel.intent?.kind === 'new-session') finalizeNewSession(panel.intent)
+          return info
+        } catch {
+          const current = get()
+          if (current.disposed || !current.trust.open || current.trust.epoch !== epoch) {
+            return undefined
+          }
+          set({ trust: { ...current.trust, busy: false, error: true } })
+          return undefined
+        }
       },
 
       closeWorkspaceForm: () => {
@@ -517,11 +919,27 @@ export const createWorkspaceFeatureStore = (
       setWorkspaceMember: (key, patch) => {
         const state = get()
         if (state.disposed) return
+        // 路径变化使旧健康/信任结果立即失效；由失焦或显式刷新重新检查。
+        const pathChanged = patch.path !== undefined
+        if (pathChanged) memberEpochs.set(key, (memberEpochs.get(key) ?? 0) + 1)
         set({
           form: {
             ...state.form,
             members: state.form.members.map((member) =>
-              member.key === key ? { ...member, ...patch } : member,
+              member.key === key
+                ? {
+                    ...member,
+                    ...patch,
+                    ...(pathChanged
+                      ? {
+                          checking: false,
+                          available: undefined,
+                          trust: undefined,
+                          trustFailed: false,
+                        }
+                      : {}),
+                  }
+                : member,
             ),
           },
         })
@@ -552,6 +970,16 @@ export const createWorkspaceFeatureStore = (
       saveWorkspaceForm: async () => {
         const state = get()
         if (state.disposed || state.form.busy || !state.form.open) return
+        const workspaceState = browser.serviceStore.getState().workspaceState
+        if (workspaceState !== undefined && workspaceState !== 'ok') {
+          set({
+            form: {
+              ...state.form,
+              message: '工作区元数据不可用；修复 state.json 后才能保存。',
+            },
+          })
+          return
+        }
         const form = state.form
         const name = form.name.trim()
         const projects: HarnessWorkspaceProjectInput[] = form.members
@@ -673,6 +1101,7 @@ export const createWorkspaceFeatureStore = (
           startProjectByWorkspace: {},
           form: emptyForm(),
           newSession: emptyNewSession(),
+          trust: emptyTrust(),
           busy: false,
           error: undefined,
           notice: undefined,

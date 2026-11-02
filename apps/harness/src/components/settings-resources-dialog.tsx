@@ -1,34 +1,20 @@
 /**
- * G1.4a：设置与资源清单面板。
+ * 设置与资源面板：用户/项目作用域、常用项、JSON 原文、revision 冲突、
+ * 保存与应用分离、资源来源与按需正文。
  *
- * 设计要点（迭代文档）：
- * - 与 `/settings` 共用同一面板（意图桥打开），也是顶栏可发现入口；
- * - 用户/项目作用域切换；项目未信任时不读取/写入项目设置；
- * - 常用项只改原对象对应键，JSON 编辑器保留未知字段与完整文件语义；
- * - 保存带乐观 revision，冲突明确提示；保存 ≠ 应用，需重载/重启的说明如实展示；
- * - 弹层仅在打开时查询，响应带代次防串页；切换作用域保留未保存草稿；
- * - 指令/system prompt 文本需显式请求，普通快照不含配置文本。
+ * 业务状态（目标、草稿、dirty、revision、读取代次、busy/notice）全部在
+ * settings feature Zustand；本组件只选择状态并触发动作。
  */
+
 import type {
   HarnessResourceSnapshot,
   HarnessSettingsFile,
   HarnessSettingsIssue,
-  HarnessSettingsSaveResult,
-  HarnessSettingsScope,
-  HarnessSettingsSnapshot,
 } from '@huan/protocol'
-import { HarnessHttpError, useHarnessThreadState } from '@huan/react'
+import { type HarnessDraftTarget, useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, RotateCwIcon, Settings2Icon } from 'lucide-react'
-import {
-  type ChangeEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -47,37 +33,24 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { clearPiIntent, usePiIntent } from './pi-command-intents'
-import { harnessHttpClient } from './pi-http-client'
-import { bumpResourceVersion } from './resource-version'
-import { useWorkspace } from './workspace-context'
+import { useHarnessApp, useSettingsStore, useWorkspaceStore } from '@/state/app-context'
+import {
+  type SettingsTarget,
+  settingsScopedDraftKey,
+  settingsTargetKey,
+} from '@/state/settings-store'
 
-const PENDING_THREAD_ID = '__pending__'
 const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const TRANSPORTS = ['auto', 'sse', 'websocket', 'websocket-cached'] as const
 const QUEUE_MODES = ['all', 'one-at-a-time'] as const
 /** Base UI Select 不接受空字符串值；用哨兵表示“未设置”。 */
 const UNSET = '__unset__'
+
 const triStateItems = { [UNSET]: '未设置（Pi 默认）', true: '开', false: '关' }
 const enumItems = (values: readonly string[]) => ({
   [UNSET]: '未设置（Pi 默认）',
   ...Object.fromEntries(values.map((value) => [value, value])),
 })
-
-const errorText = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
-
-/** 单个作用域的编辑草稿（原文、基线 revision 与最近一次宿主校验问题）。 */
-type Draft = {
-  content: string
-  baseContent: string
-  revision: string | null
-  issues: readonly HarnessSettingsIssue[]
-}
-
-type DraftMap = Record<string, Draft>
-
-const draftKey = (targetKey: string, scope: HarnessSettingsScope) => `${targetKey}|${scope}`
 
 type ParsedDraft =
   | { value: Record<string, unknown>; error?: undefined }
@@ -86,13 +59,11 @@ type ParsedDraft =
 /** 浏览器侧轻量预检：只判断 JSON/根对象/污染键；schema 由宿主保存时校验。 */
 function parseDraft(content: string): ParsedDraft {
   if (content.trim() === '') return { error: '设置文件为空；请写入至少 `{}`。' }
-  // 与宿主/SDK 一致：允许 UTF-8 BOM；JSON 编辑器仍保留原始字节。
   const source = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content
   let parsed: unknown
   try {
     parsed = JSON.parse(source)
   } catch {
-    // 不展示解析器原文（可能包含输入片段）；用户可在本地自行检查。
     return { error: 'JSON 解析失败；请检查括号、引号与逗号是否配对。' }
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -140,10 +111,7 @@ function numberField(root: Record<string, unknown> | undefined, path: readonly s
   return typeof value === 'number' ? String(value) : ''
 }
 
-/**
- * 只修改指定嵌套键，其余键（含未知字段）原样保留。
- * value 为 undefined 时删除该键。
- */
+/** 只修改指定嵌套键，其余键（含未知字段）原样保留。 */
 function setField(
   root: Record<string, unknown>,
   path: readonly string[],
@@ -165,7 +133,6 @@ function setField(
   return copy
 }
 
-/** 布尔三态（未设置/开/关），保留 Pi 的默认值语义。 */
 function BooleanField({
   label,
   value,
@@ -213,7 +180,6 @@ function ListField({
   disabled: boolean
 }) {
   const [text, setText] = useState(() => (value ?? []).join('\n'))
-  // 仅在提交值真正变化时同步（避免父组件重渲染打断本地输入）。
   const committed = (value ?? []).join('\n')
   useEffect(() => {
     setText(committed)
@@ -236,7 +202,6 @@ function ListField({
   )
 }
 
-/** 设置文件摘要与问题列表。 */
 function FileSummary({ file }: { file: HarnessSettingsFile }) {
   return (
     <div
@@ -283,7 +248,7 @@ function FileSummary({ file }: { file: HarnessSettingsFile }) {
   )
 }
 
-/** 常用项表单：只写入对应键，不重建配置对象。 */
+/** 常用项表单：只写对应键，未知字段仍保留在同一 JSON 原文中。 */
 function CommonSettingsForm({
   value,
   onChange,
@@ -515,7 +480,6 @@ function CommonSettingsForm({
   )
 }
 
-/** 资源清单片段。 */
 function ResourceList({
   title,
   empty,
@@ -536,813 +500,626 @@ function ResourceList({
 const sourceLabel = (info: { source: string; scope: string; origin: string }): string =>
   `${info.source} · ${info.scope} · ${info.origin}`
 
-export function SettingsResourcesDialog() {
-  const metadata = useHarnessThreadState((state) => state.metadata)
-  // 会话资源重载状态（另一窗口发起时也能看到）；空白页没有会话元数据。
-  const sessionReload = useHarnessThreadState((state) => state.metadata.reload)
-  const { workspaces, activeWorkspaceId, startProjectFor } = useWorkspace()
-  const intent = usePiIntent()
-  const [open, setOpen] = useState(false)
-  const [scope, setScope] = useState<HarnessSettingsScope>('user')
-  const [tab, setTab] = useState<'common' | 'json' | 'resources'>('common')
-  const [snapshot, setSnapshot] = useState<HarnessSettingsSnapshot>()
-  const [resources, setResources] = useState<HarnessResourceSnapshot>()
-  const [drafts, setDrafts] = useState<DraftMap>({})
-  const [notice, setNotice] = useState<string>()
-  const [busy, setBusy] = useState<string>()
-  const [resourceBusy, setResourceBusy] = useState(false)
-  const [showText, setShowText] = useState(false)
-  const loadGeneration = useRef(0)
-  const saveGeneration = useRef(0)
-  const resourceGeneration = useRef(0)
+/** 根据窗口选择/工作区偏好构造设置目标；动作在 store 中固定该目标。 */
+const currentSettingsTarget = (
+  selection: HarnessDraftTarget | undefined,
+  workspacePath: string | undefined,
+): SettingsTarget | undefined => {
+  if (selection?.kind === 'thread') return { threadId: selection.threadId }
+  if (selection?.kind === 'new') return { workspacePath: selection.startProjectPath }
+  return workspacePath ? { workspacePath } : undefined
+}
 
-  const pending = !metadata.id || metadata.id === PENDING_THREAD_ID
-  /** 同一会话的资源重载（可能由另一窗口发起）进行中：按钮显示进度并禁用。 */
-  const reloadRunning = !pending && sessionReload?.status === 'running'
-  const workspace = metadata.workspaceId
-    ? workspaces.find((item) => item.id === metadata.workspaceId)
-    : workspaces.find((item) => item.id === activeWorkspaceId)
-  const cwd = metadata.workspacePath ?? (workspace ? startProjectFor(workspace) : undefined)
-  const target = useMemo(
-    () => (pending ? (cwd ? { workspacePath: cwd } : undefined) : { threadId: metadata.id }),
-    [pending, cwd, metadata.id],
-  )
-  const targetKey = target
-    ? 'threadId' in target && target.threadId
-      ? `t:${target.threadId}`
-      : `w:${target.workspacePath ?? ''}`
-    : 'none'
-  const key = draftKey(targetKey, scope)
+export function SettingsResourcesDialog() {
+  const { browser } = useHarnessApp()
+  const selection = useWindowStore((state) => state.selection)
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId)
+  const startProjectFor = useWorkspaceStore((state) => state.startProjectFor)
+  const open = useSettingsStore((state) => state.open)
+  const openPanelAction = useSettingsStore((state) => state.openPanel)
+  const target = useSettingsStore((state) => state.target)
+  const targetKey = useSettingsStore((state) => state.targetKey)
+  const tab = useSettingsStore((state) => state.tab)
+  const scope = useSettingsStore((state) => state.scope)
+  const snapshot = useSettingsStore((state) => state.snapshot)
+  const resources = useSettingsStore((state) => state.resources)
+  const showText = useSettingsStore((state) => state.showText)
+  const loading = useSettingsStore((state) => state.loading)
+  const resourceLoading = useSettingsStore((state) => state.resourceLoading)
+  const saving = useSettingsStore((state) => state.saving)
+  const reloading = useSettingsStore((state) => state.reloading)
+  const notice = useSettingsStore((state) => state.notice)
+  const error = useSettingsStore((state) => state.error)
+  const resourceError = useSettingsStore((state) => state.resourceError)
+  const drafts = useSettingsStore((state) => state.drafts)
+  const setTab = useSettingsStore((state) => state.setTab)
+  const setScope = useSettingsStore((state) => state.setScope)
+  const close = useSettingsStore((state) => state.close)
+  const loadResources = useSettingsStore((state) => state.loadResources)
+  const reloadFromDisk = useSettingsStore((state) => state.reloadFromDisk)
+  const applyResourceReload = useSettingsStore((state) => state.applyResourceReload)
+  const updateDraft = useSettingsStore((state) => state.updateDraft)
+  const updateObject = useSettingsStore((state) => state.updateObject)
+  const resetDraft = useSettingsStore((state) => state.resetDraft)
+  const save = useSettingsStore((state) => state.save)
+  const syncResourceRevision = useSettingsStore((state) => state.syncResourceRevision)
+
+  const workspacePath = activeWorkspaceId
+    ? startProjectFor(activeWorkspaceId)
+    : browser.serviceStore.getState().host?.workspacePath
+  const resolvedTarget = currentSettingsTarget(selection, workspacePath)
+  const key = settingsScopedDraftKey(targetKey, scope)
   const draft = drafts[key]
   const parsed = useMemo(() => (draft ? parseDraft(draft.content) : undefined), [draft])
-  const dirty = draft ? draft.content !== draft.baseContent : false
+  const dirty = draft !== undefined && draft.content !== draft.baseContent
   const file = snapshot
     ? scope === 'user'
       ? snapshot.files.user
       : snapshot.files.project
     : undefined
   const snapshotTargetKey = snapshot
-    ? snapshot.target.kind === 'session'
-      ? `t:${snapshot.target.threadId}`
-      : `w:${snapshot.target.workspacePath}`
+    ? settingsTargetKey(
+        snapshot.target.kind === 'session'
+          ? { threadId: snapshot.target.threadId }
+          : { workspacePath: snapshot.target.workspacePath },
+      )
     : undefined
-  const ready = snapshotTargetKey === targetKey
+  const ready = snapshotTargetKey === targetKey && snapshot !== undefined
   const scopeBlocked = scope === 'project' && (!ready || !snapshot?.projectTrusted)
   const formDisabled =
-    !ready ||
-    !draft ||
-    parsed?.error !== undefined ||
-    scopeBlocked ||
-    file?.tooLarge === true ||
-    busy === 'save'
-
-  useEffect(() => {
-    if (intent?.kind !== 'settings') return
-    setOpen(true)
-    clearPiIntent(intent.id)
-  }, [intent])
-
-  const fetchSettings = useCallback(
-    async (options?: { resetScope?: HarnessSettingsScope }) => {
-      if (!target) return
-      const generation = ++loadGeneration.current
-      setBusy('settings')
-      try {
-        const next = await harnessHttpClient.getSettings(target)
-        if (generation !== loadGeneration.current) return
-        setSnapshot(next)
-        setDrafts((current) => {
-          const updated = { ...current }
-          for (const nextScope of ['user', 'project'] as const) {
-            const nextKey = draftKey(targetKey, nextScope)
-            const nextFile = nextScope === 'user' ? next.files.user : next.files.project
-            if (options?.resetScope === nextScope) delete updated[nextKey]
-            if (!updated[nextKey] && nextFile.readable && !nextFile.tooLarge) {
-              // 文件不存在时从合法空对象开始，避免常用项表单被空原文卡住。
-              const content = nextFile.exists ? nextFile.content : `${JSON.stringify({})}\n`
-              updated[nextKey] = {
-                content,
-                baseContent: content,
-                revision: nextFile.revision,
-                issues: [],
-              }
-            }
-          }
-          return updated
-        })
-      } catch (error) {
-        if (generation === loadGeneration.current) setNotice(errorText(error))
-      } finally {
-        if (generation === loadGeneration.current) setBusy(undefined)
-      }
-    },
-    [target, targetKey],
+    !ready || !draft || parsed?.error !== undefined || scopeBlocked || file?.tooLarge === true
+  const metadata = useServiceStore((state) =>
+    target?.threadId ? state.threadsById[target.threadId] : undefined,
   )
+  const reloadRunning = metadata?.reload?.status === 'running'
 
-  const fetchResources = useCallback(
-    async (withText: boolean) => {
-      if (!target) return
-      const generation = ++resourceGeneration.current
-      setResourceBusy(true)
-      try {
-        const next = await harnessHttpClient.getResources({
-          ...target,
-          ...(withText ? { includeText: true } : {}),
-        })
-        if (generation !== resourceGeneration.current) return
-        setResources(next)
-        setShowText(withText)
-      } catch (error) {
-        if (generation === resourceGeneration.current) setNotice(errorText(error))
-      } finally {
-        if (generation === resourceGeneration.current) setResourceBusy(false)
-      }
-    },
-    [target],
-  )
-
-  // 目标切到未信任项目时，避免停留在不可编辑的项目作用域。
-  useEffect(() => {
-    if (snapshot && !snapshot.projectTrusted && scope === 'project') setScope('user')
-  }, [snapshot, scope])
-
+  // 目标会话的资源版本推进时只重读；不重置未保存草稿。
   useEffect(() => {
     if (!open) return
-    setNotice(undefined)
-    setSnapshot(undefined)
-    setResources(undefined)
-    setShowText(false)
-    void fetchSettings()
-    void fetchResources(false)
-    return () => {
-      // 关闭或目标变化：使在途读取与保存结果失效，避免串到新页面。
-      loadGeneration.current += 1
-      resourceGeneration.current += 1
-      saveGeneration.current += 1
-    }
-  }, [open, fetchSettings, fetchResources])
+    syncResourceRevision(metadata?.resourceRevision)
+  }, [metadata?.resourceRevision, open, syncResourceRevision])
 
-  // 资源版本变化（本窗口或其他窗口完成重载）：只重读，不重置草稿、不覆盖未保存改动。
-  // 目标切换由上面的打开效应负责首读，这里只处理同一目标内的版本推进。
-  const seenResourceRevision = useRef<number | undefined>(undefined)
-  const seenTargetKey = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    if (!open) {
-      seenResourceRevision.current = undefined
-      seenTargetKey.current = undefined
-      return
-    }
-    const revision = metadata.resourceRevision
-    if (seenTargetKey.current !== targetKey) {
-      seenTargetKey.current = targetKey
-      seenResourceRevision.current = revision
-      return
-    }
-    if (seenResourceRevision.current === revision) return
-    seenResourceRevision.current = revision
-    void fetchSettings()
-    void fetchResources(showText)
-  }, [open, targetKey, metadata.resourceRevision, fetchSettings, fetchResources, showText])
-
-  const updateDraft = (content: string) => {
-    setDrafts((current) => {
-      const existing = current[key]
-      if (!existing) return current
-      return { ...current, [key]: { ...existing, content, issues: [] } }
-    })
+  const openDialog = () => {
+    void openPanelAction(resolvedTarget)
   }
 
-  const updateObject = (next: Record<string, unknown>) => {
-    updateDraft(`${JSON.stringify(next, null, 2)}\n`)
-  }
-
-  const resetDraft = () => {
-    if (!draft) return
-    setDrafts((current) => ({
-      ...current,
-      [key]: { ...draft, content: draft.baseContent, issues: [] },
-    }))
-    setNotice(undefined)
-  }
-
-  // 「重新加载」只重读磁盘原文（会丢弃当前作用域的未保存改动）。
-  const reload = () => {
-    setNotice(undefined)
-    void fetchSettings({ resetScope: scope })
-    void fetchResources(false)
-  }
-
-  /**
-   * 「应用资源重载」：让宿主在同一 Pi 会话内重载设置/指令/扩展（空白页只刷新
-   * 该 cwd 的待消费装配）。与「重新加载」语义不同：不重置原文草稿，也不覆盖
-   * 未保存改动；成功后只刷新读取结果与资源版本。
-   */
-  const applyResourceReload = async () => {
-    if (!target || busy) return
-    const saveVersion = ++saveGeneration.current
-    const isCurrent = () => saveVersion === saveGeneration.current
-    setBusy('reload')
-    setNotice(undefined)
-    try {
-      const result = await harnessHttpClient.reloadResources({ ...target, trigger: 'settings' })
-      if (!isCurrent()) return
-      if (result.status !== 'reloaded') {
-        setNotice(result.message)
-        return
-      }
-      // 会话目标的命令目录由元数据 revision 驱动；空白页只能靠本窗口信号。
-      if (result.kind === 'workspace') bumpResourceVersion()
-      await fetchSettings()
-      await fetchResources(showText)
-      // fetchSettings 自身推进 loadGeneration；关闭/换目标则 saveVersion 已失效。
-      if (saveVersion !== saveGeneration.current) return
-      setNotice(
-        result.kind === 'session'
-          ? `已重载并应用到当前会话（资源版本 ${result.resourceRevision}）；消息、分支与未保存草稿保持不变。`
-          : `已重载该起始目录的待消费装配（资源版本 ${result.resourceRevision}）；不会创建会话，也不影响其他会话。`,
-      )
-    } catch (error) {
-      if (saveVersion === saveGeneration.current) setNotice(errorText(error))
-    } finally {
-      if (saveVersion === saveGeneration.current) setBusy(undefined)
-    }
-  }
-
-  const save = async () => {
-    if (!draft || !target || !ready || busy) return
-    const version = ++saveGeneration.current
-    setBusy('save')
-    setNotice(undefined)
-    try {
-      const result: HarnessSettingsSaveResult = await harnessHttpClient.saveSettings({
-        target,
-        scope,
-        content: draft.content,
-        expectedRevision: draft.revision,
-      })
-      if (version !== saveGeneration.current) return
-      if (result.status === 'saved') {
-        setSnapshot(result.snapshot)
-        setDrafts((current) => ({
-          ...current,
-          [key]: {
-            content: draft.content,
-            baseContent: draft.content,
-            revision: result.revision,
-            issues: [],
-          },
-        }))
-        setNotice(
-          `${result.apply.message}${
-            result.apply.reloadRequired
-              ? '（已保存，待重载；点“应用资源重载”即可让当前会话使用新设置）'
-              : ''
-          }`,
-        )
-        return
-      }
-      if (result.status === 'invalid') {
-        setDrafts((current) => ({
-          ...current,
-          [key]: { ...draft, issues: result.issues },
-        }))
-        setNotice(result.message)
-        return
-      }
-      setNotice(result.message)
-    } catch (error) {
-      if (version !== saveGeneration.current) return
-      setNotice(
-        error instanceof HarnessHttpError && error.code === 'settings-conflict'
-          ? '保存冲突：设置文件已在其他窗口或进程被修改。请先“重新加载”再合并改动。'
-          : errorText(error),
-      )
-    } finally {
-      if (version === saveGeneration.current) setBusy(undefined)
-    }
-  }
-
-  const commonIssues = draft?.issues ?? []
-  const localError = parsed?.error
-
-  return (
-    <>
+  if (!open) {
+    return (
       <Button
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
         aria-label="设置与资源"
-        onClick={() => setOpen(true)}
+        onClick={openDialog}
       >
         <Settings2Icon aria-hidden className="size-3.5" />
         <Trans>设置与资源</Trans>
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          data-slot="huan-settings-dialog"
-          aria-label="设置与资源"
-          className="flex max-h-[85dvh] max-w-3xl flex-col"
-        >
-          <DialogHeader>
-            <DialogTitle>
-              <Trans>设置与资源</Trans>
-            </DialogTitle>
-            <DialogDescription>
-              <Trans>
-                编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。
-                保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源，
-                “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。
-              </Trans>
-            </DialogDescription>
-          </DialogHeader>
+    )
+  }
 
-          {!target && (
-            <p role="status" className="text-sm">
-              <Trans>当前没有可用的会话或起始目录；请先选择工作区/项目。</Trans>
-            </p>
-          )}
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+    >
+      <DialogContent
+        data-slot="huan-settings-dialog"
+        aria-label="设置与资源"
+        className="flex max-h-[85dvh] max-w-3xl flex-col"
+      >
+        <DialogHeader>
+          <DialogTitle>
+            <Trans>设置与资源</Trans>
+          </DialogTitle>
+          <DialogDescription>
+            <Trans>
+              编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。
+              保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源，
+              “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。
+            </Trans>
+          </DialogDescription>
+        </DialogHeader>
 
-          {target && (
-            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pe-1">
-              {notice && (
-                <div
-                  role="status"
-                  data-slot="huan-settings-notice"
-                  className="rounded-md border bg-muted/50 px-2 py-1.5 text-xs whitespace-pre-wrap"
-                >
-                  {notice}
-                </div>
-              )}
+        {!target && (
+          <p role="status" className="text-sm">
+            <Trans>当前没有可用的会话或起始目录；请先选择工作区/项目。</Trans>
+          </p>
+        )}
 
-              {snapshot && (
-                <div
-                  data-slot="huan-settings-target"
-                  className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs"
-                >
-                  <span className="font-mono break-all">{snapshot.target.workspacePath}</span>
-                  <span>
-                    {snapshot.target.kind === 'session' ? (
-                      <Trans>当前会话固定 cwd</Trans>
-                    ) : (
-                      <Trans>空白页起始目录</Trans>
-                    )}
-                  </span>
-                  <span>
-                    {snapshot.projectTrusted ? (
-                      <Trans>项目已信任</Trans>
-                    ) : snapshot.trust.decision === 'needs-trust' ? (
-                      <Trans>项目待信任决定</Trans>
-                    ) : (
-                      <Trans>项目未信任</Trans>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2">
-                <div role="tablist" aria-label="设置作用域" className="flex gap-1">
-                  <Button
-                    size="sm"
-                    variant={scope === 'user' ? 'secondary' : 'outline'}
-                    role="tab"
-                    aria-selected={scope === 'user'}
-                    aria-label="编辑用户设置"
-                    onClick={() => setScope('user')}
-                  >
-                    <Trans>用户设置</Trans>
-                    {drafts[draftKey(targetKey, 'user')]?.content !==
-                      drafts[draftKey(targetKey, 'user')]?.baseContent && (
-                      <span
-                        data-slot="huan-settings-dirty"
-                        className="ms-1 rounded bg-muted px-1 text-xs"
-                      >
-                        <Trans>未保存</Trans>
-                      </span>
-                    )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={scope === 'project' ? 'secondary' : 'outline'}
-                    role="tab"
-                    aria-selected={scope === 'project'}
-                    aria-label="编辑项目设置"
-                    onClick={() => setScope('project')}
-                    disabled={snapshot !== undefined && !snapshot.projectTrusted}
-                  >
-                    <Trans>项目设置</Trans>
-                    {drafts[draftKey(targetKey, 'project')]?.content !==
-                      drafts[draftKey(targetKey, 'project')]?.baseContent && (
-                      <span
-                        data-slot="huan-settings-dirty"
-                        className="ms-1 rounded bg-muted px-1 text-xs"
-                      >
-                        <Trans>未保存</Trans>
-                      </span>
-                    )}
-                  </Button>
-                </div>
-                <div className="ms-auto flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    aria-label="重新加载设置与资源"
-                    disabled={!ready || busy === 'save' || busy === 'reload'}
-                    onClick={reload}
-                  >
-                    {busy === 'settings' ? (
-                      <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCwIcon aria-hidden className="size-3.5" />
-                    )}
-                    <Trans>重新加载</Trans>
-                  </Button>
-                  <Button
-                    size="sm"
-                    aria-label="应用资源重载"
-                    disabled={!ready || busy === 'save' || busy === 'reload' || reloadRunning}
-                    onClick={() => void applyResourceReload()}
-                  >
-                    {busy === 'reload' || reloadRunning ? (
-                      <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-                    ) : (
-                      <RotateCwIcon aria-hidden className="size-3.5" />
-                    )}
-                    <Trans>应用资源重载</Trans>
-                  </Button>
-                </div>
+        {target && (
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pe-1">
+            {(notice || error) && (
+              <div
+                role={error ? 'alert' : 'status'}
+                data-slot="huan-settings-notice"
+                className={`rounded-md border px-2 py-1.5 text-xs whitespace-pre-wrap ${
+                  error ? 'border-destructive/30 text-destructive' : 'bg-muted/50'
+                }`}
+              >
+                {error ?? notice}
               </div>
+            )}
 
-              {snapshot && !snapshot.projectTrusted && (
-                <p role="status" className="text-destructive text-xs">
-                  <Trans>
-                    项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。
-                  </Trans>
-                </p>
-              )}
-              {dirty && (
-                <p role="status" data-slot="huan-settings-unsaved" className="text-xs">
-                  <Trans>
-                    当前作用域有未保存改动；切换到另一作用域会保留草稿，
-                    “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。
-                  </Trans>
-                </p>
-              )}
-
-              {file && <FileSummary file={file} />}
-
-              <div role="tablist" aria-label="设置视图" className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={tab === 'common' ? 'secondary' : 'ghost'}
-                  role="tab"
-                  aria-selected={tab === 'common'}
-                  onClick={() => setTab('common')}
-                >
-                  <Trans>常用项</Trans>
-                </Button>
-                <Button
-                  size="sm"
-                  variant={tab === 'json' ? 'secondary' : 'ghost'}
-                  role="tab"
-                  aria-selected={tab === 'json'}
-                  onClick={() => setTab('json')}
-                >
-                  <Trans>JSON 原文</Trans>
-                </Button>
-                <Button
-                  size="sm"
-                  variant={tab === 'resources' ? 'secondary' : 'ghost'}
-                  role="tab"
-                  aria-selected={tab === 'resources'}
-                  onClick={() => setTab('resources')}
-                >
-                  <Trans>资源清单</Trans>
-                </Button>
-              </div>
-
-              {tab !== 'resources' && !draft && (
-                <p className="text-sm">
-                  <Trans>该作用域没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
-                </p>
-              )}
-
-              {tab !== 'resources' && draft && (
-                <div className="flex flex-col gap-2">
-                  {localError && (
-                    <p data-slot="huan-settings-local-error" className="text-destructive text-xs">
-                      {localError}
-                    </p>
-                  )}
-                  {commonIssues.length > 0 && (
-                    <ul
-                      data-slot="huan-settings-issues"
-                      className="text-destructive list-disc ps-4 text-xs"
-                    >
-                      {commonIssues.map((issue) => (
-                        <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
-                          <span className="font-mono">{issue.path}</span> {issue.message}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {tab === 'common' &&
-                    (parsed?.value ? (
-                      <CommonSettingsForm
-                        value={parsed.value}
-                        onChange={updateObject}
-                        disabled={formDisabled}
-                      />
-                    ) : (
-                      <p className="text-muted-foreground text-xs">
-                        <Trans>先修复 JSON 解析错误，常用项表单才可用。</Trans>
-                      </p>
-                    ))}
-                  {tab === 'json' && (
-                    <div className="flex flex-col gap-1">
-                      <Textarea
-                        aria-label="设置 JSON"
-                        className="min-h-72 font-mono text-xs"
-                        spellCheck={false}
-                        value={draft.content}
-                        disabled={!ready || scopeBlocked || busy === 'save'}
-                        onChange={(event) => updateDraft(event.target.value)}
-                      />
-                      <p className="text-muted-foreground text-xs">
-                        <Trans>
-                          这是完整文件内容：保存会整体替换该文件。未知字段会原样保留；
-                          宿主保存时按随包 settings schema 校验已知字段。
-                        </Trans>
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {tab === 'resources' && (
-                <div data-slot="huan-resources" className="flex flex-col gap-3 text-sm">
-                  {!resources ? (
-                    <p className="text-muted-foreground flex items-center gap-2 text-xs">
-                      <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                      <Trans>正在读取资源清单…</Trans>
-                    </p>
+            {snapshot && (
+              <div
+                data-slot="huan-settings-target"
+                className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs"
+              >
+                <span className="font-mono break-all">{snapshot.target.workspacePath}</span>
+                <span>
+                  {snapshot.target.kind === 'session' ? (
+                    <Trans>当前会话固定 cwd</Trans>
                   ) : (
-                    <>
-                      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-                        <span>
-                          {resources.loadedFrom === 'session' ? (
-                            <Trans>live 会话正在使用的 loader</Trans>
-                          ) : (
-                            <Trans>受信装配缓存（未重新执行扩展）</Trans>
-                          )}
-                        </span>
-                        <span>
-                          {resources.projectResourcesLoaded ? (
-                            <Trans>项目资源已加载</Trans>
-                          ) : (
-                            <Trans>项目资源未加载</Trans>
-                          )}
-                        </span>
-                        <span className="font-mono break-all">{resources.agentDir}</span>
-                      </div>
-                      {resources.trustNote && (
-                        <p className="text-destructive text-xs">{resources.trustNote}</p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          aria-label={
-                            showText ? '隐藏指令与系统提示文本' : '显示指令与系统提示文本'
-                          }
-                          disabled={resourceBusy}
-                          onClick={() => void fetchResources(!showText)}
-                        >
-                          {resourceBusy && (
-                            <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-                          )}
-                          {showText ? (
-                            <Trans>隐藏指令/系统提示文本</Trans>
-                          ) : (
-                            <Trans>显示指令/系统提示文本</Trans>
-                          )}
-                        </Button>
-                        <span className="text-muted-foreground text-xs">
-                          <Trans>文本只在显式请求时加载，且有长度上限。</Trans>
-                        </span>
-                      </div>
+                    <Trans>空白页起始目录</Trans>
+                  )}
+                </span>
+                <span>
+                  {snapshot.projectTrusted ? (
+                    <Trans>项目已信任</Trans>
+                  ) : snapshot.trust.decision === 'needs-trust' ? (
+                    <Trans>项目待信任决定</Trans>
+                  ) : (
+                    <Trans>项目未信任</Trans>
+                  )}
+                </span>
+              </div>
+            )}
 
-                      <ResourceList title="指令文件" empty={resources.instructions.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.instructions.map((item) => (
-                            <li key={item.path}>
-                              <span className="font-mono break-all">{item.path}</span>{' '}
-                              <span className="text-muted-foreground">
-                                {item.bytes} B{item.textTruncated ? '（已截断）' : ''}
-                              </span>
-                              {item.text !== undefined && (
-                                <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                                  {item.text}
-                                </pre>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            <div className="flex flex-wrap items-center gap-2">
+              <div role="tablist" aria-label="设置作用域" className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant={scope === 'user' ? 'secondary' : 'outline'}
+                  role="tab"
+                  aria-selected={scope === 'user'}
+                  aria-label="编辑用户设置"
+                  onClick={() => setScope('user')}
+                >
+                  <Trans>用户设置</Trans>
+                  {drafts[settingsScopedDraftKey(targetKey, 'user')]?.content !==
+                    drafts[settingsScopedDraftKey(targetKey, 'user')]?.baseContent && (
+                    <span
+                      data-slot="huan-settings-dirty"
+                      className="ms-1 rounded bg-muted px-1 text-xs"
+                    >
+                      <Trans>未保存</Trans>
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={scope === 'project' ? 'secondary' : 'outline'}
+                  role="tab"
+                  aria-selected={scope === 'project'}
+                  aria-label="编辑项目设置"
+                  onClick={() => setScope('project')}
+                  disabled={snapshot !== undefined && !snapshot.projectTrusted}
+                >
+                  <Trans>项目设置</Trans>
+                  {drafts[settingsScopedDraftKey(targetKey, 'project')]?.content !==
+                    drafts[settingsScopedDraftKey(targetKey, 'project')]?.baseContent && (
+                    <span
+                      data-slot="huan-settings-dirty"
+                      className="ms-1 rounded bg-muted px-1 text-xs"
+                    >
+                      <Trans>未保存</Trans>
+                    </span>
+                  )}
+                </Button>
+              </div>
+              <div className="ms-auto flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label="重新加载设置与资源"
+                  disabled={!ready || saving || reloading}
+                  onClick={() => void reloadFromDisk()}
+                >
+                  {loading ? (
+                    <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCwIcon aria-hidden className="size-3.5" />
+                  )}
+                  <Trans>重新加载</Trans>
+                </Button>
+                <Button
+                  size="sm"
+                  aria-label="应用资源重载"
+                  disabled={!ready || saving || reloading || reloadRunning}
+                  onClick={() => void applyResourceReload()}
+                >
+                  {reloading || reloadRunning ? (
+                    <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                  ) : (
+                    <RotateCwIcon aria-hidden className="size-3.5" />
+                  )}
+                  <Trans>应用资源重载</Trans>
+                </Button>
+              </div>
+            </div>
 
-                      <ResourceList title="System prompt" empty={!resources.systemPrompt}>
-                        {resources.systemPrompt && (
-                          <div className="flex flex-col gap-1 text-xs">
-                            <span className="text-muted-foreground">
-                              {resources.systemPrompt.source ?? '（内置/默认）'} ·{' '}
-                              {resources.systemPrompt.bytes} B
-                              {resources.systemPrompt.textTruncated ? '（已截断）' : ''}
-                            </span>
-                            {resources.systemPrompt.text !== undefined && (
-                              <pre className="max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                                {resources.systemPrompt.text}
-                              </pre>
-                            )}
-                            {resources.systemPrompt.append.map((item, index) => (
-                              <div key={`${item.source ?? 'append'}:${item.bytes}`}>
-                                <span className="text-muted-foreground">
-                                  追加片段 {item.source ?? `#${index + 1}`} · {item.bytes} B
-                                </span>
-                                {item.text !== undefined && (
-                                  <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                                    {item.text}
-                                  </pre>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </ResourceList>
+            {snapshot && !snapshot.projectTrusted && (
+              <p role="status" className="text-destructive text-xs">
+                <Trans>
+                  项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。
+                </Trans>
+              </p>
+            )}
+            {dirty && (
+              <p role="status" data-slot="huan-settings-unsaved" className="text-xs">
+                <Trans>
+                  当前作用域有未保存改动；切换到另一作用域会保留草稿，
+                  “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。
+                </Trans>
+              </p>
+            )}
 
-                      <ResourceList title="扩展" empty={resources.extensions.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.extensions.map((item) => (
-                            <li key={item.path} className="break-all">
-                              <span className="font-mono">{item.path}</span>
-                              {item.hidden && '（隐藏）'}
-                              <span className="text-muted-foreground">
-                                {' '}
-                                — {sourceLabel(item.sourceInfo)}；命令 {item.commands.length}，工具{' '}
-                                {item.tools.length}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            {file && <FileSummary file={file} />}
 
-                      <ResourceList title="Skills" empty={resources.skills.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.skills.map((item) => (
-                            <li key={`${item.sourceInfo.path}:${item.name}`}>
-                              <span className="font-medium">{item.name}</span>
-                              <span className="text-muted-foreground">
-                                {' '}
-                                — {item.description}；{sourceLabel(item.sourceInfo)}
-                                {item.disableModelInvocation ? '；仅 /skill 显式调用' : ''}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            <div role="tablist" aria-label="设置视图" className="flex gap-1">
+              <Button
+                size="sm"
+                variant={tab === 'common' ? 'secondary' : 'ghost'}
+                role="tab"
+                aria-selected={tab === 'common'}
+                onClick={() => setTab('common')}
+              >
+                <Trans>常用项</Trans>
+              </Button>
+              <Button
+                size="sm"
+                variant={tab === 'json' ? 'secondary' : 'ghost'}
+                role="tab"
+                aria-selected={tab === 'json'}
+                onClick={() => setTab('json')}
+              >
+                <Trans>JSON 原文</Trans>
+              </Button>
+              <Button
+                size="sm"
+                variant={tab === 'resources' ? 'secondary' : 'ghost'}
+                role="tab"
+                aria-selected={tab === 'resources'}
+                onClick={() => setTab('resources')}
+              >
+                <Trans>资源清单</Trans>
+              </Button>
+            </div>
 
-                      <ResourceList title="模板命令" empty={resources.prompts.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.prompts.map((item) => (
-                            <li key={`${item.sourceInfo.path}:${item.name}`}>
-                              <span className="font-medium">/{item.name}</span>
-                              <span className="text-muted-foreground">
-                                {' '}
-                                — {item.description}；{sourceLabel(item.sourceInfo)}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            {tab !== 'resources' && !draft && (
+              <p className="text-sm">
+                <Trans>该作用域没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
+              </p>
+            )}
 
-                      <ResourceList title="终端主题" empty={resources.themes.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.themes.map((item) => (
-                            <li key={`${item.path ?? item.name}`}>
-                              <span className="font-medium">{item.name}</span>
-                              {item.sourceInfo && (
-                                <span className="text-muted-foreground">
-                                  {' '}
-                                  — {sourceLabel(item.sourceInfo)}
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            {tab !== 'resources' && draft && (
+              <div className="flex flex-col gap-2">
+                {parsed?.error && (
+                  <p data-slot="huan-settings-local-error" className="text-destructive text-xs">
+                    {parsed.error}
+                  </p>
+                )}
+                {draft.issues.length > 0 && (
+                  <ul
+                    data-slot="huan-settings-issues"
+                    className="text-destructive list-disc ps-4 text-xs"
+                  >
+                    {draft.issues.map((issue: HarnessSettingsIssue) => (
+                      <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
+                        <span className="font-mono">{issue.path}</span> {issue.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {tab === 'common' &&
+                  (parsed?.value ? (
+                    <CommonSettingsForm
+                      value={parsed.value}
+                      onChange={updateObject}
+                      disabled={formDisabled}
+                    />
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      <Trans>先修复 JSON 解析错误，常用项表单才可用。</Trans>
+                    </p>
+                  ))}
+                {tab === 'json' && (
+                  <div className="flex flex-col gap-1">
+                    <Textarea
+                      aria-label="设置 JSON"
+                      className="min-h-72 font-mono text-xs"
+                      spellCheck={false}
+                      value={draft.content}
+                      disabled={!ready || scopeBlocked || saving}
+                      onChange={(event) => updateDraft(event.target.value)}
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      <Trans>
+                        这是完整文件内容：保存会整体替换该文件。未知字段会原样保留；
+                        宿主保存时按随包 settings schema 校验已知字段。
+                      </Trans>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
-                      <ResourceList title="声明 packages" empty={resources.packages.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.packages.map((item) => (
-                            <li key={item.source} className="font-mono break-all">
-                              {item.source}
-                              {item.autoload === false ? '（autoload=false）' : ''}
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
+            {tab === 'resources' && (
+              <div data-slot="huan-resources" className="flex flex-col gap-3 text-sm">
+                {resourceError && (
+                  <p role="alert" className="text-destructive text-xs">
+                    {resourceError}
+                  </p>
+                )}
+                {!resources ? (
+                  <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                    <Loader2Icon aria-hidden className="size-3 animate-spin" />
+                    <Trans>正在读取资源清单…</Trans>
+                  </p>
+                ) : (
+                  <ResourcePane
+                    resources={resources}
+                    showText={showText}
+                    busy={resourceLoading}
+                    onToggleText={() => void loadResources(!showText)}
+                  />
+                )}
+              </div>
+            )}
 
-                      <ResourceList title="实际加载来源" empty={resources.loaded.length === 0}>
-                        <ul className="flex flex-col gap-1 text-xs">
-                          {resources.loaded.map((item) => (
-                            <li
-                              key={`${item.kind}:${item.path}:${item.name}`}
-                              className="break-all"
-                            >
-                              <span className="text-muted-foreground">[{item.kind}]</span>{' '}
-                              {item.name} — {item.source} · {item.scope}
-                            </li>
-                          ))}
-                        </ul>
-                      </ResourceList>
-
-                      {resources.diagnostics.length > 0 && (
-                        <ResourceList title="资源诊断" empty={false}>
-                          <ul className="text-destructive list-disc ps-4 text-xs">
-                            {resources.diagnostics.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </ResourceList>
-                      )}
-                    </>
+            {snapshot && (
+              <details data-slot="huan-settings-effective" className="text-xs">
+                <summary className="cursor-pointer">
+                  <Trans>磁盘合并预览（未应用到当前会话）</Trans>
+                </summary>
+                <div className="text-muted-foreground mt-1 flex flex-col gap-1">
+                  <span>
+                    <Trans>来源按顶层键：</Trans>
+                    {Object.entries(snapshot.effective.origins)
+                      .slice(0, 40)
+                      .map(([name, origin]) => `${name}=${origin}`)
+                      .join('、')}
+                  </span>
+                  <pre className="max-h-48 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
+                    {JSON.stringify(snapshot.effective.values, null, 2).slice(0, 20_000)}
+                  </pre>
+                  {snapshot.live && (
+                    <span>
+                      <Trans>当前会话已加载值来自会话装配；磁盘变化需重载才会被使用。</Trans>
+                      {snapshot.reloadRequired ? '（检测到磁盘值与会话值不同）' : ''}
+                    </span>
                   )}
                 </div>
-              )}
-
-              {snapshot && (
-                <details data-slot="huan-settings-effective" className="text-xs">
-                  <summary className="cursor-pointer">
-                    <Trans>磁盘合并预览（未应用到当前会话）</Trans>
-                  </summary>
-                  <div className="text-muted-foreground mt-1 flex flex-col gap-1">
-                    <span>
-                      <Trans>来源按顶层键：</Trans>
-                      {Object.entries(snapshot.effective.origins)
-                        .slice(0, 40)
-                        .map(([name, origin]) => `${name}=${origin}`)
-                        .join('、')}
-                    </span>
-                    <pre className="max-h-48 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                      {JSON.stringify(snapshot.effective.values, null, 2).slice(0, 20_000)}
-                    </pre>
-                    {snapshot.live && (
-                      <span>
-                        <Trans>当前会话已加载值来自会话装配；磁盘变化需重载才会被使用。</Trans>
-                        {snapshot.reloadRequired ? '（检测到磁盘值与会话值不同）' : ''}
-                      </span>
-                    )}
-                  </div>
-                </details>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            {tab !== 'resources' && (
-              <Button
-                variant="outline"
-                aria-label="重置改动"
-                disabled={!dirty || busy === 'save'}
-                onClick={resetDraft}
-              >
-                <Trans>重置改动</Trans>
-              </Button>
+              </details>
             )}
-            {tab !== 'resources' && (
-              <Button
-                aria-label="保存设置"
-                disabled={
-                  !ready ||
-                  !draft ||
-                  !dirty ||
-                  busy !== undefined ||
-                  scopeBlocked ||
-                  !!file?.readError ||
-                  !!file?.tooLarge
-                }
-                onClick={() => void save()}
-              >
-                {busy === 'save' ? (
-                  <Loader2Icon aria-hidden className="size-4 animate-spin" />
-                ) : null}
-                <Trans>保存设置</Trans>
-              </Button>
-            )}
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              <Trans>关闭</Trans>
+          </div>
+        )}
+
+        <DialogFooter>
+          {tab !== 'resources' && (
+            <Button
+              variant="outline"
+              aria-label="重置改动"
+              disabled={!dirty || saving}
+              onClick={resetDraft}
+            >
+              <Trans>重置改动</Trans>
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          )}
+          {tab !== 'resources' && (
+            <Button
+              aria-label="保存设置"
+              disabled={
+                !ready ||
+                !draft ||
+                !dirty ||
+                saving ||
+                reloading ||
+                scopeBlocked ||
+                !!file?.readError ||
+                !!file?.tooLarge
+              }
+              onClick={() => void save()}
+            >
+              {saving ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}
+              <Trans>保存设置</Trans>
+            </Button>
+          )}
+          <Button variant="ghost" onClick={close}>
+            <Trans>关闭</Trans>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** 资源清单正文区；文本只在显式请求时加载。 */
+function ResourcePane({
+  resources,
+  showText,
+  busy,
+  onToggleText,
+}: {
+  resources: HarnessResourceSnapshot
+  showText: boolean
+  busy: boolean
+  onToggleText: () => void
+}) {
+  return (
+    <>
+      <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+        <span>
+          {resources.loadedFrom === 'session' ? (
+            <Trans>live 会话正在使用的 loader</Trans>
+          ) : (
+            <Trans>受信装配缓存（未重新执行扩展）</Trans>
+          )}
+        </span>
+        <span>
+          {resources.projectResourcesLoaded ? (
+            <Trans>项目资源已加载</Trans>
+          ) : (
+            <Trans>项目资源未加载</Trans>
+          )}
+        </span>
+        <span className="font-mono break-all">{resources.agentDir}</span>
+      </div>
+      {resources.trustNote && <p className="text-destructive text-xs">{resources.trustNote}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          aria-label="切换指令与系统提示文本"
+          disabled={busy}
+          onClick={onToggleText}
+        >
+          {busy && <Loader2Icon aria-hidden className="size-3.5 animate-spin" />}
+          {showText ? <Trans>隐藏指令/系统提示文本</Trans> : <Trans>显示指令/系统提示文本</Trans>}
+        </Button>
+        <span className="text-muted-foreground text-xs">
+          <Trans>文本只在显式请求时加载，且有长度上限。</Trans>
+        </span>
+      </div>
+
+      <ResourceList title="指令文件" empty={resources.instructions.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.instructions.map((item) => (
+            <li key={item.path}>
+              <span className="font-mono break-all">{item.path}</span>{' '}
+              <span className="text-muted-foreground">
+                {item.bytes} B{item.textTruncated ? '（已截断）' : ''}
+              </span>
+              {item.text !== undefined && (
+                <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
+                  {item.text}
+                </pre>
+              )}
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="System prompt" empty={!resources.systemPrompt}>
+        {resources.systemPrompt && (
+          <div className="flex flex-col gap-1 text-xs">
+            <span className="text-muted-foreground">
+              {resources.systemPrompt.source ?? '（内置/默认）'} · {resources.systemPrompt.bytes} B
+              {resources.systemPrompt.textTruncated ? '（已截断）' : ''}
+            </span>
+            {resources.systemPrompt.text !== undefined && (
+              <pre className="max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
+                {resources.systemPrompt.text}
+              </pre>
+            )}
+            {resources.systemPrompt.append.map((item, index) => (
+              <div key={`${item.source ?? 'append'}:${item.bytes}`}>
+                <span className="text-muted-foreground">
+                  追加片段 {item.source ?? `#${index + 1}`} · {item.bytes} B
+                </span>
+                {item.text !== undefined && (
+                  <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
+                    {item.text}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </ResourceList>
+
+      <ResourceList title="扩展" empty={resources.extensions.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.extensions.map((item) => (
+            <li key={item.path} className="break-all">
+              <span className="font-mono">{item.path}</span>
+              {item.hidden && '（隐藏）'}
+              <span className="text-muted-foreground">
+                {' '}
+                — {sourceLabel(item.sourceInfo)}；命令 {item.commands.length}，工具{' '}
+                {item.tools.length}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="Skills" empty={resources.skills.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.skills.map((item) => (
+            <li key={`${item.sourceInfo.path}:${item.name}`}>
+              <span className="font-medium">{item.name}</span>
+              <span className="text-muted-foreground">
+                {' '}
+                — {item.description}；{sourceLabel(item.sourceInfo)}
+                {item.disableModelInvocation ? '；仅 /skill 显式调用' : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="模板命令" empty={resources.prompts.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.prompts.map((item) => (
+            <li key={`${item.sourceInfo.path}:${item.name}`}>
+              <span className="font-medium">/{item.name}</span>
+              <span className="text-muted-foreground">
+                {' '}
+                — {item.description}；{sourceLabel(item.sourceInfo)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="终端主题" empty={resources.themes.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.themes.map((item) => (
+            <li key={`${item.path ?? item.name}`}>
+              <span className="font-medium">{item.name}</span>
+              {item.sourceInfo && (
+                <span className="text-muted-foreground"> — {sourceLabel(item.sourceInfo)}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="声明 packages" empty={resources.packages.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.packages.map((item) => (
+            <li key={item.source} className="font-mono break-all">
+              {item.source}
+              {item.autoload === false ? '（autoload=false）' : ''}
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      <ResourceList title="实际加载来源" empty={resources.loaded.length === 0}>
+        <ul className="flex flex-col gap-1 text-xs">
+          {resources.loaded.map((item) => (
+            <li key={`${item.kind}:${item.path}:${item.name}`} className="break-all">
+              <span className="text-muted-foreground">[{item.kind}]</span> {item.name} —{' '}
+              {item.source} · {item.scope}
+            </li>
+          ))}
+        </ul>
+      </ResourceList>
+
+      {resources.diagnostics.length > 0 && (
+        <ResourceList title="资源诊断" empty={false}>
+          <ul className="text-destructive list-disc ps-4 text-xs">
+            {resources.diagnostics.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </ResourceList>
+      )}
     </>
   )
 }

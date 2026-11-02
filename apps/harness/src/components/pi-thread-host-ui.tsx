@@ -1,20 +1,19 @@
 /**
- * 会话级 Host UI：扩展状态、通知、文本 widget、编辑器指令与游离阻断请求。
+ * 会话级 Host UI：扩展状态、通知、文本 widget、命令目标、编辑器指令与
+ * 游离/工具关联的阻断请求。
  *
- * 这些状态都来自线程权威快照：断开/重连后由快照补齐，不依赖本地乐观缓存。
+ * 状态全部来自选中会话的权威快照；答案草稿在 host feature Zustand，编辑器
+ * 应用/恢复在 sessions feature。请求保持原始四种类型，不转成 approval。
  */
-import { useAui } from '@assistant-ui/react'
-import type { HarnessHostUiRequest, HarnessHostUiWidgetPlacement } from '@huan/protocol'
-import { useHarnessActions, useHarnessHostUiRequests, useHarnessThreadState } from '@huan/react'
-import { Trans } from '@lingui/react/macro'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { setComposerDraftOverride } from './pi-composer-draft-override'
-import { harnessWindowId } from './pi-http-client'
-import { useWorkspace } from './workspace-context'
 
-const errorText = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
+import type { HarnessHostUiRequest, HarnessHostUiWidgetPlacement } from '@huan/protocol'
+import { draftIdOf, useServiceStore, useWindowStore } from '@huan/react'
+import { Trans } from '@lingui/react/macro'
+import { useEffect, useMemo } from 'react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { useHarnessApp, useHostStore, useSessionsStore } from '@/state/app-context'
 
 const typeClass = (type: 'info' | 'warning' | 'error'): string =>
   type === 'error'
@@ -23,33 +22,38 @@ const typeClass = (type: 'info' | 'warning' | 'error'): string =>
       ? 'text-amber-700 dark:text-amber-300'
       : 'text-muted-foreground'
 
-/** 游离（不关联工具调用）的阻断式请求。工具关联的请求仍走工具卡片审批。 */
-function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
-  const { respond } = useHarnessHostUiRequests()
-  // editor 以 prefill 作为初始值；input 从空开始。
-  const [text, setText] = useState(request.kind === 'editor' ? (request.prefill ?? '') : '')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | undefined>()
-
-  const answer = async (response: Parameters<typeof respond>[0]) => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await respond(response)
-    } catch (cause) {
-      setError(errorText(cause))
-    } finally {
-      setBusy(false)
-    }
-  }
+/** 会话级阻断请求卡片；工具关联请求同样在此列出，不因无可见工具而隐藏。 */
+function ThreadRequestCard({
+  threadId,
+  request,
+}: {
+  threadId: string
+  request: HarnessHostUiRequest
+}) {
+  const key = `${threadId}:${request.id}`
+  const draft = useHostStore((state) => state.threadAnswers[key])
+  const setAnswer = useHostStore((state) => state.setThreadAnswer)
+  const respond = useHostStore((state) => state.respondThreadRequest)
+  if (!draft) return null
+  const busy = draft.busy
 
   return (
     <div
       data-slot="huan-host-ui-request"
       data-request-id={request.id}
+      data-kind={request.kind}
+      data-tool-call-id={request.toolCallId}
       className="border-amber-500/30 bg-amber-50/70 dark:bg-amber-950/30 rounded-md border px-3 py-2 text-sm"
     >
-      <div className="font-medium">{request.title}</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{request.title}</span>
+        {request.toolCallId && (
+          <span className="text-muted-foreground text-xs" data-slot="huan-request-tool">
+            <Trans>工具关联：</Trans>
+            {request.toolCallId}
+          </span>
+        )}
+      </div>
       {request.kind === 'confirm' ? (
         <p className="text-muted-foreground mt-1 whitespace-pre-wrap">{request.message}</p>
       ) : null}
@@ -61,7 +65,9 @@ function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, value: option })}
+              onClick={() =>
+                void respond(threadId, request.id, { requestId: request.id, value: option })
+              }
             >
               {option}
             </Button>
@@ -69,20 +75,22 @@ function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
         </div>
       ) : null}
       {request.kind === 'input' ? (
-        <input
-          className="border-input mt-2 w-full rounded border bg-transparent px-2 py-1"
+        <Input
+          className="mt-2"
           aria-label="交互输入"
           placeholder={request.placeholder}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
+          value={draft.text}
+          disabled={busy}
+          onChange={(event) => setAnswer(threadId, request.id, event.target.value)}
         />
       ) : null}
       {request.kind === 'editor' ? (
-        <textarea
-          className="border-input mt-2 min-h-24 w-full rounded border bg-transparent px-2 py-1"
+        <Textarea
+          className="mt-2 min-h-24"
           aria-label="交互编辑器"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
+          value={draft.text}
+          disabled={busy}
+          onChange={(event) => setAnswer(threadId, request.id, event.target.value)}
         />
       ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -91,7 +99,9 @@ function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
             <Button
               size="sm"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, confirmed: true })}
+              onClick={() =>
+                void respond(threadId, request.id, { requestId: request.id, confirmed: true })
+              }
             >
               <Trans>允许</Trans>
             </Button>
@@ -99,18 +109,16 @@ function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => void answer({ requestId: request.id, confirmed: false })}
+              onClick={() =>
+                void respond(threadId, request.id, { requestId: request.id, confirmed: false })
+              }
             >
               <Trans>拒绝</Trans>
             </Button>
           </>
         ) : null}
         {request.kind === 'input' || request.kind === 'editor' ? (
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() => void answer({ requestId: request.id, value: text })}
-          >
+          <Button size="sm" disabled={busy} onClick={() => void respond(threadId, request.id)}>
             <Trans>提交</Trans>
           </Button>
         ) : null}
@@ -118,20 +126,35 @@ function HostUiRequestCard({ request }: { request: HarnessHostUiRequest }) {
           size="sm"
           variant="ghost"
           disabled={busy}
-          onClick={() => void answer({ requestId: request.id, dismissed: true })}
+          onClick={() =>
+            void respond(threadId, request.id, { requestId: request.id, dismissed: true })
+          }
         >
           <Trans>取消</Trans>
         </Button>
-        {error ? <span className="text-destructive text-xs">{error}</span> : null}
+        {draft.error ? <span className="text-destructive text-xs">{draft.error}</span> : null}
       </div>
     </div>
   )
 }
 
-/** 会话内游离阻断请求列表；无请求时不渲染。 */
+/** 当前会话的待答请求列表；无请求时不渲染。 */
 export function PiHostUiRequests() {
-  const { requests } = useHarnessHostUiRequests()
-  if (requests.length === 0) return null
+  const selection = useWindowStore((state) => state.selection)
+  const requests = useServiceStore((state) =>
+    selection?.kind === 'thread'
+      ? state.sessionDataById[selection.threadId]?.hostUiRequests
+      : undefined,
+  )
+  const syncThreadRequests = useHostStore((state) => state.syncThreadRequests)
+  const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
+
+  useEffect(() => {
+    if (!threadId) return
+    syncThreadRequests(threadId, requests ?? [])
+  }, [requests, syncThreadRequests, threadId])
+
+  if (!threadId || !requests || requests.length === 0) return null
   return (
     <div data-slot="huan-host-ui-requests" className="border-b px-3 py-2">
       <div className="mb-1 text-xs font-medium">
@@ -139,108 +162,131 @@ export function PiHostUiRequests() {
       </div>
       <div className="grid gap-2">
         {requests.map((request) => (
-          <HostUiRequestCard key={request.id} request={request} />
+          <ThreadRequestCard key={request.id} threadId={threadId} request={request} />
         ))}
       </div>
     </div>
   )
 }
 
-/**
- * 扩展状态/标题/通知与命令目标提示。
- *
- * `setTitle` 只作为会话内的扩展标题提示，不覆盖会话名称或 document.title。
- */
+/** 扩展状态/标题/通知、命令目标与待应用目标提示。 */
 export function PiThreadHostUi() {
-  const hostUi = useHarnessThreadState((state) => state.hostUi)
-  const actions = useHarnessActions()
-  const aui = useAui()
-  const { refresh } = useWorkspace()
-  const [error, setError] = useState<string | undefined>()
+  const { browser } = useHarnessApp()
+  const selection = useWindowStore((state) => state.selection)
+  const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
+  const hostUi = useServiceStore((state) =>
+    threadId ? state.sessionDataById[threadId]?.hostUi : undefined,
+  )
+  const pendingCommandTarget = useSessionsStore((state) => state.pendingCommandTarget)
+  const pendingEditorDirective = useSessionsStore((state) => state.pendingEditorDirective)
+  const consumeCommandTarget = useSessionsStore((state) => state.consumeCommandTarget)
+  const dismissCommandTarget = useSessionsStore((state) => state.dismissCommandTarget)
+  const applyPendingCommandTarget = useSessionsStore((state) => state.applyPendingCommandTarget)
+  const applyPendingEditorDirective = useSessionsStore((state) => state.applyPendingEditorDirective)
 
-  const commandTarget =
-    hostUi?.commandTarget?.callerId && hostUi.commandTarget.callerId !== harnessWindowId
-      ? undefined
-      : hostUi?.commandTarget
+  if (!threadId) return null
+  // 只展示面向当前窗口或未定向的指令；其他窗口的定向目标不显示。
+  const visibleCommandTarget =
+    hostUi?.commandTarget &&
+    (!hostUi.commandTarget.callerId || hostUi.commandTarget.callerId === browser.windowId)
+      ? hostUi.commandTarget
+      : undefined
   const notifications = hostUi?.notifications ?? []
-  if (
-    !hostUi ||
-    (hostUi.statuses.length === 0 &&
-      !hostUi.title &&
-      notifications.length === 0 &&
-      !commandTarget &&
-      hostUi.workingMessage === undefined &&
-      hostUi.hiddenThinkingLabel === undefined)
-  ) {
-    return null
-  }
+  const hasHostUi =
+    hostUi &&
+    (hostUi.statuses.length > 0 ||
+      Boolean(hostUi.title) ||
+      notifications.length > 0 ||
+      visibleCommandTarget !== undefined ||
+      hostUi.workingMessage !== undefined ||
+      hostUi.hiddenThinkingLabel !== undefined)
+  const hasPending = pendingCommandTarget !== undefined || pendingEditorDirective !== undefined
 
-  const consume = async (id: string): Promise<boolean> => {
-    try {
-      return await actions.consumeHostUiDirective(id)
-    } catch (cause) {
-      setError(errorText(cause))
-      return false
-    }
-  }
+  if (!hasHostUi && !hasPending) return null
 
   return (
     <div data-slot="huan-thread-host-ui" className="border-b px-3 py-1.5 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        {hostUi.statuses.map((status) => (
-          <span
-            key={status.key}
-            data-slot="huan-extension-status"
-            className="bg-muted rounded px-1.5 py-0.5"
-          >
-            {status.key}: {status.text}
-          </span>
-        ))}
-        {hostUi.title ? (
-          <span data-slot="huan-extension-title" className="text-muted-foreground">
-            <Trans>扩展标题：</Trans>
-            {hostUi.title}
-          </span>
-        ) : null}
-        {hostUi.workingMessage ? (
-          <span data-slot="huan-extension-working" className="text-muted-foreground">
-            {hostUi.workingMessage}
-          </span>
-        ) : null}
-        {hostUi.hiddenThinkingLabel ? (
-          <span data-slot="huan-extension-thinking-label" className="text-muted-foreground">
-            <Trans>思考折叠标签：</Trans>
-            {hostUi.hiddenThinkingLabel}
-          </span>
-        ) : null}
-      </div>
-      {commandTarget ? (
+      {hostUi && (
+        <div className="flex flex-wrap items-center gap-2">
+          {hostUi.statuses.map((status) => (
+            <span
+              key={status.key}
+              data-slot="huan-extension-status"
+              className="bg-muted rounded px-1.5 py-0.5"
+            >
+              {status.key}: {status.text}
+            </span>
+          ))}
+          {hostUi.title ? (
+            <span data-slot="huan-extension-title" className="text-muted-foreground">
+              <Trans>扩展标题：</Trans>
+              {hostUi.title}
+            </span>
+          ) : null}
+          {hostUi.workingMessage ? (
+            <span data-slot="huan-extension-working" className="text-muted-foreground">
+              {hostUi.workingMessage}
+            </span>
+          ) : null}
+          {hostUi.hiddenThinkingLabel ? (
+            <span data-slot="huan-extension-thinking-label" className="text-muted-foreground">
+              <Trans>思考折叠标签：</Trans>
+              {hostUi.hiddenThinkingLabel}
+            </span>
+          ) : null}
+        </div>
+      )}
+      {visibleCommandTarget ? (
         <div data-slot="huan-command-target" className="mt-1 flex flex-wrap items-center gap-2">
           <span>
-            {commandTarget.message}
-            {commandTarget.title ? `：${commandTarget.title}` : `：${commandTarget.threadId}`}
+            {visibleCommandTarget.message}
+            {visibleCommandTarget.title
+              ? `：${visibleCommandTarget.title}`
+              : `：${visibleCommandTarget.threadId}`}
+          </span>
+          <Button size="sm" variant="outline" onClick={() => void consumeCommandTarget(threadId)}>
+            <Trans>打开</Trans>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void dismissCommandTarget(threadId)}>
+            <Trans>关闭提示</Trans>
+          </Button>
+        </div>
+      ) : null}
+      {pendingCommandTarget ? (
+        <div
+          data-slot="huan-pending-command-target"
+          className="mt-1 flex flex-wrap items-center gap-2"
+        >
+          <span className="text-muted-foreground">
+            <Trans>命令目标已领取；当前窗口已切换，需要时显式打开。</Trans>
           </span>
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
-              void consume(commandTarget.id).then(async (accepted) => {
-                if (!accepted) return
-                if (commandTarget.editorText !== undefined) {
-                  setComposerDraftOverride(commandTarget.threadId, commandTarget.editorText)
-                }
-                await refresh()
-                await aui.threads.switchToThread(commandTarget.threadId)
-                if (commandTarget.editorText !== undefined) {
-                  aui.composer.setText(commandTarget.editorText)
-                }
-              })
+              if (applyPendingCommandTarget()) return
             }}
           >
-            <Trans>打开</Trans>
+            <Trans>打开待应用目标</Trans>
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void consume(commandTarget.id)}>
-            <Trans>关闭提示</Trans>
+        </div>
+      ) : null}
+      {pendingEditorDirective ? (
+        <div
+          data-slot="huan-pending-editor-directive"
+          className="mt-1 flex flex-wrap items-center gap-2"
+        >
+          <span className="text-muted-foreground">
+            <Trans>编辑器指令已领取；回到来源会话后可显式应用。</Trans>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (applyPendingEditorDirective()) return
+            }}
+          >
+            <Trans>应用编辑器指令</Trans>
           </Button>
         </div>
       ) : null}
@@ -256,16 +302,18 @@ export function PiThreadHostUi() {
           ))}
         </ul>
       ) : null}
-      {error ? <div className="text-destructive mt-1">{error}</div> : null}
     </div>
   )
 }
 
 /** 文本 widget（仅字符串行）；按 placement 放在输入框上方/下方。 */
 export function PiComposerWidgets({ placement }: { placement: HarnessHostUiWidgetPlacement }) {
-  // 先订阅原始数组（hostUi 未变时引用稳定），再按 placement 派生，
-  // 避免选择器每次执行都返回新数组而随所有线程状态更新重渲染。
-  const widgets = useHarnessThreadState((state) => state.hostUi?.widgets)
+  const selection = useWindowStore((state) => state.selection)
+  const widgets = useServiceStore((state) =>
+    selection?.kind === 'thread'
+      ? state.sessionDataById[selection.threadId]?.hostUi?.widgets
+      : undefined,
+  )
   const placed = useMemo(
     () => (widgets ?? []).filter((widget) => widget.placement === placement),
     [placement, widgets],
@@ -287,103 +335,50 @@ export function PiComposerWidgets({ placement }: { placement: HarnessHostUiWidge
  *
  * - 定向调用方：只在发起窗口显示；其他窗口忽略。
  * - 无调用方（后台扩展）：任一窗口主动接受，先消费者生效。
- * - 不自动覆盖：始终由用户点击应用；旧文本保留在窗口内可一键恢复。
+ * - 始终由用户点击应用；应用前保存旧草稿，可在本窗口恢复。
  */
 export function PiComposerHostUi({
   inputRef,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement | null>
 }) {
-  const threadId = useHarnessThreadState((state) => state.metadata.id)
-  return <PiComposerHostUiContent key={threadId} inputRef={inputRef} />
-}
+  const { browser } = useHarnessApp()
+  const selection = useWindowStore((state) => state.selection)
+  const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
+  const directive = useServiceStore((state) =>
+    threadId ? state.sessionDataById[threadId]?.hostUi?.editorDirective : undefined,
+  )
+  const draft = useWindowStore((state) =>
+    threadId ? state.draftsById[draftIdOf({ kind: 'thread', threadId })] : undefined,
+  )
+  const recovery = useSessionsStore((state) => state.editorRecovery)
+  const consume = useSessionsStore((state) => state.consumeEditorDirective)
+  const discard = useSessionsStore((state) => state.discardEditorDirective)
+  const restore = useSessionsStore((state) => state.restoreEditorPrevious)
 
-function PiComposerHostUiContent({
-  inputRef,
-}: {
-  inputRef: React.RefObject<HTMLTextAreaElement | null>
-}) {
-  const directive = useHarnessThreadState((state) => state.hostUi?.editorDirective)
-  const actions = useHarnessActions()
-  const aui = useAui()
-  const [previous, setPrevious] = useState<string | undefined>()
-  const [appliedId, setAppliedId] = useState<string | undefined>()
-  const [error, setError] = useState<string | undefined>()
-  const lastDirectiveId = useRef<string | undefined>(undefined)
+  if (!threadId) return null
 
-  useEffect(() => {
-    // 只在新指令到来时清理旧恢复条；指令被消费（变为 undefined）时保留恢复入口。
-    if (!directive?.id || lastDirectiveId.current === directive.id) return
-    lastDirectiveId.current = directive.id
-    setPrevious(undefined)
-    setAppliedId(undefined)
-    setError(undefined)
-  }, [directive?.id])
-
-  const [claiming, setClaiming] = useState(false)
-  const currentThread = useHarnessThreadState((state) => state.metadata.id)
-  const currentThreadRef = useRef(currentThread)
-  currentThreadRef.current = currentThread
-  const mounted = useRef(true)
-  useEffect(() => {
-    mounted.current = true
-    return () => {
-      mounted.current = false
-    }
-  }, [])
-  const consume = async (id: string): Promise<boolean> => {
-    try {
-      return await actions.consumeHostUiDirective(id)
-    } catch (cause) {
-      setError(errorText(cause))
-      return false
-    }
-  }
-
-  const restore = () => {
-    if (previous === undefined) return
-    aui.composer.setText(previous)
-    setPrevious(undefined)
-    setAppliedId(undefined)
-  }
-
-  // 已消费后的恢复条：指令已从快照移除，但旧文本仍可在本窗口找回。
-  if (!directive) {
-    if (appliedId === undefined || previous === undefined) return null
+  const visible = directive && (!directive.callerId || directive.callerId === browser.windowId)
+  if (!visible) {
+    if (recovery?.threadId !== threadId) return null
     return (
       <div
         data-slot="huan-editor-directive-recovery"
         className="text-muted-foreground mx-2 mt-1 flex items-center gap-2 text-xs"
       >
         <Trans>已应用到输入框，原内容保留在窗口内。</Trans>
-        <button type="button" className="underline" onClick={restore}>
+        <button
+          type="button"
+          className="underline"
+          onClick={() => {
+            if (restore()) inputRef.current?.focus()
+          }}
+        >
           <Trans>恢复原内容</Trans>
         </button>
       </div>
     )
   }
-  if (directive.callerId && directive.callerId !== harnessWindowId) return null
-
-  const apply = async () => {
-    if (claiming) return
-    setClaiming(true)
-    const thread = currentThreadRef.current
-    const accepted = await consume(directive.id)
-    if (!mounted.current) return
-    setClaiming(false)
-    if (!accepted || thread !== currentThreadRef.current) return
-    const current = aui.composer.getState().text
-    const cursor = inputRef.current?.selectionStart ?? current.length
-    const next =
-      directive.mode === 'paste'
-        ? `${current.slice(0, cursor)}${directive.text}${current.slice(cursor)}`
-        : directive.text
-    setPrevious(current)
-    setAppliedId(directive.id)
-    aui.composer.setText(next)
-    inputRef.current?.focus()
-  }
-
   return (
     <div
       data-slot="huan-editor-directive"
@@ -399,14 +394,21 @@ function PiComposerHostUiContent({
           )}
         </span>
         <span className="text-muted-foreground max-w-64 truncate">{directive.text}</span>
-        <Button size="sm" disabled={claiming} onClick={() => void apply()}>
+        <Button
+          size="sm"
+          onClick={() => {
+            const cursor = inputRef.current?.selectionStart ?? draft?.text.length ?? 0
+            void consume(threadId, cursor).then((accepted) => {
+              if (accepted) inputRef.current?.focus()
+            })
+          }}
+        >
           <Trans>应用</Trans>
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => void consume(directive.id)}>
+        <Button size="sm" variant="ghost" onClick={() => void discard(threadId)}>
           <Trans>忽略</Trans>
         </Button>
       </div>
-      {error ? <div className="text-destructive mt-1">{error}</div> : null}
     </div>
   )
 }

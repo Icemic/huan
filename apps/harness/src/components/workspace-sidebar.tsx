@@ -166,8 +166,6 @@ function WorkspaceGroup({
   const selectWorkspace = useWorkspaceStore((state) => state.selectWorkspace)
   const toggleWorkspace = useWorkspaceStore((state) => state.toggleWorkspace)
   const selectThread = useWorkspaceStore((state) => state.selectThread)
-  const startProjectFor = useWorkspaceStore((state) => state.startProjectFor)
-  const beginNewSession = useWorkspaceStore((state) => state.beginNewSession)
   const openNewSession = useWorkspaceStore((state) => state.openNewSession)
   const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
   const isExpanded = expanded.has(workspace.id)
@@ -216,9 +214,8 @@ function WorkspaceGroup({
               selectThread(recentThread.id)
               return
             }
-            const startPath = startProjectFor(workspace.id)
-            if (startPath) beginNewSession(workspace.id, startPath)
-            else openNewSession(workspace.id)
+            // 新会话统一走预检表单，避免跳过路径可用性与信任检查。
+            openNewSession(workspace.id)
           }}
         >
           <PlayIcon aria-hidden className="size-3.5" />

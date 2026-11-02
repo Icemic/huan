@@ -7,9 +7,19 @@ import {
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useEffect } from 'react'
+import { ImportThreadButton, ImportThreadDialog } from '@/components/import-thread-dialog'
+import { PiHostInteractions } from '@/components/pi-host-interactions'
+import { PiHostStatus } from '@/components/pi-host-status'
+import { ProviderAuthDialog } from '@/components/pi-provider-auth'
+import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
+import { SessionContextBar } from '@/components/session-context-bar'
+import { SessionDialogs } from '@/components/session-dialogs'
+import { ForkThreadDialog } from '@/components/session-fork-dialog'
+import { SettingsResourcesDialog } from '@/components/settings-resources-dialog'
 import { ThemeSelector } from '@/components/theme-selector'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { TrustDecisionDialog } from '@/components/workspace-manager'
 import { WorkspaceSidebar } from '@/components/workspace-sidebar'
 import {
   HarnessAppContextProvider,
@@ -149,16 +159,28 @@ function AppShell() {
           {hostLoading && !host ? (
             <Loader2Icon aria-hidden className="text-muted-foreground size-4 animate-spin" />
           ) : null}
+          <ImportThreadButton />
+          <SettingsResourcesDialog />
+          <ProviderAuthDialog />
+          <PiHostStatus />
           <ThemeSelector />
         </div>
       </header>
       <WorkspaceStatusBanner />
+      <PiHostInteractions />
       <div className="flex min-h-0 flex-grow">
         <WorkspaceSidebar />
         <main className="flex min-h-0 min-w-0 flex-grow flex-col overflow-hidden">
+          <SessionContextBar />
+          <PiThreadHostUi />
+          <PiHostUiRequests />
           <SelectionSummary />
         </main>
       </div>
+      <SessionDialogs />
+      <ForkThreadDialog />
+      <ImportThreadDialog />
+      <TrustDecisionDialog />
     </div>
   )
 }

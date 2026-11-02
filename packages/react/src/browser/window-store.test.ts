@@ -41,6 +41,12 @@ describe('window-store：选择与草稿版本', () => {
     store.getState().selectTarget(threadTarget)
     expect(store.getState().selectionRevision).toBe(2)
     expect(Object.keys(store.getState().draftsById)).toHaveLength(1)
+
+    // 删除当前会话等显式清理选择时推进 revision，草稿仍保留供恢复。
+    store.getState().clearSelection()
+    expect(store.getState().selection).toBeUndefined()
+    expect(store.getState().selectionRevision).toBe(3)
+    expect(store.getState().draftsById[draftIdOf(threadTarget)]).toBeDefined()
   })
 
   it('文字/模型变化推进 draftRevision 并持久化文字', () => {

@@ -8,8 +8,11 @@
 import { createContext, type ReactNode, useContext } from 'react'
 import { useStore } from 'zustand'
 import type { HarnessApp } from '../bootstrap'
+import type { AuthFeatureState } from './auth-store'
 import type { ComposerFeatureState } from './composer-store'
+import type { HostFeatureState } from './host-store'
 import type { SessionsFeatureState } from './sessions-store'
+import type { SettingsFeatureState } from './settings-store'
 import type { ThemeStoreState } from './theme-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
@@ -44,6 +47,18 @@ export const useSessionsStore = <T,>(selector: (state: SessionsFeatureState) => 
 /** 订阅 composer feature 状态。 */
 export const useComposerStore = <T,>(selector: (state: ComposerFeatureState) => T): T =>
   useStore(useHarnessApp().composerStore, selector)
+
+/** 订阅设置与资源 feature 状态。 */
+export const useSettingsStore = <T,>(selector: (state: SettingsFeatureState) => T): T =>
+  useStore(useHarnessApp().settingsStore, selector)
+
+/** 订阅 provider 认证 feature 状态。 */
+export const useAuthStore = <T,>(selector: (state: AuthFeatureState) => T): T =>
+  useStore(useHarnessApp().authStore, selector)
+
+/** 订阅宿主交互/状态 feature。 */
+export const useHostStore = <T,>(selector: (state: HostFeatureState) => T): T =>
+  useStore(useHarnessApp().hostStore, selector)
 
 /** 订阅主题状态。 */
 export const useThemeStore = <T,>(selector: (state: ThemeStoreState) => T): T =>

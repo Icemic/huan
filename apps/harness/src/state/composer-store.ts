@@ -19,7 +19,9 @@ import {
   draftIdOf,
   type HarnessBrowser,
   type HarnessDraftTarget,
+  projectHarnessMessages,
   selectThreadIsRunning,
+  selectThreadRunStatus,
 } from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import {
@@ -29,7 +31,9 @@ import {
   findAppCommand,
   mergeCommandCatalog,
 } from '../components/pi-builtin-commands'
+import type { AuthFeatureState } from './auth-store'
 import type { SessionsFeatureState } from './sessions-store'
+import type { SettingsFeatureState, SettingsTarget } from './settings-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
 const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
@@ -144,6 +148,8 @@ export interface CreateComposerFeatureStoreOptions {
   browser: HarnessBrowser
   workspaceStore: StoreApi<WorkspaceFeatureState>
   sessionsStore: StoreApi<SessionsFeatureState>
+  settingsStore: StoreApi<SettingsFeatureState>
+  authStore: StoreApi<AuthFeatureState>
 }
 
 const errorText = (error: unknown): string =>
@@ -214,7 +220,7 @@ const mentionToken = (
 export const createComposerFeatureStore = (
   options: CreateComposerFeatureStoreOptions,
 ): StoreApi<ComposerFeatureState> => {
-  const { browser, workspaceStore, sessionsStore } = options
+  const { browser, workspaceStore, sessionsStore, settingsStore, authStore } = options
   const client = browser.client
   let catalogEpoch = 0
   let completionEpoch = 0
@@ -262,6 +268,107 @@ export const createComposerFeatureStore = (
     if (!target) return undefined
     if (target.kind === 'new') return target.workspaceId
     return browser.serviceStore.getState().threadsById[target.threadId]?.workspaceId
+  }
+
+  /** 设置/重载命令的固定目标：当前会话，或当前工作区起始项目。 */
+  const settingsTargetNow = (): SettingsTarget | undefined => {
+    const target = selectionTarget()
+    if (target?.kind === 'thread') return { threadId: target.threadId }
+    if (target?.kind === 'new') return { workspacePath: target.startProjectPath }
+    const workspaceId = workspaceStore.getState().activeWorkspaceId
+    const workspacePath = workspaceId
+      ? workspaceStore.getState().startProjectFor(workspaceId)
+      : browser.serviceStore.getState().host?.workspacePath
+    return workspacePath ? { workspacePath } : undefined
+  }
+
+  /** 从权威消息投影取最后一条助手文本；只读，不启动新请求。 */
+  const copyLastReply = async (): Promise<boolean> => {
+    const threadId = currentThreadId()
+    if (!threadId) {
+      setIfAlive((current) => ({ ...current, notice: '当前还没有可复制的助手回复。' }))
+      return false
+    }
+    const service = browser.serviceStore.getState()
+    await service.loadThread(threadId).catch(() => undefined)
+    const metadata = browser.serviceStore.getState().threadsById[threadId]
+    const session = browser.serviceStore.getState().sessionDataById[threadId]
+    if (!session) {
+      setIfAlive((current) => ({ ...current, notice: '会话内容尚未加载；请稍后重试。' }))
+      return false
+    }
+    const views = projectHarnessMessages({
+      messages: session.messages,
+      messageEntryIds: session.messageEntryIds,
+      toolExecutions: session.toolExecutions,
+      runStatus: selectThreadRunStatus(metadata ?? { id: threadId, status: 'idle' }),
+    })
+    const lastAssistant = [...views].reverse().find((view) => view.role === 'assistant')
+    const text = (lastAssistant?.parts ?? [])
+      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .join('\n\n')
+      .trim()
+    if (!text) {
+      setIfAlive((current) => ({ ...current, notice: '没有可复制的助手回复。' }))
+      return false
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setIfAlive((current) => ({ ...current, notice: '已复制最后一条助手回复。' }))
+      return true
+    } catch (error) {
+      setIfAlive((current) => ({ ...current, notice: `复制失败：${errorText(error)}` }))
+      return false
+    }
+  }
+
+  /**
+   * `/login` 与 `/logout` 打开同一认证面板；带参数时先按权威 provider 快照
+   * 验证。未知 ID 只作提示，不发送给模型。
+   */
+  const runProviderAuthCommand = async (
+    mode: 'login' | 'logout',
+    args: string,
+  ): Promise<boolean> => {
+    const providerId = args.trim()
+    if (providerId) {
+      let snapshot = browser.serviceStore.getState().providerAuth
+      if (!snapshot) {
+        await browser.serviceStore
+          .getState()
+          .refreshProviderAuth()
+          .catch(() => undefined)
+        snapshot = browser.serviceStore.getState().providerAuth
+      }
+      if (snapshot && !snapshot.providers.some((item) => item.providerId === providerId)) {
+        setIfAlive((current) => ({
+          ...current,
+          notice: `未知 provider：${providerId}。该 ID 不会发送给模型。`,
+        }))
+        return false
+      }
+    }
+    await authStore.getState().openPanel({
+      mode,
+      ...(providerId ? { providerId } : {}),
+    })
+    return true
+  }
+
+  const runSettingsCommand = async (): Promise<boolean> => {
+    await settingsStore.getState().openPanel(settingsTargetNow())
+    return true
+  }
+
+  const runReloadCommand = async (): Promise<boolean> => {
+    const target = settingsTargetNow()
+    if (!target) {
+      setIfAlive((current) => ({ ...current, notice: '当前没有可重载的会话或起始目录。' }))
+      return false
+    }
+    const outcome = await settingsStore.getState().reloadTarget(target)
+    setIfAlive((current) => ({ ...current, notice: outcome.message }))
+    return outcome.status === 'reloaded'
   }
 
   const loadModels = async (): Promise<readonly HarnessModelInfo[] | undefined> => {
@@ -572,12 +679,17 @@ export const createComposerFeatureStore = (
           setIfAlive((current) => ({ ...current, notice: '当前没有可用的工作区。' }))
           return false
         }
-        const path = workspaceStore.getState().startProjectFor(workspaceId)
-        if (!path) {
-          setIfAlive((current) => ({ ...current, notice: '当前工作区没有可用起始项目。' }))
+        // 新会话先打开预检表单，不跳过路径/信任检查直接写入目标。
+        workspaceStore.getState().openNewSession(workspaceId)
+        return true
+      }
+      case 'session': {
+        const threadId = currentThreadId()
+        if (!threadId) {
+          setIfAlive((current) => ({ ...current, notice: '当前还没有后端会话。' }))
           return false
         }
-        workspaceStore.getState().beginNewSession(workspaceId, path)
+        await sessionsStore.getState().openDetails(threadId)
         return true
       }
       case 'tree':
@@ -602,20 +714,9 @@ export const createComposerFeatureStore = (
           }))
           return false
         }
-        const metadata = browser.serviceStore.getState().threadsById[threadId]
-        const result = await sessionsStore.getState().forkThread({
-          threadId,
-          position: 'at',
-          ...(metadata?.treeRevision ? { expectedRevision: metadata.treeRevision } : {}),
-        })
-        setIfAlive((current) => ({
-          ...current,
-          notice:
-            result.status === 'created'
-              ? '已克隆为独立会话。'
-              : (result.message ?? '分叉失败，未创建子会话。'),
-        }))
-        return result.status === 'created'
+        // clone 与 fork 共用确认表单；不在命令处理器里直接创建子会话。
+        sessionsStore.getState().openFork({ threadId, position: 'at' })
+        return true
       }
       case 'import': {
         const workspaceId = currentWorkspaceId() ?? workspaceStore.getState().activeWorkspaceId
@@ -625,6 +726,28 @@ export const createComposerFeatureStore = (
         })
         return true
       }
+      case 'settings':
+        return runSettingsCommand()
+      case 'login':
+        return runProviderAuthCommand('login', args)
+      case 'logout':
+        return runProviderAuthCommand('logout', args)
+      case 'reload':
+        return runReloadCommand()
+      case 'copy':
+        return copyLastReply()
+      case 'trust': {
+        const path = currentWorkspacePath()
+        if (!path) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: '当前没有可管理的项目目录。',
+          }))
+          return false
+        }
+        await workspaceStore.getState().openTrust(path, { kind: 'standalone' })
+        return true
+      }
       case 'resume':
         setIfAlive((current) => ({
           ...current,
@@ -632,18 +755,12 @@ export const createComposerFeatureStore = (
         }))
         return true
       case 'compact':
-      case 'reload':
-      case 'session':
-      case 'settings':
-      case 'trust':
-      case 'copy':
       case 'scoped-models':
       case 'mcp':
-      case 'login':
-      case 'logout':
+        // R6b：运行/模型与 MCP 管理不在此包重复实现。
         setIfAlive((current) => ({
           ...current,
-          notice: `/${command.name} 的完整界面将在后续接入阶段提供。`,
+          notice: `/${command.name} 的运行管理将在展示接入阶段接通；输入未发送给模型。`,
         }))
         return false
       default:

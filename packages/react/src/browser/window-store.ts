@@ -120,6 +120,8 @@ export interface HarnessWindowState {
   setStorageScope: (scope: string) => void
   /** 显式选择目标；每次调用推进 selectionRevision。 */
   selectTarget: (target: HarnessDraftTarget) => void
+  /** 清除选择（删除当前会话等）；每次调用推进 selectionRevision。 */
+  clearSelection: () => void
   /** 修改草稿文字；推进 draftRevision 并持久化文字。 */
   editDraftText: (draftId: string, text: string) => void
   /** 仅当草稿仍是调用方读到的版本时替换文字；用于迟到结果保护。 */
@@ -387,6 +389,18 @@ export const createHarnessWindowStore = (
         }
         set(selected)
         persistSelection(selected)
+      },
+
+      clearSelection: () => {
+        const state = get()
+        if (state.disposed) return
+        const cleared: HarnessWindowState = {
+          ...state,
+          selection: undefined,
+          selectionRevision: state.selectionRevision + 1,
+        }
+        set(cleared)
+        persistSelection(cleared)
       },
 
       editDraftText: (draftId, text) => {

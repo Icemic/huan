@@ -1,16 +1,21 @@
 /**
- * 会话只读详情与删除确认弹层。
+ * 会话详情与管理确认：只读统计、命名、归档、删除确认与未归属加入。
  *
- * - 详情按需请求宿主：冷会话只做文件聚合，不装配项目扩展、不联网；
- *   同一会话的旧请求结果不得串入新一次打开或切换。
- * - 删除必须先确认：展示名称与完整会话文件路径，说明运行中会先停止任务，
- *   取消不写任何数据；项目文件不受影响。
+ * 请求代次、详情结果、表单、busy 与错误都在 sessions feature Zustand；
+ * 详情按需冷读，不装配项目扩展；删除/归属成功后刷新唯一目录。
  */
-import { useAui } from '@assistant-ui/react'
-import type { HarnessThreadDetails, HarnessThreadMetadata } from '@huan/protocol'
+
+import type { HarnessThreadMetadata } from '@huan/protocol'
+import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { Loader2Icon, RefreshCwIcon, TrashIcon } from 'lucide-react'
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  Loader2Icon,
+  RefreshCwIcon,
+  TrashIcon,
+} from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,10 +25,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { harnessHttpClient } from './pi-http-client'
-import { useWorkspace } from './workspace-context'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useSessionsStore } from '@/state/app-context'
 
-/** 绝对时间展示：固定格式，不受系统区域设置影响。 */
 const formatTime = (value: string | undefined): string => {
   if (!value) return '—'
   const date = new Date(value)
@@ -44,67 +55,61 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   )
 }
 
-/** 会话详情（只读）：元数据、全文件累计统计与当前分支上下文。 */
-export function ThreadDetailsDialog({
-  open,
-  onOpenChange,
-  thread,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  thread: HarnessThreadMetadata
-}) {
-  const { workspaces } = useWorkspace()
-  const [details, setDetails] = useState<HarnessThreadDetails>()
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
-  /** 请求代次：切换/重开/卸载后旧结果一律丢弃。 */
-  const requestRef = useRef(0)
-  const threadId = thread.id
+const fallbackLabel = (metadata: HarnessThreadMetadata | undefined): string | undefined => {
+  const fallback = metadata?.modelFallback
+  if (!fallback) return undefined
+  return [
+    fallback.reason === 'restore-failed'
+      ? '历史恢复时原模型不可用'
+      : fallback.reason === 'no-model'
+        ? '没有可用模型'
+        : '模型回退',
+    fallback.message,
+  ].join('：')
+}
 
-  const load = useCallback(async () => {
-    requestRef.current += 1
-    const request = requestRef.current
-    setBusy(true)
-    setFailed(false)
-    try {
-      const next = await harnessHttpClient.getThreadDetails(threadId)
-      if (requestRef.current !== request) return
-      setDetails(next)
-    } catch {
-      if (requestRef.current === request) setFailed(true)
-    } finally {
-      if (requestRef.current === request) setBusy(false)
-    }
-  }, [threadId])
+/** 会话详情与管理动作。 */
+export function SessionDetailsDialog() {
+  const panel = useSessionsStore((state) => state.details)
+  const metadata = useServiceStore((state) =>
+    panel.threadId ? state.threadsById[panel.threadId] : undefined,
+  )
+  const workspace = useServiceStore((state) =>
+    metadata?.workspaceId ? state.workspacesById[metadata.workspaceId] : undefined,
+  )
+  const closeDetails = useSessionsStore((state) => state.closeDetails)
+  const refreshDetails = useSessionsStore((state) => state.refreshDetails)
+  const setRenameValue = useSessionsStore((state) => state.setRenameValue)
+  const renameThread = useSessionsStore((state) => state.renameCurrentThread)
+  const toggleArchive = useSessionsStore((state) => state.toggleArchiveCurrent)
+  const openDelete = useSessionsStore((state) => state.openDelete)
+  const openAssign = useSessionsStore((state) => state.openAssign)
 
-  useEffect(() => {
-    // 每次打开或切换会话都重新请求，避免显示上一会话的旧结果。
-    requestRef.current += 1
-    if (!open) return
-    setDetails(undefined)
-    void load()
-    return () => {
-      // 卸载/关闭后作废在途请求。
-      requestRef.current += 1
-    }
-  }, [load, open])
+  if (!panel.open || !panel.threadId) return null
 
-  const metadata = details?.metadata ?? thread
-  const workspace = metadata.workspaceId
-    ? workspaces.find((item) => item.id === metadata.workspaceId)
-    : undefined
+  const details = panel.details
+  const current = details?.metadata ? { ...details.metadata, ...metadata } : metadata
   const stats = details?.stats
   const context = details?.contextUsage
-  const config = metadata.config
-  const contextPercent =
+  const config = current?.config
+  const percent =
     context && context.tokens !== null && context.percent !== null
       ? `${context.percent.toFixed(1)}%`
       : undefined
+  const fallback = fallbackLabel(current)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-label="会话详情" data-slot="huan-thread-details" className="max-w-xl">
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) closeDetails()
+      }}
+    >
+      <DialogContent
+        aria-label="会话详情"
+        data-slot="huan-thread-details"
+        className="flex max-h-[85dvh] max-w-xl flex-col"
+      >
         <DialogHeader>
           <DialogTitle>
             <Trans>会话详情</Trans>
@@ -116,38 +121,86 @@ export function ThreadDetailsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex max-h-[60vh] flex-col gap-1.5 overflow-y-auto pe-1">
-          <Field label={<Trans>名称</Trans>}>
-            {metadata.name ?? metadata.title ?? <Trans>未命名会话</Trans>}
-          </Field>
-          <Field label={<Trans>会话 ID</Trans>}>{metadata.id}</Field>
-          <Field label={<Trans>会话文件</Trans>}>
-            {metadata.sessionFile ?? <Trans>尚未创建会话文件</Trans>}
-          </Field>
-          <Field label={<Trans>起始目录</Trans>}>{metadata.workspacePath ?? '—'}</Field>
-          <Field label={<Trans>工作区</Trans>}>
-            {workspace?.name ??
-              (metadata.workspaceId ? <Trans>工作区不可用</Trans> : <Trans>未归属</Trans>)}
-          </Field>
-          <Field label={<Trans>父会话</Trans>}>{metadata.parentSessionPath ?? '—'}</Field>
-          <Field label={<Trans>创建时间</Trans>}>{formatTime(metadata.createdAt)}</Field>
-          <Field label={<Trans>最近活动</Trans>}>{formatTime(metadata.updatedAt)}</Field>
-          <Field label={<Trans>模型</Trans>}>
-            {config?.provider && config.modelId ? `${config.provider} / ${config.modelId}` : '—'}
-            {config?.thinkingLevel ? ` · ${config.thinkingLevel}` : ''}
-          </Field>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pe-1">
+          <div className="flex items-end gap-2">
+            <label htmlFor="huan-session-name" className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="text-muted-foreground text-xs">
+                <Trans>会话名称</Trans>
+              </span>
+              <Input
+                id="huan-session-name"
+                value={panel.renameValue}
+                aria-label="会话名称"
+                disabled={panel.renameBusy}
+                onChange={(event) => setRenameValue(event.target.value)}
+              />
+            </label>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={panel.renameBusy || !panel.renameValue.trim()}
+              onClick={() => void renameThread()}
+            >
+              {panel.renameBusy && <Loader2Icon aria-hidden className="size-3.5 animate-spin" />}
+              <Trans>保存名称</Trans>
+            </Button>
+          </div>
+          {panel.renameError && (
+            <p role="alert" className="text-destructive text-xs">
+              {panel.renameError}
+            </p>
+          )}
+          {panel.actionError && (
+            <p role="alert" className="text-destructive text-xs">
+              {panel.actionError}
+            </p>
+          )}
+          {panel.notice && (
+            <p role="status" className="bg-muted/50 rounded-md px-2 py-1 text-xs">
+              {panel.notice}
+            </p>
+          )}
 
-          {busy && !details ? (
+          <div className="flex flex-col gap-1.5">
+            <Field label={<Trans>会话 ID</Trans>}>{current?.id ?? panel.threadId}</Field>
+            <Field label={<Trans>会话文件</Trans>}>
+              {current?.sessionFile ?? <Trans>尚未创建会话文件</Trans>}
+            </Field>
+            <Field label={<Trans>起始目录</Trans>}>{current?.workspacePath ?? '—'}</Field>
+            <Field label={<Trans>工作区</Trans>}>
+              {workspace?.name ??
+                (current?.workspaceId ? <Trans>工作区不可用</Trans> : <Trans>未归属</Trans>)}
+            </Field>
+            <Field label={<Trans>归档</Trans>}>
+              {current?.archived ? <Trans>已归档</Trans> : <Trans>未归档</Trans>}
+            </Field>
+            <Field label={<Trans>父会话</Trans>}>{current?.parentSessionPath ?? '—'}</Field>
+            <Field label={<Trans>创建时间</Trans>}>{formatTime(current?.createdAt)}</Field>
+            <Field label={<Trans>最近活动</Trans>}>{formatTime(current?.updatedAt)}</Field>
+            <Field label={<Trans>模型</Trans>}>
+              {config?.provider && config.modelId ? `${config.provider} / ${config.modelId}` : '—'}
+              {config?.thinkingLevel ? ` · ${config.thinkingLevel}` : ''}
+            </Field>
+            {fallback && (
+              <Field label={<Trans>模型回退</Trans>}>
+                <span data-slot="huan-details-fallback" className="text-destructive">
+                  {fallback}
+                </span>
+              </Field>
+            )}
+          </div>
+
+          {panel.loading && !details ? (
             <p className="text-muted-foreground inline-flex items-center gap-1.5 text-sm">
               <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
               <Trans>正在读取会话统计…</Trans>
             </p>
-          ) : failed ? (
+          ) : panel.error ? (
             <p role="alert" className="text-destructive text-sm">
               <Trans>读取会话详情失败，请检查宿主连接后重试。</Trans>
             </p>
           ) : stats ? (
-            <>
+            <div className="flex flex-col gap-1.5">
               <Field label={<Trans>消息</Trans>}>
                 <Trans>用户 {stats.userMessages}</Trans>
                 {' · '}
@@ -191,7 +244,7 @@ export function ThreadDetailsDialog({
                 ) : (
                   <span>
                     {formatTokens(context.tokens)} / {formatTokens(context.contextWindow)}
-                    {contextPercent ? ` (${contextPercent})` : ''}
+                    {percent ? ` (${percent})` : ''}
                   </span>
                 )}
                 {details && (
@@ -200,20 +253,42 @@ export function ThreadDetailsDialog({
                   </span>
                 )}
               </Field>
-            </>
+            </div>
           ) : null}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => void load()}>
-            {busy ? (
-              <Loader2Icon aria-hidden className="size-4 animate-spin" />
+        <DialogFooter className="flex-wrap">
+          <Button
+            variant="outline"
+            disabled={panel.actionBusy}
+            onClick={() => void toggleArchive()}
+          >
+            {panel.actionBusy ? (
+              <Loader2Icon aria-hidden />
+            ) : current?.archived ? (
+              <ArchiveRestoreIcon aria-hidden />
             ) : (
-              <RefreshCwIcon aria-hidden className="size-4" />
+              <ArchiveIcon aria-hidden />
             )}
+            {current?.archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
+          </Button>
+          {!current?.workspaceId && (
+            <Button variant="outline" onClick={() => openAssign(panel.threadId ?? '')}>
+              <Trans>加入工作区</Trans>
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            onClick={() => panel.threadId && openDelete(panel.threadId)}
+          >
+            <TrashIcon aria-hidden />
+            <Trans>删除会话</Trans>
+          </Button>
+          <Button variant="outline" disabled={panel.loading} onClick={() => void refreshDetails()}>
+            <RefreshCwIcon aria-hidden />
             <Trans>刷新详情</Trans>
           </Button>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={closeDetails}>
             <Trans>关闭</Trans>
           </Button>
         </DialogFooter>
@@ -222,49 +297,23 @@ export function ThreadDetailsDialog({
   )
 }
 
-/** 删除会话确认：展示名称与完整路径，运行中先停止任务再永久删除。 */
-export function DeleteThreadDialog({
-  open,
-  onOpenChange,
-  thread,
-  active = false,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  thread: HarnessThreadMetadata
-  /** 该会话是否为当前窗口正在查看的会话（删除后离开视图）。 */
-  active?: boolean
-}) {
-  const aui = useAui()
-  const { refresh, showNotice, showError } = useWorkspace()
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState<string>()
+/** 删除会话确认：展示名称与完整路径，运行中会先停止任务。 */
+export function DeleteThreadDialog() {
+  const panel = useSessionsStore((state) => state.deleteConfirm)
+  const metadata = useServiceStore((state) =>
+    panel.threadId ? state.threadsById[panel.threadId] : undefined,
+  )
+  const closeDelete = useSessionsStore((state) => state.closeDelete)
+  const confirmDelete = useSessionsStore((state) => state.confirmDelete)
 
-  useEffect(() => {
-    if (open) setMessage(undefined)
-  }, [open])
-
-  const remove = async () => {
-    setBusy(true)
-    setMessage(undefined)
-    try {
-      await harnessHttpClient.deleteThread(thread.id)
-      // 仅当被删除的会话是当前窗口正在查看的会话时离开视图。
-      if (active) await aui.threads.switchToNewThread()
-      await refresh()
-      showNotice('会话已删除。')
-      onOpenChange(false)
-    } catch {
-      // 文件与 sidecar 没有跨文件事务：删除失败必须可见，不伪报成功。
-      setMessage('删除失败：会话文件可能已删除，但元数据清理失败；请查看宿主诊断后重试。')
-      showError('load-failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
+  if (!panel.open || !panel.threadId) return null
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) closeDelete()
+      }}
+    >
       <DialogContent aria-label="删除会话">
         <DialogHeader>
           <DialogTitle>
@@ -279,25 +328,25 @@ export function DeleteThreadDialog({
 
         <div className="flex flex-col gap-1 text-sm">
           <span className="font-medium break-all">
-            {thread.name ?? thread.title ?? <Trans>未命名会话</Trans>}
+            {metadata?.name ?? metadata?.title ?? <Trans>未命名会话</Trans>}
           </span>
           <span className="text-muted-foreground break-all text-xs">
-            {thread.sessionFile ?? <Trans>尚未创建会话文件；删除后当前会话记录不会保留。</Trans>}
+            {metadata?.sessionFile ?? <Trans>尚未创建会话文件；删除后当前会话记录不会保留。</Trans>}
           </span>
         </div>
 
-        {message && (
+        {panel.error && (
           <p role="alert" className="text-destructive text-sm">
-            {message}
+            {panel.error}
           </p>
         )}
 
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>
+          <Button variant="outline" disabled={panel.busy} onClick={closeDelete}>
             <Trans>取消</Trans>
           </Button>
-          <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
-            {busy ? (
+          <Button variant="destructive" disabled={panel.busy} onClick={() => void confirmDelete()}>
+            {panel.busy ? (
               <Loader2Icon aria-hidden className="size-4 animate-spin" />
             ) : (
               <TrashIcon aria-hidden className="size-4" />
@@ -307,5 +356,107 @@ export function DeleteThreadDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** 未归属会话明确加入工作区。 */
+export function AssignWorkspaceDialog() {
+  const panel = useSessionsStore((state) => state.assign)
+  const workspaceIds = useServiceStore((state) => state.workspaceIds)
+  const workspacesById = useServiceStore((state) => state.workspacesById)
+  const workspaceState = useServiceStore((state) => state.workspaceState)
+  const setAssignWorkspace = useSessionsStore((state) => state.setAssignWorkspace)
+  const closeAssign = useSessionsStore((state) => state.closeAssign)
+  const confirmAssign = useSessionsStore((state) => state.confirmAssign)
+  const metadata = useServiceStore((state) =>
+    panel.threadId ? state.threadsById[panel.threadId] : undefined,
+  )
+
+  if (!panel.open || !panel.threadId) return null
+  const disabled = workspaceState !== undefined && workspaceState !== 'ok'
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) closeAssign()
+      }}
+    >
+      <DialogContent aria-label="加入工作区">
+        <DialogHeader>
+          <DialogTitle>
+            <Trans>加入工作区</Trans>
+          </DialogTitle>
+          <DialogDescription>
+            <Trans>该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。</Trans>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 text-sm">
+          <span className="break-all">
+            {metadata?.title ?? <Trans>未命名会话</Trans>}
+            {metadata?.workspacePath ? ` — ${metadata.workspacePath}` : ''}
+          </span>
+          <Select
+            value={panel.workspaceId}
+            items={Object.fromEntries(
+              workspaceIds.flatMap((id) => {
+                const workspace = workspacesById[id]
+                return workspace ? [[id, workspace.name] as const] : []
+              }),
+            )}
+            onValueChange={(value) => {
+              if (value) setAssignWorkspace(value)
+            }}
+          >
+            <SelectTrigger aria-label="目标工作区" size="sm" className="w-full justify-between">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {workspaceIds.map((id) => {
+                const workspace = workspacesById[id]
+                return workspace ? (
+                  <SelectItem key={id} value={id}>
+                    {workspace.name}
+                  </SelectItem>
+                ) : null
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+        {disabled && (
+          <p role="alert" className="text-destructive text-sm">
+            <Trans>工作区元数据不可用，会话归属修改已禁用。</Trans>
+          </p>
+        )}
+        {panel.error && (
+          <p role="alert" className="text-destructive text-sm">
+            {panel.error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" disabled={panel.busy} onClick={closeAssign}>
+            <Trans>取消</Trans>
+          </Button>
+          <Button
+            disabled={panel.busy || disabled || !panel.workspaceId}
+            onClick={() => void confirmAssign()}
+          >
+            {panel.busy && <Loader2Icon aria-hidden className="size-4 animate-spin" />}
+            <Trans>加入</Trans>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** 应用常驻会话管理弹层；不包含聊天主体。 */
+export function SessionDialogs() {
+  return (
+    <>
+      <SessionDetailsDialog />
+      <DeleteThreadDialog />
+      <AssignWorkspaceDialog />
+    </>
   )
 }
