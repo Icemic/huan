@@ -54,8 +54,8 @@
 | G1.0 范围盘点 | 建立锁定版本能力规范、源码基线与计划调整 | ✅ 文档交付完成；[范围迭代](iteration/2026-10/2026-10-31-feat-pi-gui-scope.md) |
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
 | G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 的启动期交互已在G1.3c补齐并验收；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航已完成，SES-04 与 RUN-06 分支同步已验收（[证据](iteration/2026-10/2026-10-31-feat-session-tree.md)：主 agent 566 项测试、24 条 Chromium、类型与构建）；d fork/clone/import 已通过主 agent review与验收（598 项测试、29 条 Chromium、类型/构建/Lingui235通过，见[迭代记录](iteration/2026-10/2026-10-31-feat-session-fork-import.md)）。SES-01～SES-07、ENV-02 分支/导入与 RUN-06 分支同步开发验收完成；ENV-03启动期交互已由G1.3c独立通道补齐，见该迭代证据 |
-| G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | 历史交付与验证记录保留：38文件685项/47条Chromium。[命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)宣称的结算边界、本窗历史与草稿保护存在遗漏，RUN-01数据回退、RUN-05结算、RUN-07历史/草稿相关子项重开，归整改 AR-11～14/27/33；其余交付不因此整体作废。整体完成待 §2.5 重新验收 |
-| G1.4 配置、认证与 MCP | MOD-02、MOD-03、RES-01、RES-03、RES-05、MCP-01～MCP-05；MOD-05 经用户确认排除 | 历史开发交付完成：a设置/资源（322de27）、b重载/内置装配（27ce524）、c模型认证（f889166）、d MCP配置/连接/工具桥接/OAuth/GUI（8536010～5400b8f）。最终记录：[MCP GUI验收](iteration/2026-11/2026-11-02-feat-mcp-gui.md)，983项通过、2项平台跳过、69条Chromium及check/build，Lingui413。各步骤证据由[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)和对应迭代维护；整体整改期间重新核对，不因旧测试通过免除审查 |
+| G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | 历史交付与验证记录保留：38文件685项/47条Chromium。结算、本窗历史、草稿保护和数据回退存在遗漏；R0进一步发现工具图片与editor预填缺失。RUN-01/05/07、RES-04相关子项重开，归整改AR-11～14/27/33/38～40；完整对照见[R0能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)。其余交付保留，整体完成待§2.5重新验收 |
+| G1.4 配置、认证与 MCP | MOD-02、MOD-03、RES-01、RES-03、RES-05、MCP-01～MCP-05；MOD-05 经用户确认排除 | 历史开发交付完成：a设置/资源（322de27）、b重载/内置装配（27ce524）、c模型认证（f889166）、d MCP配置/连接/工具桥接/OAuth/GUI（8536010～5400b8f）。最终记录：[MCP GUI验收](iteration/2026-11/2026-11-02-feat-mcp-gui.md)，983项通过、2项平台跳过、69条Chromium及check/build，Lingui413。各步骤证据由[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)和对应迭代维护；R0重开RES-05/MCP-02嵌套工具展示、工具图片及MOD-01回退原因子项（AR-37/38/41），MOD-02相关旧提示归AR-42；其余历史交付保留，整改后重新验收 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 未启动；被 §2.5 整体整改阻塞，解除后恢复原能力范围 |
 
 执行中若发现后阶段接口是前阶段的必要依赖，可先做最小依赖；跨阶段扩大范围需先更新本表和对应迭代文档，不把整个 G1 合并为一次巨型迭代。G1.2～G1.5 开工前按工作量拆成有独立出口的迭代。
@@ -112,13 +112,13 @@ G1.1 已交付：
 
 用户确认：整改覆盖前后端架构、状态所有权、业务流程、协议、模块、展示、测试和文档；前端业务状态统一 Zustand，移除 assistant-ui 合并其中。所有大小问题关闭后才能恢复原路线图，不能仅完成去依赖。
 
-详细范围、AR问题清单、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档与启动调研，未授权编码。
+详细范围、AR问题清单、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档、启动调研与R0能力/历史验收盘点，未授权编码。R0证据见[能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)，详细步骤状态仍由子路线图维护。
 
 分支为 `refactor`，基线 `5ff6565`（业务源码与 `5400b8f`一致）。中间允许不可运行/构建或测试失败的WIP提交；不为保持阶段检查通过维护兼容层、双状态或临时adapter。最终合并前必须完整可用并完成独立review、行为/性能验证及文档核对，默认不自行合并或push。
 
 原[聊天展示方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)及V0“设计完成”结论失效，不再作为实施依据。曾实施的V1/V2已按用户要求reset，其代码与测试结果不属于当前基线。采用shadcn官方组合、功能完整和主题独立的需求保留，展示接入纳入整体整改，不再单独推进旧V阶段。
 
-解除阻塞须满足子路线图的全部关闭条件，并由用户确认合并；此前G1.5和其他后续功能暂停。G1历史交付记录保留，发现的具体遗漏已在§2.2重开，不改写历史迭代事实。
+解除阻塞须满足子路线图的全部关闭条件，并由用户确认合并；此前G1.5和其他后续功能暂停。G1历史交付记录保留，发现的具体遗漏在§2.2重开；R0另登记SES-01/04～07的模型恢复证据与结构操作迟到响应问题，具体见子路线图AR-40/41。不改写历史迭代事实。
 
 ## 3. M4 工作区增强（延后）
 
