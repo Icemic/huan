@@ -12,7 +12,7 @@
   - `packages/mcp` — 官方 pi-mcp 之上的 Node 集成层（配置、管理与 Pi 工具桥接）；
   - `packages/core` — Pi SDK 集成与运行时（Node）；
   - `packages/react` — 浏览器侧运行时（reducer/投影/Controller/hook）与 assistant-ui 适配；
-  - `packages/history` — Checkpoint/ChangeSet 契约。
+  - `packages/history` — Checkpoint/ChangeSet 接口。
 - **应用**：`apps/harness` — 通用 Harness 应用（Vite + React 19 + Tailwind v4 + Lingui + Zustand）。
 - **Agent 核心**：Pi Coding Agent SDK；聊天 UI 基座 assistant-ui（运行时已自研，不再依赖 react-pi）。
 - **依赖方向**（强制）：`apps/*` → `@huan/core|react|history` → `@huan/protocol`；`core` 可依赖 `@huan/mcp`，`mcp` 依赖官方 pi-mcp / Pi SDK 公开 API，不反向依赖 core；`core`/`mcp`/`protocol` 不依赖 React，`react` 不依赖 Node。
@@ -31,6 +31,7 @@
 - **先读再写**：修改前先阅读相关代码，避免重复内容或与既有设计冲突。
 - **性能意识**：尽量使用 O(1)、O(n) 等低复杂度的算法，不要出现 O(n^2) 或更高复杂度的操作，避免不必要的性能开销。
 - **注释一律中文**：代码文件中的注释必须中文书写。
+- **文档风格检查必须零命中**：每次修改文档后，对本次修改的每份 Markdown 全文运行 `check-doc-style.py`，全部命中都必须改完并复跑至退出码 0。既有正文、历史标题和项目术语不作为保留理由；禁止修改检查脚本、词表或白名单来绕过检查。此项未通过不得提交或宣称文档交付完成。
 - **对话用用户偏好语言**：与用户的自然语言交流默认用中文。
 - **当前处于开发阶段**：不需考虑向后兼容或用户数据迁移，但仍要关注可维护性与可扩展性。
 
@@ -82,7 +83,7 @@
 
 一份迭代文档只使用一个主分类，不使用复合分类名。`refactor` 不表示“包含重构”，只有在没有新增能力、性能目标或错误修复目标时才使用。
 
-### 迭代完成口径
+### 迭代完成标准
 
 - 迭代指开发迭代：代码、相关自动化检查和文档完成后即标记为完成。
 - 桌面手工检查、平台回归、发布与上线验证不阻塞迭代完成，也不作为 `docs/todo.md` 的未完成项保留。

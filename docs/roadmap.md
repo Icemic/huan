@@ -27,8 +27,8 @@
 | 里程碑 | 目标 | 状态 |
 | --- | --- | --- |
 | M0 骨架 | monorepo 与工具链 | ✅ 已完成，2026-10-15 |
-| M1 最小闭环 | Agent 经 Pi SDK 运行并渲染 | ✅ 已完成，2026-10-16 |
-| M1.5 宿主自研 | Node 运行时归 `@huan/core` | ✅ 已完成，2026-10-18 |
+| M1 最小可用应用 | Agent 经 Pi SDK 运行并渲染 | ✅ 已完成，2026-10-16 |
+| M1.5 Node 运行时自研 | Node 运行时归 `@huan/core` | ✅ 已完成，2026-10-18 |
 | M2 公共层固化 | 自研浏览器 Controller，移除 react-pi 依赖 | ✅ 已完成，2026-10-18 |
 | **G1 Pi 基础能力 GUI 化** | **基础 Pi 能力在 GUI 可用，随后以 huan 自迭代** | **被整体架构整改阻塞（§2.5）；G1.4历史交付保留，G1.3发现的遗漏重开；G1.5与独立UI升级暂停** |
 | M3 文件快照与审查 | 快照、ChangeSet、Diff、选择性恢复 | 延后，保留设计见 §7 |
@@ -43,7 +43,7 @@
 
 能力定义与验收唯一来源为 [Pi GUI 能力规范](pi-gui-capabilities.md)。仓库已统一使用 Pi **1.4.0**；升级及回归证据见 G1.1 迭代记录。全部适用能力须有 GUI 等价入口，例外须经用户确认。
 
-默认沿用 Pi 用户空间，允许手工指定其他目录；自动化使用隔离空间。继续采用浏览器 + Node / SDK，不先做文件回滚、IDE 工作台或桌面打包。基础开发验收与真实使用问题共同驱动自迭代，手工平台验证不阻塞开发迭代完成。
+默认沿用 Pi 用户空间，允许手工指定其他目录；自动化使用隔离空间。继续采用浏览器 + Node / SDK，不先做文件回滚、IDE 工作台或桌面打包。基础开发验收与日常使用问题共同驱动自迭代，手工平台验证不阻塞开发迭代完成。
 
 ### 2.2 实施阶段与完成状态
 
@@ -55,7 +55,7 @@
 | **G1.1 用户空间与可靠基线** | ENV-01、ENV-02、ENV-04、RUN-06；目录一致性、确定性测试、重连快照、启动配置诊断 | **✅ 开发完成**；[迭代证据](iteration/2026-10/2026-10-31-feat-user-space-reliability.md)。ENV-01、ENV-04 已验收；ENV-02 当前 CRUD/目录子项完成，分支与导入随 G1.2；RUN-06 当前重连子项完成，分支同步随 G1.2；主 agent 执行 464 项测试与构建通过 |
 | G1.2 项目、会话与分支 | ENV-03、SES-01～SES-07；项目/信任入口、会话管理与统计、tree/fork/clone/import | G1.2a 已完成项目入口/信任与继续最近；[验收](iteration/2026-10/2026-10-31-feat-project-trust.md)：480 项测试、9 条浏览器流程。ENV-03 的启动期交互已在G1.3c补齐并验收；SES-01 项目/继续子项完成。b 前新增多项目工作区：稳定 ID、工作区级会话、动态成员和两级列表，开发完成（517 项测试、12 条浏览器流程），见[设计](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。b 管理/统计开发完成，SES-02、SES-03 已验收（[迭代证据](iteration/2026-10/2026-10-31-feat-session-management-stats.md)：主 agent 536 项测试、20 条 Chromium、类型与构建）；c 树导航已完成，SES-04 与 RUN-06 分支同步已验收（[证据](iteration/2026-10/2026-10-31-feat-session-tree.md)：主 agent 566 项测试、24 条 Chromium、类型与构建）；d fork/clone/import 已通过主 agent review与验收（598 项测试、29 条 Chromium、类型/构建/Lingui235通过，见[迭代记录](iteration/2026-10/2026-10-31-feat-session-fork-import.md)）。SES-01～SES-07、ENV-02 分支/导入与 RUN-06 分支同步开发验收完成；ENV-03启动期交互已由G1.3c独立通道补齐，见该迭代证据 |
 | G1.3 命令、输入与上下文 | RUN-01～RUN-05、RUN-07、MOD-01、MOD-04、RES-02、RES-04；命令路由、文件引用、Shell、上下文压缩与必要 Host UI | 历史交付与验证记录保留：38文件685项/47条Chromium。[命令输入](iteration/2026-10/2026-10-31-feat-command-input.md)宣称的结算边界、本窗历史与草稿保护存在遗漏，RUN-01数据回退、RUN-05结算、RUN-07历史/草稿相关子项重开，归整改 AR-11～14/27/33；其余交付不因此整体作废。整体完成待 §2.5 重新验收 |
-| G1.4 配置、认证与 MCP | MOD-02、MOD-03、RES-01、RES-03、RES-05、MCP-01～MCP-05；设置、资源重载、内置扩展装配、MCP 管理；MOD-05 经用户确认排除 | 按[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)拆分 a设置与资源、b重载与内置装配、c认证、d MCP 管理；a [设置/资源清单开发完成](iteration/2026-11/2026-11-01-feat-settings-resources.md)：MOD-03/RES-01，主 agent review修复后亲验718项测试、54条Chromium、lint/类型/build；b [重载/基础内置装配完成](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)：RES-03 与 RES-05 codemode/tool-search 子项，主 agent review修复后亲验738项测试、59条Chromium、lint/类型/build；MCP 工厂与管理生命周期归 d；c [模型认证完成](iteration/2026-11/2026-11-02-feat-provider-auth.md)：MOD-02，主 agent review修复后亲验760项/63条、lint/类型/build；d 按[独立 MCP 集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)推进 d1包与配置基础（共享路径修订见下文） → d2连接管理/Pi桥接 → d3 OAuth/宿主接口 → d4 GUI/整体验收；每阶段验证提交后继续；当前 d1 配置基础及[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)已完成（56项定向测试通过、2项平台跳过，全仓816项通过、2项跳过及check/build通过）；d2 拆为[连接管理 d2a](iteration/2026-11/2026-11-02-feat-mcp-connections.md) → Pi工具/资源桥接d2b，逐段验证提交；当前d2a已完成（主agent亲验MCP包117项、全仓877项通过，2项平台跳过及check/build通过），d2b按[Pi桥接设计](iteration/2026-11/2026-11-02-feat-mcp-pi-bridge.md)开发完成：core按会话消费同一manager，Pi工具/资源/权限/codemode/tool_search与动态扩展注册已接入；主agent独立review修复，亲验935项通过、2项跳过、63条Chromium及check/build。d3 OAuth/宿主接口已完成（976项通过、2项跳过、63条Chromium及check/build）；[d4 GUI整体验收](iteration/2026-11/2026-11-02-feat-mcp-gui.md)开发完成（主agent983项通过、2项跳过、69条Chromium及check/build，Lingui413）；MCP-01～05与RES-03/05剩余子项验收，G1.4开发完成。MOD-05仍为明确排除，不计完成 |
+| G1.4 配置、认证与 MCP | MOD-02、MOD-03、RES-01、RES-03、RES-05、MCP-01～MCP-05；MOD-05 经用户确认排除 | 历史开发交付完成：a设置/资源（322de27）、b重载/内置装配（27ce524）、c模型认证（f889166）、d MCP配置/连接/工具桥接/OAuth/GUI（8536010～5400b8f）。最终记录：[MCP GUI验收](iteration/2026-11/2026-11-02-feat-mcp-gui.md)，983项通过、2项平台跳过、69条Chromium及check/build，Lingui413。各步骤证据由[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)和对应迭代维护；整体整改期间重新核对，不因旧测试通过免除审查 |
 | G1.5 输出与整体验收 | OUT-01～OUT-04；复制/导出/分享/诊断、能力遗漏复查与自迭代场景 | 未启动；被 §2.5 整体整改阻塞，解除后恢复原能力范围 |
 
 执行中若发现后阶段接口是前阶段的必要依赖，可先做最小依赖；跨阶段扩大范围需先更新本表和对应迭代文档，不把整个 G1 合并为一次巨型迭代。G1.2～G1.5 开工前按工作量拆成有独立出口的迭代。
@@ -66,7 +66,7 @@
 
 2026-11-02 用户确认整体整改前后端、协议、状态所有权、业务流程、展示、测试与文档。前端统一 Zustand，去除 assistant-ui 合并其中；`refactor` 可提交不可用中间状态，最终合并才完整验收。范围、步骤与问题生命周期见 §2.5 委托的子路线图。下面保留 G1.4 及此前的历史交付背景，不作为当前继续开发的授权。
 
-G1.4a（322de27）、b（27ce524）已提交。c 模型认证已完成并通过主 agent review/修复与760项/63条验证。d 的独立集成背景：Pi 1.4.0 的公开 MCP 工厂未提供管理对象，凭据存储选项引用的类也未导出。用户已确认独立 `@huan/mcp`（`packages/mcp`）作为集成层，依赖官方 `@earendil-works/pi-mcp`；不引入第三方 MCP 替代品，不以推动上游接口或维护 Pi fork 为前提。该包与 Pi 内置 MCP 集成同层，不替换底层协议库；未来可自主演进或切换到完善后的官方集成。llama.cpp 管理（MOD-05）排除，不作为延期项或完成项。禁止私有深导入。首期集成设计已获用户确认。d1 初版独立配置基础已完成（8536010）；随后用户确认改为共享 Pi 服务器配置：用户 `<agentDir>/mcp.json`、项目 `<cwd>/.pi/mcp.json`；OAuth 凭据与日志仍置于 huan 子目录，huan 专属设置独立，详见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)。该修订已完成，主 agent 独立 review 后亲验56项定向测试及全仓816项通过、2项平台跳过，check/build通过；[连接管理 d2a](iteration/2026-11/2026-11-02-feat-mcp-connections.md)已完成：主agent独立review修复生命周期/重连/取消/目录竞态，亲验MCP包117项与全仓877项通过、2项跳过及check/build；随后[Pi桥接d2b](iteration/2026-11/2026-11-02-feat-mcp-pi-bridge.md)已完成core接入、工具/资源/权限与发现桥接，主agent独立review修复后亲验935项通过、2项跳过、63条Chromium及check/build；[d3 OAuth/宿主接口](iteration/2026-11/2026-11-02-feat-mcp-auth-host.md)已完成：主agent独立review修复后亲验976项通过、2项跳过、63条Chromium及check/build；协议14，独立OAuth/日志、配置/管理/详情与认证回填接口已接入。用户授权无决策阻塞时连续完成d3与d4，仍每阶段独立review/验证/本地提交。[d4 GUI整体验收](iteration/2026-11/2026-11-02-feat-mcp-gui.md)已完成：主agent独立review修复后亲验983项通过、2项平台跳过、69条Chromium、check/build与Lingui413；MCP-01～05和RES-03/05的MCP子项开发验收完成，G1.4整体开发完成。截图生成但图片读取受限，未做视觉审阅；已记录测试环境崩溃/产物消失及独立输出目录完整通过的证据。G1.5尚未启动。此前保留assistant-ui状态的展示升级设计已失效，不再指导实施；整体整改取代该任务，见§2.5。
+G1.4历史设计与记录见[阶段设计](iteration/2026-11/2026-11-01-feat-configuration-resources-auth-mcp.md)。Pi 1.4.0公开MCP工厂缺少管理对象和必要凭据接口，用户确认由独立`@huan/mcp`集成官方`@earendil-works/pi-mcp`，不引入第三方替代品、不维护Pi fork、不私有深导入。服务器定义改为共享用户`<agentDir>/mcp.json`与项目`<cwd>/.pi/mcp.json`，OAuth/日志保留huan独立目录，见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)。llama.cpp专用管理排除。d1～d4分别完成配置、连接/工具桥接、OAuth/服务接口和GUI；最终验证见§2.2。截图未审阅，测试环境异常原因未确定，这些事实保留。G1.5未启动，旧展示方案失效，整体整改取代该任务。
 
 刷新性能已完成：
 
@@ -80,9 +80,9 @@ G1.4a（322de27）、b（27ce524）已提交。c 模型认证已完成并通过�
 
 阶段设计见 [项目、会话与分支](iteration/2026-10/2026-10-31-feat-project-session-branches.md)，已核对 1.4.0 SDK。a 项目入口与信任已完成；用户随后确认[多项目工作区](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)：会话归属工作区，左侧工作区一级、会话二级。新增工作区迭代与 b 会话管理/统计已完成开发与主 agent 验证；c 树导航与跨窗同步已验收，d 独立分支与导入也已验收；G1.3 按上述分项推进。
 
-工作区新增迭代先验证从 pi-workspaces 选择性复用的路径/工具代码与公开 SDK 的适配，不加载整个插件；新建会话选择并固定起始 cwd，工作区成员改动在运行结算后、下一轮前生效。仅起始目录装配项目设置/扩展/MCP；其他成员提供路径与指令。huan 自主管理定义与生命周期，不要求与上游格式或 Pi TUI 同步。存储采用 `<agentDir>/huan/state.json`，具体 schema、会话存储作用域和失败规则见工作区设计 §4。state.json、协议/HTTP、宿主归属与两级 GUI 已完成；主 agent review 修复与 517 项测试、12 条 Chromium 验证见[工作区迭代 §8](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#8-开发实施与验证记录)。G1.2b 的持久归档、列表搜索/排序/外部刷新、删除确认与只读冷热统计已完成，见[会话管理与统计](iteration/2026-10/2026-10-31-feat-session-management-stats.md)。
+工作区新增迭代先验证从 pi-workspaces 选择性复用的路径/工具代码与公开 SDK 的适配，不加载整个插件；新建会话选择并固定起始 cwd，工作区成员改动在运行结算后、下一轮前生效。仅起始目录装配项目设置/扩展/MCP；其他成员提供路径与指令。huan 自主管理定义与生命周期，不要求与上游格式或 Pi TUI 同步。存储采用 `<agentDir>/huan/state.json`，具体 schema、会话存储作用域和失败规则见工作区设计 §4。state.json、协议/HTTP、服务端归属与两级 GUI 已完成；主 agent review 修复与 517 项测试、12 条 Chromium 验证见[工作区迭代 §8](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md#8-开发实施与验证记录)。G1.2b 的持久归档、列表搜索/排序/外部刷新、删除确认，以及对已加载与未加载会话的只读统计已完成，见[会话管理与统计](iteration/2026-10/2026-10-31-feat-session-management-stats.md)。
 
-用户已确认路径输入+最近项目、持久化归档与树节点、双入口 JSONL 导入。[G1.2a](iteration/2026-10/2026-10-31-feat-project-trust.md)已完成；新增工作区设计替代其按单项目组织会话的入口，保留路径/信任基础。启动期用户信任扩展UI由G1.3c独立宿主通道补齐。
+用户已确认路径输入+最近项目、持久化归档与树节点、双入口 JSONL 导入。[G1.2a](iteration/2026-10/2026-10-31-feat-project-trust.md)已完成；新增工作区设计替代其按单项目组织会话的入口，保留路径/信任基础。启动期用户信任扩展UI由G1.3c独立服务端通道补齐。
 
 用户确认在 G1.2 前补齐浏览器验证。[浏览器基线](iteration/2026-10/2026-10-31-test-browser-baseline.md)已完成：四条 Chromium 流程、失败截图/trace、隔离启动与项目级 Playwright MCP；主 agent 实测浏览器测试和 MCP 调用通过。
 
@@ -91,9 +91,9 @@ G1.1 与 G1.2 均完成；目录解析、HostInfo、工作区和会话操作继�
 G1.1 已交付：
 
 1. 统一 agentDir 与 sessionDir 解析：核实 SDK/CLI 对环境变量、设置和默认路径的优先级；保证创建、枚举、跨 cwd 查找、打开与删除一致。显式会话目录的共享行为须可解释。
-2. 默认测试使用临时用户空间、合成 provider 和确定性响应，不读取/修改个人 auth 与 sessions；真实个人环境兼容验证独立显式运行；补初始化失败清理。
+2. 默认测试使用临时用户空间、合成 provider 和确定性响应，不读取/修改个人 auth 与 sessions；个人环境兼容验证独立显式运行；补初始化失败清理。
 3. 修复已加载 Controller 关闭后重连不补历史，覆盖多窗口离线期间的变化与新订阅快照边界。
-4. 明确默认模型/凭据失效的可恢复状态与诊断路径，避免用户只能查看宿主终端；认证完整入口归 G1.4。
+4. 明确默认模型/凭据失效的可恢复状态与诊断路径，避免用户只能查看Node进程终端；认证完整入口归 G1.4。
 5. 已升级 Pi 1.4.0，完成默认模型恢复、HostInfo 及当前协议回归；树/分支恢复随 G1.2 验收。
 
 ### 2.4 当前阻塞与设计风险
@@ -101,18 +101,18 @@ G1.1 已交付：
 | 事项 | 当前结论 / 处理位置 |
 | --- | --- |
 | 整体架构整改 | 阻塞所有后续功能；详细问题/步骤/关闭条件唯一维护于 [整改子路线图](architecture-remediation-roadmap.md)，见 §2.5 |
-| 测试基线 | G1.1 已迁移临时用户空间与确定性 provider，主 agent 复跑 464 项通过；真实个人环境兼容验证未执行 |
+| 测试基线 | G1.1 已迁移临时用户空间与确定性 provider，主 agent 复跑 464 项通过；个人环境兼容验证未执行 |
 | 用户空间 | 当前创建/枚举/读写已统一目录；后续分支/导入必须沿用此规则 |
 | Pi 版本升级 | 已升 1.4.0 并通过取消/回放回归；启动期 busy/abort 行为变化已记录，未来升级继续回归 |
 | GUI 不能直接复用 custom TUI | 适用的内置基础功能必须提供等价入口；MCP 管理、认证和报告分别核实公开接口，阻塞时讨论，不静默延期；llama.cpp 管理经用户确认排除 |
-| CLI 主动处理的命令不等于 SDK prompt 命令 | G1.3 明确宿主命令与扩展/模板路由、覆盖和取消语义 |
+| CLI 主动处理的命令不等于 SDK prompt 命令 | G1.3 明确服务端命令与扩展/模板路由、覆盖和取消语义 |
 | 多会话与分支生命周期 | G1.2 保持 Pi 为活动分支权威，替换 session 后重绑订阅，防止 runtime 复用导致事件投递到错误会话 |
 
 ### 2.5 整体架构整改：阻塞子路线图
 
 用户确认：整改覆盖前后端架构、状态所有权、业务流程、协议、模块、展示、测试和文档；前端业务状态统一 Zustand，移除 assistant-ui 合并其中。所有大小问题关闭后才能恢复原路线图，不能仅完成去依赖。
 
-详细范围、AR问题台账、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档与启动调研，未授权编码。
+详细范围、AR问题清单、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档与启动调研，未授权编码。
 
 分支为 `refactor`，基线 `5ff6565`（业务源码与 `5400b8f`一致）。中间允许不可运行/构建或测试失败的WIP提交；不为保持阶段检查通过维护兼容层、双状态或临时adapter。最终合并前必须完整可用并完成独立review、行为/性能验证及文档核对，默认不自行合并或push。
 
@@ -126,7 +126,7 @@ G1.1 已交付：
 
 - 文件树、Monaco 只读查看与大型文件性能；忽略策略与未来快照共享判定。
 - 文件树 / 查看 / Diff / 聊天的可拖拽布局。
-- 超出 Pi 原生输入能力的附件扩展，以及真实使用驱动的进一步体验优化。
+- 超出 Pi 原生输入能力的附件扩展，以及日常使用驱动的进一步体验优化。
 
 启动前按实际痛点重定顺序与退出标准。持续遵循流式更新不阻塞输入、长列表性能、键盘路径与 i18n 约束。
 
@@ -153,7 +153,7 @@ G1.1 已交付：
 | --- | --- | --- |
 | JSON-safe 异常载荷：循环引用 / BigInt 的映射策略与测试（迭代③ #14） | 中 | 纳入整改 AR-20，本次关闭，不再按需延期 |
 | 已加载 Controller 再连接缺离线历史 | 中 | ✅ G1.1 修复，含队列生命周期与快照后直接 message_end 回归 |
-| 扩展显式 steer 路径排队测试 | 低 | ✅ G1.3补真实SDK显式steer入队/取回回归 |
+| 扩展显式 steer 路径排队测试 | 低 | ✅ G1.3补SDK显式steer入队/取回回归 |
 | 取消语义依赖 SDK 私有延迟动作字段 | 中 | 纳入整改 AR-21，复核必要补偿与可检测失效；升级继续按架构 §8.2 回归 |
 | 本地移植代码与上游同步策略 | 低 | 纳入整改 AR-35；删除运行依赖后仍保留复用代码MIT来源及必要差异说明 |
 
@@ -164,7 +164,7 @@ G1.1 已交付：
 | 事项 | 说明 | 触发时机 |
 | --- | --- | --- |
 | CI | frozen-lockfile 安装、check、build；先有不依赖个人环境的测试 | G1.1 后评估 |
-| 宿主访问凭证完整设计 | 当前 HUAN_TOKEN 是开发方案 | 对外分发或采用桌面宿主时 |
+| 服务访问凭证完整设计 | 当前 HUAN_TOKEN 是开发方案 | 对外分发或采用桌面程序形态时 |
 | 窗口级自主状态 store | 已确认前端业务状态统一Zustand，包含会话、草稿、目录、管理面板与现有分散store；细项由整改子路线图维护 | 当前阻塞整改，不再等待需求出现 |
 | 目录缓存持久化 | 当前重启重扫 | 重启耗时成为痛点时 |
 
@@ -174,7 +174,7 @@ G1.1 已交付：
 
 | 问题 | 当前方案 | 决策时机 |
 | --- | --- | --- |
-| 桌面宿主 Electron / Tauri / 其他 | 浏览器 + Node；协议保留替换传输能力 | 浏览器确实阻断 G1 能力，或后续分发时 |
+| 桌面程序形态 Electron / Tauri / 其他 | 浏览器 + Node；协议保留替换传输能力 | 浏览器确实阻断 G1 能力，或后续分发时 |
 | 跨应用历史可移植性 | 兼容 Pi JSONL，应用元数据不改 Pi 内部文件 | M5 前如需共享历史 |
 | OS 沙箱 | 当前不承诺 OS 隔离 | 面向不可信项目或第三方分发 |
 
@@ -182,7 +182,7 @@ G1.1 已交付：
 
 ### 5.4 依赖升级回归
 
-升级 Pi SDK 或 assistant-ui 前验证行为契约。完整清单见 `technical-architecture.md` §8.2；G1 开始后同时重审能力规范的基准版本和差异。本地 react-pi 移植来源版本只作参考，不重新引入运行时依赖。
+升级 Pi SDK 或 assistant-ui 前验证行为要求。完整清单见 `technical-architecture.md` §8.2；G1 开始后同时重审能力规范的基准版本和差异。本地 react-pi 移植来源版本只作参考，不重新引入运行时依赖。
 
 ## 6. 变更记录
 
@@ -207,14 +207,14 @@ G1.1 已交付：
 | --- | --- |
 | 内容寻址后端 | blob 按内容 hash；manifest 记录路径、hash 与元数据；应用数据目录存储，不写工作目录；run 起止 / tool 前后增量扫描 |
 | 存储与忽略 | 尊重 `.gitignore` 等及内置排除；孤儿 blob 回收，manifest 带版本，对象库可独立重建 |
-| ChangeSet 与归因 | 两份 manifest 之差与 run/tool/时间/操作者元数据；区分 Agent 与用户改动；不依赖 Git、不碰 index，Git 只可能作为加速层 |
+| ChangeSet 与变更来源 | 两份 manifest 之差与 run/tool/时间/操作者元数据；区分 Agent 与用户改动；不依赖 Git、不碰 index，Git 只可能作为加速层 |
 | Provider | `@huan/history` 的 capture/diff/restore，表达不支持、部分成功、冲突、确认、中断；选择性恢复由 capability 声明 |
 | 审查与恢复 | Monaco 文本 Diff、文件树、二进制摘要与冲突；先文件级接受/撤销，hunk 后续；恢复前检查外部改动，不静默覆盖 |
 
 ### 7.2 开工前需细化
 
 - 应用数据路径、多应用/多工作区隔离、对象库与 manifest 布局。
-- 未跟踪/忽略文件、重命名、符号链接、权限位、大文件阈值和归因可信边界。
+- 未跟踪/忽略文件、重命名、符号链接、权限位、大文件阈值和变更来源可信边界。
 - Agent 运行中恢复的禁用/先中止规则；大仓库扫描性能及增量策略。
 - Monaco 延迟加载、worker 与未来桌面打包配置。
 
