@@ -20,6 +20,7 @@ import type {
 import { type LoadedMcpConfig, loadMcpConfig, type McpServerEntry, mcpNamespace } from './config.js'
 import type { McpCommandRunner } from './config-values.js'
 import { type McpAuthProviderFactory, resolveMcpRequestTimeoutMs } from './connection.js'
+import type { McpServerLogSink } from './log.js'
 import {
   createMcpConnectionManager,
   type McpConnectionManager,
@@ -66,6 +67,8 @@ export interface McpIntegrationOptions {
   createAuthProvider?: McpAuthProviderFactory
   env?: Readonly<Record<string, string | undefined>>
   runCommand?: McpCommandRunner
+  /** 收到服务器 `notifications/message` 时调用；由 core 注入固定 agentDir 的日志。 */
+  onLog?: McpServerLogSink
 }
 
 /** 无界面集成绑定。 */
@@ -717,6 +720,7 @@ export function createMcpIntegration(options: McpIntegrationOptions): McpIntegra
           providerToken: async (provider) => ctx.modelRegistry.getApiKeyForProvider(provider),
           ...(options.env ? { env: options.env } : {}),
           ...(options.runCommand ? { runCommand: options.runCommand } : {}),
+          ...(options.onLog ? { onLog: options.onLog } : {}),
         })
       } catch {
         safeNotify(ctx, 'MCP 服务器条目无效；本次会话未连接服务器。', 'error')

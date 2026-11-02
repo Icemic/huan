@@ -27,7 +27,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 13（新增独立 provider 认证操作/安全快照与回填；此前重载、设置与资源契约保持）。
+**Pi GUI 能力契约**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、宿主、Controller 与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 14（新增MCP配置/管理/详情与独立OAuth操作契约；provider认证及既有重载契约保持）。
 
 **UI 依赖边界（2026-10-31）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；`@assistant-ui/react` 内部的间接 Radix 依赖已接受，不维护 fork。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -68,7 +68,7 @@ apps/harness
 - 公共包不得 import 应用内部模块；应用之间无直接代码依赖。
 - 宿主特殊接口（Electron、Tauri、未来的原生桥）只出现在应用的 `bridge/` 或独立 adapter 包中。
 
-**MCP 集成包边界**：`packages/mcp`（`@huan/mcp`）作为 Node 集成层，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。当前 core 按 loader/会话持有无界面 integration binding，注入 huan 的 named builtin:mcp；session_start读取共享配置后后台启动唯一manager，Pi工具/资源/权限与codemode/tool_search接入同一组连接。公开扩展MCP注册动态对账，未变化项保留连接；关闭资格同步失效，core在取消/失败/删除/dispose主动回收，重载关闭旧manager后用新上下文启动。GUI管理、OAuth存储/登录与日志仍未接入；用户/可信项目分别读取 `<agentDir>/mcp.json` / `<cwd>/.pi/mcp.json`，与 Pi TUI 共用服务器配置；凭据/日志仍在 huan 子目录，不共享 Pi 的认证/日志文件，huan 专属设置独立。配置有界读取、逐项校验、revision 防覆盖与单进程串行原子保存；跨进程同时编辑不承诺 CAS，未信任项目不读原文。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；详见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)与[独立集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)。
+**MCP 集成包边界**：`packages/mcp`（`@huan/mcp`）作为 Node 集成层，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。当前 core 按 loader/会话持有无界面 integration binding，注入 huan 的 named builtin:mcp；session_start读取共享配置后后台启动唯一manager，Pi工具/资源/权限与codemode/tool_search接入同一组连接。公开扩展MCP注册动态对账，未变化项保留连接；关闭资格同步失效，core在取消/失败/删除/dispose主动回收，重载关闭旧manager后用新上下文启动。core独立mcp-host broker提供配置/临时管理/详情和OAuth操作快照，按runtimeId+identity校验代次并共享每身份认证；OAuth/日志分别落于huan状态目录，官方库负责协议、PKCE与issuer校验，取消等待真实流程结算，刷新轮换落盘后收尾。GUI管理仍未接入；用户/可信项目分别读取 `<agentDir>/mcp.json` / `<cwd>/.pi/mcp.json`，与 Pi TUI 共用服务器配置；凭据/日志仍在 huan 子目录，不共享 Pi 的认证/日志文件，huan 专属设置独立。配置有界读取、逐项校验、revision 防覆盖与单进程串行原子保存；跨进程同时编辑不承诺 CAS，未信任项目不读原文。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；详见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)与[独立集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)。
 
 ---
 

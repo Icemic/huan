@@ -28,6 +28,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createMcpIntegration,
   type McpIntegration,
+  type McpIntegrationOptions,
   type McpServerListing,
   renderMcpServersSection,
 } from './index.js'
@@ -142,6 +143,7 @@ interface OpenHarnessOptions {
   memories: Record<string, MemoryMcpServerOptions>
   extraExtensions?: InlineExtension[]
   startupWaitMs?: number
+  onLog?: McpIntegrationOptions['onLog']
 }
 
 async function openHarness(options: OpenHarnessOptions): Promise<Harness> {
@@ -169,6 +171,7 @@ async function openHarness(options: OpenHarnessOptions): Promise<Harness> {
       getProjectTrusted: () => options.trusted === true,
       startupWaitMs: options.startupWaitMs,
       env: {},
+      ...(options.onLog ? { onLog: options.onLog } : {}),
       createTransport: (context) => {
         transports.push({ name: context.entry.name, scope: context.entry.scope })
         const server = memories.get(context.entry.name)
@@ -964,6 +967,25 @@ describe('集成绑定生命周期（无 SDK 事件驱动）', () => {
       fakeContext('/tmp/huan-mcp-workspace'),
     )
     expect(binding.getManager()).toBeUndefined()
+  })
+
+  it('集成把 notifications/message 交给 onLog，不进入状态摘要', async () => {
+    const logs: { server: string; params: unknown }[] = []
+    const harness = await openHarness({
+      userConfig: { mcpServers: { demo: { command: 'fixture' } } },
+      memories: { demo: {} },
+      onLog: (server, params) => logs.push({ server, params }),
+    })
+    const manager = harness.integration.getManager()
+    if (!manager) throw new Error('missing manager')
+    await waitFor(() => manager.snapshot().servers[0]?.state === 'connected')
+    const memory = harness.memories.get('demo')
+    if (!memory) throw new Error('missing memory server')
+    await memory.notify('notifications/message', { level: 'info', data: 'integration-log' })
+    await waitFor(() => logs.length === 1)
+    expect(logs[0]?.server).toBe('demo')
+    expect(logs[0]?.params).toMatchObject({ level: 'info', data: 'integration-log' })
+    expect(JSON.stringify(manager.snapshot())).not.toContain('integration-log')
   })
 
   it('工厂注册 /mcp 替换标识命令与资源工具 hidden 预注册', async () => {

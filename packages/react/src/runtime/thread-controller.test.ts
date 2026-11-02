@@ -120,6 +120,36 @@ const createFakeClient = (initial: HarnessThreadSnapshot = snapshot()): FakeClie
     async logoutProvider() {
       return { status: 'invalid', message: '测试客户端不支持认证' }
     },
+    async getMcp() {
+      throw new Error('Controller 不查询 MCP')
+    },
+    async getMcpDetails() {
+      return { status: 'unavailable' as const, message: '测试客户端不支持 MCP' }
+    },
+    async getMcpConfig() {
+      throw new Error('Controller 不查询 MCP 配置')
+    },
+    async saveMcpConfig() {
+      throw new Error('Controller 不保存 MCP 配置')
+    },
+    async manageMcp() {
+      return { status: 'unavailable' as const, message: '测试客户端不支持 MCP' }
+    },
+    async getMcpAuth() {
+      return { seq: 0, authRevision: 0, operations: [] }
+    },
+    async startMcpLogin() {
+      return { status: 'invalid' as const, message: '测试客户端不支持 MCP' }
+    },
+    async respondMcpAuth() {
+      return { status: 'stale' as const }
+    },
+    async cancelMcpAuth() {
+      return { status: 'not-found' as const }
+    },
+    async logoutMcp() {
+      return { status: 'invalid' as const, message: '测试客户端不支持 MCP' }
+    },
     async respondToHostInteraction() {
       return { accepted: true }
     },

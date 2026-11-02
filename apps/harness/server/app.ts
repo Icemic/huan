@@ -15,6 +15,7 @@ import { Hono } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import type { ServerConfig } from './config.js'
 import { registerHostRoutes } from './host-routes.js'
+import { registerMcpRoutes } from './mcp-routes.js'
 import { registerProviderAuthRoutes } from './provider-auth-routes.js'
 import { createEventsRoute, createHostInteractionEventsRoute } from './sse.js'
 
@@ -125,6 +126,7 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   registerHostRoutes(app, piClient, config)
   registerProviderAuthRoutes(app, piClient)
+  registerMcpRoutes(app, piClient)
 
   app.get('/api/pi/workspaces', async (c) => c.json(await piClient.listWorkspaces()))
 

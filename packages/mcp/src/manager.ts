@@ -40,6 +40,7 @@ import {
   McpServerConnection,
   type McpTransportFactory,
 } from './connection.js'
+import type { McpServerLogSink } from './log.js'
 
 /** 单服务器管理快照；不含配置原文、URL、env、headers、stderr 或原始异常。 */
 export interface McpServerSnapshot {
@@ -94,6 +95,8 @@ export interface McpConnectionManagerOptions {
   providerToken?: (provider: string) => Promise<string | undefined>
   env?: Readonly<Record<string, string | undefined>>
   runCommand?: McpCommandRunner
+  /** 收到服务器 `notifications/message` 时调用；不进入普通快照。 */
+  onLog?: McpServerLogSink
 }
 
 /** 管理器输入的受控错误。 */
@@ -564,6 +567,41 @@ export class McpConnectionManager {
     this.publish()
   }
 
+  /**
+   * 临时设置单个工具的精确 exposure；`undefined` 删除精确覆盖并回退到通配/服务器值。
+   *
+   * 只修改当前 manager 的临时状态，不重连、不写配置；对账时未变化的配置会保留
+   * 该临时覆盖。目录版本同步递增，桥接可立即撤下/声明对应工具。
+   */
+  setToolExposure(name: string, tool: string, exposure: McpExposure | undefined): void {
+    const slot = this.getSlot(name)
+    if (this.closedValue) throw new McpOperationError('manager-closed')
+    if (typeof tool !== 'string' || tool.length === 0) {
+      throw inputError('MCP 工具名无效。')
+    }
+    if (exposure !== undefined && !isExposure(exposure)) {
+      throw inputError('MCP exposure 无效。')
+    }
+    const overrides = slot.entry.config.toolExposure ?? {}
+    const current = Object.hasOwn(overrides, tool) ? overrides[tool] : undefined
+    if (current === exposure) return
+    if (exposure === undefined && !Object.hasOwn(overrides, tool)) return
+    const next = { ...overrides }
+    if (exposure === undefined) delete next[tool]
+    else next[tool] = exposure
+    const config = { ...slot.entry.config }
+    if (Object.keys(next).length > 0) config.toolExposure = next
+    else delete config.toolExposure
+    slot.entry.config = config as McpServerConfig
+    slot.catalogRevision += 1
+    this.publish()
+  }
+
+  /** Node 内部使用的条目副本；包含临时启停/exposure，不含任何运行时令牌。 */
+  getServerEntry(name: string): McpServerEntry {
+    return structuredClone(this.getSlot(name).entry)
+  }
+
   /** Node 内部工具调用入口；hidden/disabled 的普通调用不会触发连接。 */
   async callTool(
     server: string,
@@ -708,6 +746,7 @@ export class McpConnectionManager {
       ...(this.options.providerToken ? { providerToken: this.options.providerToken } : {}),
       ...(this.options.env ? { env: this.options.env } : {}),
       ...(this.options.runCommand ? { runCommand: this.options.runCommand } : {}),
+      ...(this.options.onLog ? { onLog: this.options.onLog } : {}),
       assertRequestAllowed: (tool) => {
         // 按名称解析当前槽位：旧连接收尾期间也必须遵守替换后的 exposure/启停。
         const current = this.assertCallable(slot.entry.name)

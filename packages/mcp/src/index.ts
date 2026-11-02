@@ -2,7 +2,8 @@
  * @huan/mcp：MCP 配置与连接管理的 Node 集成层。
  *
  * G1.4d1 交付配置基础；G1.4d2a 增加每会话独立的连接管理器；G1.4d2b 增加
- * Pi 工具/资源桥接与无界面集成绑定。配置文件与 Pi 共享（`<agentDir>/mcp.json`、
+ * Pi 工具/资源桥接与无界面集成绑定；G1.4d3 增加 OAuth 凭据/刷新/登录协调、
+ * 有界日志与临时精确工具 exposure。配置文件与 Pi 共享（`<agentDir>/mcp.json`、
  * `<cwd>/.pi/mcp.json`）；凭据/日志仍在 `<agentDir>/huan/` 下，不读写 Pi 的
  * mcp-auth.json / mcp.log。连接管理器构造无 I/O，显式 start 后使用官方
  * pi-mcp 客户端与 stdio/streamable HTTP transport。
@@ -85,6 +86,13 @@ export {
   MCP_SERVERS_SECTION,
   renderMcpServersSection,
 } from './integration.js'
+export type { McpServerLogOptions, McpServerLogSink } from './log.js'
+export {
+  formatMcpLogMessage,
+  MCP_LOG_MAX_BYTES,
+  MCP_LOG_MAX_MESSAGE_BYTES,
+  McpServerLog,
+} from './log.js'
 export type {
   McpConnectionManagerOptions,
   McpConnectionManagerSnapshot,
@@ -99,6 +107,22 @@ export {
   McpConnectionManager,
   McpManagerInputError,
 } from './manager.js'
+export type {
+  McpOAuthErrorCode,
+  McpOAuthLoginOptions,
+  McpOAuthService,
+  McpOAuthServiceOptions,
+} from './oauth.js'
+export {
+  createMcpOAuthService,
+  McpOAuthError,
+  McpOAuthNotSupportedError,
+  McpOAuthServiceClosedError,
+  McpOAuthServiceHost,
+  McpOAuthStorageError,
+  McpSignInCancelledError,
+  mcpServerIdentity,
+} from './oauth.js'
 export type { McpConfigPaths } from './paths.js'
 export {
   MCP_AUTH_FILE_NAME,

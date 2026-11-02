@@ -19,7 +19,7 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 13 as const
+export const HARNESS_PROTOCOL_VERSION = 14 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
@@ -89,6 +89,55 @@ export type {
   HarnessHostInteractionSnapshot,
 } from './interaction.js'
 export { hostInteractionScopeKey } from './interaction.js'
+export type {
+  HarnessMcpAuthCancelResult,
+  HarnessMcpAuthFailureCode,
+  HarnessMcpAuthKind,
+  HarnessMcpAuthOperation,
+  HarnessMcpAuthOperationKind,
+  HarnessMcpAuthPhase,
+  HarnessMcpAuthPrompt,
+  HarnessMcpAuthRespondInput,
+  HarnessMcpAuthRespondResult,
+  HarnessMcpAuthResult,
+  HarnessMcpAuthSnapshot,
+  HarnessMcpAuthStartInput,
+  HarnessMcpAuthStartResult,
+  HarnessMcpConfigApplyState,
+  HarnessMcpConfigFile,
+  HarnessMcpConfigIssue,
+  HarnessMcpConfigIssueKind,
+  HarnessMcpConfigSaveInput,
+  HarnessMcpConfigSaveResult,
+  HarnessMcpConfigSnapshot,
+  HarnessMcpConfiguredServer,
+  HarnessMcpContentAnnotations,
+  HarnessMcpDetailSection,
+  HarnessMcpDetails,
+  HarnessMcpDetailsInput,
+  HarnessMcpDetailsResult,
+  HarnessMcpExposure,
+  HarnessMcpManageAction,
+  HarnessMcpManageInput,
+  HarnessMcpManageResult,
+  HarnessMcpResourceSummary,
+  HarnessMcpResourceTemplateSummary,
+  HarnessMcpRuntimeInfo,
+  HarnessMcpServerAuth,
+  HarnessMcpServerState,
+  HarnessMcpServerSummary,
+  HarnessMcpSnapshot,
+  HarnessMcpTarget,
+  HarnessMcpTargetInput,
+  HarnessMcpToolSummary,
+  HarnessMcpTrust,
+} from './mcp.js'
+export {
+  HARNESS_MCP_AUTH_PROMPT_MAX_CHARS,
+  HARNESS_MCP_CONFIG_BODY_LIMIT_BYTES,
+  HARNESS_MCP_CONFIG_CONTENT_MAX_BYTES,
+  HARNESS_MCP_SMALL_BODY_LIMIT_BYTES,
+} from './mcp.js'
 export type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,

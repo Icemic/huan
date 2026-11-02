@@ -27,13 +27,20 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：935 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；本轮63 条 Chromium 回归通过。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：976 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；本轮63 条 Chromium 回归通过。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.4d3 MCP OAuth 与宿主管理接口（✅ 开发完成，`feat`）
+
+记录：[OAuth与宿主接口](iteration/2026-11/2026-11-02-feat-mcp-auth-host.md)
+
+- 协议14，配置/临时管理/详情与独立认证快照/登录/退出/回填/取消接口；官方OAuth之上的凭据/刷新/回调协调与独立日志已接入core，GUI仍未提供。
+- 主agent独立review修复多窗/多会话、秘密投影与文件边界，亲验976项通过、2项跳过、63条Chromium及check/build。
 
 ### G1.4d2b MCP Pi 工具与资源桥接（✅ 开发完成，`feat`）
 
@@ -259,7 +266,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | 无文件快照 / 回滚 | 属后续增强能力 |
 | 会话搜索范围有限 | 只匹配显式名称与首条用户消息，不含全历史全文检索；支持全部/当前工作区范围与最近活动/创建时间/名称排序 |
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
-| MCP 管理界面与 OAuth 未接入 | `@huan/mcp` 已由core消费并接入Pi工具/资源/权限及codemode/tool_search；管理GUI、OAuth登录/存储与日志落盘尚未接入 |
+| MCP 管理界面未接入 | `@huan/mcp` 已接入Pi工具/资源/权限及codemode/tool_search；OAuth登录/存储、独立日志与宿主管理接口已具备，GUI尚未接入 |
 | 多项原生操作无 GUI 入口 | reload、认证、设置、MCP与导出/分享等仍未实施；Shell和compact已有入口 |
 | 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
 

@@ -74,6 +74,16 @@
  *   POST   /provider-auth/respond   → HarnessProviderAuthRespondResult (body: { operationId, promptId, value })
  *   POST   /provider-auth/cancel    → HarnessProviderAuthCancelResult (body: { operationId })
  *   POST   /provider-auth/logout    → HarnessProviderAuthStartResult  (body: { providerId })
+ *   GET    /mcp                     → HarnessMcpSnapshot            (?threadId= 或 ?workspacePath=)
+ *   POST   /mcp/details             → HarnessMcpDetailsResult       (body: target/expectedRuntimeId/server/include)
+ *   GET    /mcp/config              → HarnessMcpConfigSnapshot      (?threadId= 或 ?workspacePath=)
+ *   PUT    /mcp/config              → HarnessMcpConfigSaveResult    (body: target/scope/content/expectedRevision)
+ *   POST   /mcp/manage              → HarnessMcpManageResult        (body: target/expectedRuntimeId/server/expectedIdentity/action)
+ *   GET    /mcp/auth                → HarnessMcpAuthSnapshot        (客户端轮询)
+ *   POST   /mcp/auth/login          → HarnessMcpAuthStartResult     (body: target/expectedRuntimeId/server/expectedIdentity)
+ *   POST   /mcp/auth/logout         → HarnessMcpAuthStartResult
+ *   POST   /mcp/auth/respond        → HarnessMcpAuthRespondResult   (body: operationId/promptId/value)
+ *   POST   /mcp/auth/cancel         → HarnessMcpAuthCancelResult    (body: operationId)
  */
 
 import type {
@@ -93,6 +103,21 @@ import type {
   HarnessHostInteractionAnswer,
   HarnessHostInteractionEvent,
   HarnessHostUiResponse,
+  HarnessMcpAuthCancelResult,
+  HarnessMcpAuthRespondInput,
+  HarnessMcpAuthRespondResult,
+  HarnessMcpAuthSnapshot,
+  HarnessMcpAuthStartInput,
+  HarnessMcpAuthStartResult,
+  HarnessMcpConfigSaveInput,
+  HarnessMcpConfigSaveResult,
+  HarnessMcpConfigSnapshot,
+  HarnessMcpDetailsInput,
+  HarnessMcpDetailsResult,
+  HarnessMcpManageInput,
+  HarnessMcpManageResult,
+  HarnessMcpSnapshot,
+  HarnessMcpTargetInput,
   HarnessModelInfo,
   HarnessModelRefreshResult,
   HarnessModelScope,
@@ -139,6 +164,17 @@ import {
   createHarnessSseDecoder,
   isTerminalStreamError,
 } from './event-source.js'
+import {
+  isMcpAuthCancelResult,
+  isMcpAuthRespondResult,
+  isMcpAuthSnapshot,
+  isMcpAuthStartResult,
+  isMcpConfigSaveResult,
+  isMcpConfigSnapshot,
+  isMcpDetailsResult,
+  isMcpManageResult,
+  isMcpSnapshot,
+} from './mcp-validation.js'
 import {
   isHostInteractionSnapshot,
   isProviderAuthCancelResult,
@@ -1045,6 +1081,112 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         throw invalidResponse('logging out provider', 'expected a valid logout start result.')
       }
       return value as HarnessProviderAuthStartResult
+    },
+
+    getMcp: async (input: HarnessMcpTargetInput) => {
+      const query = configTargetQuery(input)
+      const value = await readJson(await send(`${base}/mcp?${query}`, 'GET'), 'reading MCP')
+      if (!isMcpSnapshot(value)) {
+        throw invalidResponse('reading MCP', 'expected a valid MCP snapshot.')
+      }
+      return value as HarnessMcpSnapshot
+    },
+
+    getMcpDetails: async (input: HarnessMcpDetailsInput) => {
+      const value = await readJson(
+        await send(`${base}/mcp/details`, 'POST', input),
+        'reading MCP details',
+      )
+      if (!isMcpDetailsResult(value)) {
+        throw invalidResponse('reading MCP details', 'expected a valid MCP details result.')
+      }
+      return value as HarnessMcpDetailsResult
+    },
+
+    getMcpConfig: async (input: HarnessMcpTargetInput) => {
+      const query = configTargetQuery(input)
+      const value = await readJson(
+        await send(`${base}/mcp/config?${query}`, 'GET'),
+        'reading MCP config',
+      )
+      if (!isMcpConfigSnapshot(value)) {
+        throw invalidResponse('reading MCP config', 'expected a valid MCP config snapshot.')
+      }
+      return value as HarnessMcpConfigSnapshot
+    },
+
+    saveMcpConfig: async (input: HarnessMcpConfigSaveInput) => {
+      const value = await readJson(
+        await send(`${base}/mcp/config`, 'PUT', input),
+        'saving MCP config',
+      )
+      if (!isMcpConfigSaveResult(value)) {
+        throw invalidResponse('saving MCP config', 'expected a valid MCP config save result.')
+      }
+      return value as HarnessMcpConfigSaveResult
+    },
+
+    manageMcp: async (input: HarnessMcpManageInput) => {
+      const value = await readJson(await send(`${base}/mcp/manage`, 'POST', input), 'managing MCP')
+      if (!isMcpManageResult(value)) {
+        throw invalidResponse('managing MCP', 'expected a valid MCP manage result.')
+      }
+      return value as HarnessMcpManageResult
+    },
+
+    getMcpAuth: async () => {
+      const value = await readJson(await send(`${base}/mcp/auth`, 'GET'), 'reading MCP auth')
+      if (!isMcpAuthSnapshot(value)) {
+        throw invalidResponse('reading MCP auth', 'expected a valid MCP auth snapshot.')
+      }
+      return value as HarnessMcpAuthSnapshot
+    },
+
+    startMcpLogin: async (input: HarnessMcpAuthStartInput) => {
+      const value = await readJson(
+        await send(`${base}/mcp/auth/login`, 'POST', input),
+        'starting MCP login',
+      )
+      if (!isMcpAuthStartResult(value)) {
+        throw invalidResponse('starting MCP login', 'expected a valid MCP login start result.')
+      }
+      return value as HarnessMcpAuthStartResult
+    },
+
+    respondMcpAuth: async (input: HarnessMcpAuthRespondInput) => {
+      const value = await readJson(
+        await send(`${base}/mcp/auth/respond`, 'POST', input),
+        'responding to MCP auth',
+      )
+      if (!isMcpAuthRespondResult(value)) {
+        throw invalidResponse(
+          'responding to MCP auth',
+          'expected a valid MCP auth response result.',
+        )
+      }
+      return value as HarnessMcpAuthRespondResult
+    },
+
+    cancelMcpAuth: async (operationId) => {
+      const value = await readJson(
+        await send(`${base}/mcp/auth/cancel`, 'POST', { operationId }),
+        'cancelling MCP auth',
+      )
+      if (!isMcpAuthCancelResult(value)) {
+        throw invalidResponse('cancelling MCP auth', 'expected a valid MCP auth cancel result.')
+      }
+      return value as HarnessMcpAuthCancelResult
+    },
+
+    logoutMcp: async (input: HarnessMcpAuthStartInput) => {
+      const value = await readJson(
+        await send(`${base}/mcp/auth/logout`, 'POST', input),
+        'logging out MCP',
+      )
+      if (!isMcpAuthStartResult(value)) {
+        throw invalidResponse('logging out MCP', 'expected a valid MCP logout start result.')
+      }
+      return value as HarnessMcpAuthStartResult
     },
 
     respondToHostInteraction: async (response) => {

@@ -2,8 +2,8 @@
 
 本包在 G1.4d1 中移植了 `@earendil-works/pi-coding-agent@1.4.0` 的 MCP
 配置相关逻辑，在 G1.4d2a 选择性移植连接、重试、动态目录与配置值解析规则，
-并在 G1.4d2b 选择性移植 Pi 工具/资源桥接、结果转换与系统段生成。移植内容按
-MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深导入；配置类型、
+在 G1.4d2b 选择性移植 Pi 工具/资源桥接、结果转换与系统段生成，并在 G1.4d3
+选择性移植 OAuth 协调与日志格式。移植内容按 MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深导入；配置类型、
 `getShellConfig` 与连接客户端均通过公开入口使用。
 
 ## 上游项目
@@ -29,6 +29,8 @@ MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深
 | `packages/coding-agent/src/extensions/mcp/tools.ts` | `cd3245946deb3cb3df2e7b521a07837525f886d281c5e4600527eb2aed95e2ac` |
 | `packages/coding-agent/src/extensions/mcp/resources.ts` | `0ac0b965b123d22ceeadd64b62b53d9cf81e072898d21ea81888e840b51e02b5` |
 | `packages/coding-agent/src/utils/output-files.ts` | `a7ad819c4087b6f3ac79147d5e052718e181b105efc112be16a779a78a333620` |
+| `packages/coding-agent/src/extensions/mcp/oauth.ts` | `7a92a0c405058929582fcd27d9e586f309281e3d4dc980a20caab5b288b050d9` |
+| `packages/coding-agent/src/extensions/mcp/log.ts` | `6e4d70a321a4dce8946b208276cee50bb8b3d9908894dc12af833754dde0e407` |
 
 另外参考但未直接复制运行时实现的路径：
 
@@ -89,6 +91,23 @@ MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深
    OAuth 凭据存储、登录流程或自动打开浏览器。
 10. 临时启停与 exposure 只修改实例状态；持久化、Pi 工具注册、资源工具定义、
     core/harness 注入和 TUI 均留给后续阶段。
+
+### OAuth 与日志（G1.4d3）
+
+1. 凭据固定存于 `<agentDir>/huan/mcp-auth.json`，按“服务器名 + 规范 URL”隔离；
+   不读取 Pi 的 `mcp-auth.json`，不迁移旧凭据。写入使用本包的有界读取、原子
+   rename、0600 文件/0700 新目录与同进程路径队列。
+2. 不移植上游私有 `auth-storage.ts` 与 `proper-lockfile`。本进程内按 identity
+   共享刷新/登录/退出锁与刷新单飞；不宣称多进程强事务或跨进程 CAS。
+3. PKCE、discovery、DCR、CIMD、state/issuer 校验与 scope 合并仍由官方
+   `@earendil-works/pi-mcp/oauth` 完成。保留固定端口、服务器专属 CIMD callback
+   path 与已注册 client 的 redirect URI 复用；clientSecret 只在登录/刷新实际
+   需要时通过 `resolveMcpValue` 异步解析，命令可取消。
+4. 刷新整体 15 秒有界，刷新结果必须落盘；退出会等待锁，旧刷新晚结果不能覆盖
+   退出。登录取消会关闭 loopback callback；不自动打开浏览器。
+5. 日志只接收 MCP `notifications/message`，固定 `<agentDir>/huan/mcp.log`；
+   不移植同步 append、HTML 页面或 TUI。构造无 I/O，写入队列/flush/close 可等待，
+   单条有界并以 5 MiB 轮换，不记录 OAuth、HTTP body/headers 或配置。
 
 ### Pi 桥接（G1.4d2b）
 

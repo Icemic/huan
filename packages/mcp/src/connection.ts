@@ -45,6 +45,7 @@ import {
   resolveMcpEnvValues,
   resolveMcpHeaders,
 } from './config-values.js'
+import type { McpServerLogSink } from './log.js'
 
 const DEFAULT_TIMEOUT_SECONDS = 60
 const MAX_TIMER_MS = 2_147_483_647
@@ -236,6 +237,8 @@ export interface McpAuthProviderHandle {
 export interface McpAuthProviderFactoryContext {
   entry: McpServerEntry
   url: URL
+  /** 连接工作目录；用于异步解析 oauth.clientSecret 的 `!command`。缺省回退进程目录。 */
+  cwd?: string
 }
 
 /** 只注入官方 AuthProvider；d3 可在这里提供 OAuth provider 与 settled。 */
@@ -272,6 +275,8 @@ export interface McpServerConnectionOptions {
   assertRequestAllowed?: (tool?: string) => void
   /** 状态或目录变化时调用；异常会被吞掉，不影响连接。 */
   onChange?: (connection: McpServerConnection) => void
+  /** 收到服务器 `notifications/message` 时调用；不进入普通快照。 */
+  onLog?: McpServerLogSink
 }
 
 interface OpenResult {
@@ -704,6 +709,17 @@ export class McpServerConnection {
       requestTimeoutMs: this.timeoutMs,
       roots: [{ uri: pathToFileURL(this.cwd).href, name: basename(this.cwd) }],
     })
+    // 只转发 MCP 日志通知；不读取/记录请求 body、headers 或 OAuth 数据。
+    if (this.options.onLog) {
+      const onLog = this.options.onLog
+      client.onNotification('notifications/message', (params) => {
+        try {
+          onLog(this.entry.name, params)
+        } catch {
+          // 日志接收方异常不影响连接。
+        }
+      })
+    }
     this.clients.add(client)
     // close 可能发生在创建 client 的同一轮事件循环里；立即关闭避免晚到初始化继续。
     if (this.closedValue || this.shutdown.signal.aborted) {
@@ -764,7 +780,11 @@ export class McpServerConnection {
       // provider 凭据逐请求读取；不让 OAuth 工厂接管显式 provider 配置。
       handle = { provider: { token: async () => this.options.providerToken?.(providerName) } }
     } else if (!hasAuthorization && this.options.createAuthProvider) {
-      handle = this.options.createAuthProvider({ entry: structuredClone(this.entry), url })
+      handle = this.options.createAuthProvider({
+        entry: structuredClone(this.entry),
+        url,
+        cwd: this.cwd,
+      })
     }
     this.authHandle = handle
     this.authHandleCreated = true

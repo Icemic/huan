@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createMcpConnectionManager,
   type McpConnectionManager,
+  type McpConnectionManagerOptions,
   McpManagerInputError,
   type McpServerConfig,
   type McpServerEntry,
@@ -53,6 +54,7 @@ function createMemoryManager(
     index: number,
   ) => MemoryMcpServerOptions | Promise<MemoryMcpServerOptions>,
   wrapTransport?: (transport: McpTransport, index: number) => McpTransport,
+  options: Partial<McpConnectionManagerOptions> = {},
 ): {
   manager: McpConnectionManager
   servers: MemoryMcpServer[]
@@ -74,6 +76,7 @@ function createMemoryManager(
     servers: entries,
     createTransport: factory,
     env: {},
+    ...options,
   })
   cleanups.push(async () => {
     await manager.close()
@@ -722,6 +725,62 @@ describe('生命周期与竞态', () => {
     expect(reconnected).toBeGreaterThan(exposed)
     await manager.setEnabled('demo', false)
     expect(manager.getToolCatalogRevision('demo')).toBeGreaterThan(reconnected)
+  })
+
+  it('临时精确 toolExposure 保留对账状态并提供安全条目副本', async () => {
+    const entries = [
+      makeEntry('demo', {
+        command: 'fixture',
+        exposure: 'codemode',
+        toolExposure: { 'other_*': 'deferred' },
+      }),
+    ]
+    const { manager } = createMemoryManager(entries)
+    await manager.start()
+    const before = manager.getToolCatalogRevision('demo')
+
+    manager.setToolExposure('demo', 'echo', 'hidden')
+    expect(manager.getToolCatalogRevision('demo')).toBeGreaterThan(before)
+    expect(
+      manager.getToolCatalog('demo').tools.find((tool) => tool.name === 'echo')?.exposure,
+    ).toBe('hidden')
+
+    const copy = manager.getServerEntry('demo')
+    expect(copy.config.toolExposure).toEqual({ 'other_*': 'deferred', echo: 'hidden' })
+    if (copy.config.toolExposure) copy.config.toolExposure.echo = 'direct'
+    expect(manager.getServerEntry('demo').config.toolExposure?.echo).toBe('hidden')
+
+    // 同一配置对账不能丢掉临时精确覆盖。
+    await manager.setServers(entries)
+    expect(manager.getServerEntry('demo').config.toolExposure?.echo).toBe('hidden')
+
+    manager.setToolExposure('demo', 'echo', undefined)
+    expect(
+      manager.getToolCatalog('demo').tools.find((tool) => tool.name === 'echo')?.exposure,
+    ).toBe('codemode')
+    expect(manager.getServerEntry('demo').config.toolExposure).toEqual({ 'other_*': 'deferred' })
+  })
+
+  it('onLog 只接收 notifications/message，普通快照不含日志内容', async () => {
+    const logs: { server: string; params: unknown }[] = []
+    const { manager, servers } = createMemoryManager(
+      [makeEntry('demo', { command: 'fixture' })],
+      undefined,
+      undefined,
+      { onLog: (server, params) => logs.push({ server, params }) },
+    )
+    await manager.start()
+    await waitFor(
+      () => servers.length === 1 && manager.snapshot().servers[0]?.state === 'connected',
+    )
+    await firstServer(servers).notify('notifications/message', {
+      level: 'info',
+      data: 'runtime log text',
+    })
+    await waitFor(() => logs.length === 1)
+    expect(logs[0]?.server).toBe('demo')
+    expect(logs[0]?.params).toMatchObject({ level: 'info', data: 'runtime log text' })
+    expect(JSON.stringify(manager.snapshot())).not.toContain('runtime log text')
   })
 
   it('等待初始化期间隐藏工具，请求发送前重新检查', async () => {

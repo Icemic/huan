@@ -40,6 +40,23 @@ import type {
   HarnessHostInteractionSnapshot,
 } from './interaction.js'
 import type {
+  HarnessMcpAuthCancelResult,
+  HarnessMcpAuthRespondInput,
+  HarnessMcpAuthRespondResult,
+  HarnessMcpAuthSnapshot,
+  HarnessMcpAuthStartInput,
+  HarnessMcpAuthStartResult,
+  HarnessMcpConfigSaveInput,
+  HarnessMcpConfigSaveResult,
+  HarnessMcpConfigSnapshot,
+  HarnessMcpDetailsInput,
+  HarnessMcpDetailsResult,
+  HarnessMcpManageInput,
+  HarnessMcpManageResult,
+  HarnessMcpSnapshot,
+  HarnessMcpTargetInput,
+} from './mcp.js'
+import type {
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
@@ -125,6 +142,30 @@ export interface HarnessClient {
   cancelProviderAuth(operationId: string): Promise<HarnessProviderAuthCancelResult>
   /** 移除已存凭据；同 provider 的登录/退出互斥。 */
   logoutProvider(providerId: string): Promise<HarnessProviderAuthStartResult>
+  /**
+   * MCP 普通快照：会话或空白页固定起始目录二选一。
+   * 冷目标只读共享配置，不启动连接、不创建会话；live 目标返回受控运行摘要、
+   * 服务器身份与 OAuth 登录资格/hasCredentials。
+   */
+  getMcp(input: HarnessMcpTargetInput): Promise<HarnessMcpSnapshot>
+  /** 显式读取工具/资源目录；只对 live manager 生效，不在普通快照中探测。 */
+  getMcpDetails(input: HarnessMcpDetailsInput): Promise<HarnessMcpDetailsResult>
+  /** 显式配置编辑快照：可含原文与秘密；项目未信任时不读取项目文件。 */
+  getMcpConfig(input: HarnessMcpTargetInput): Promise<HarnessMcpConfigSnapshot>
+  /** 整份原文 + revision 保存；只写磁盘，不自动应用或重载。 */
+  saveMcpConfig(input: HarnessMcpConfigSaveInput): Promise<HarnessMcpConfigSaveResult>
+  /** 临时启停/exposure/重连；要求 expectedRuntimeId 与服务器身份匹配。 */
+  manageMcp(input: HarnessMcpManageInput): Promise<HarnessMcpManageResult>
+  /** MCP 认证权威快照；全局共享，不要求 target，客户端轮询。 */
+  getMcpAuth(): Promise<HarnessMcpAuthSnapshot>
+  /** 启动 OAuth 登录；成功后按身份安全重连同 target 的 live manager。 */
+  startMcpLogin(input: HarnessMcpAuthStartInput): Promise<HarnessMcpAuthStartResult>
+  /** 回填授权回调 URL；值只进入宿主内存，promptId 只能领取一次。 */
+  respondMcpAuth(input: HarnessMcpAuthRespondInput): Promise<HarnessMcpAuthRespondResult>
+  /** 请求取消登录；操作保持 cancelling 直到真实流程结算。 */
+  cancelMcpAuth(operationId: string): Promise<HarnessMcpAuthCancelResult>
+  /** 删除 OAuth 凭据；同 identity 的刷新/退出互斥。 */
+  logoutMcp(input: HarnessMcpAuthStartInput): Promise<HarnessMcpAuthStartResult>
   /** 应答宿主级请求；已结算/未知 ID 返回 accepted=false（幂等）。 */
   respondToHostInteraction(
     response: HarnessHostInteractionResponse,

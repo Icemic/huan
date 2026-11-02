@@ -45,7 +45,14 @@ import {
   type SessionStartEvent,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
-import { createMcpIntegration, type McpIntegration } from '@huan/mcp'
+import {
+  createMcpIntegration,
+  createMcpOAuthService,
+  type McpConnectionManager,
+  type McpIntegration,
+  McpServerLog,
+  mcpConfigPaths,
+} from '@huan/mcp'
 import type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,
@@ -133,6 +140,7 @@ import { deriveContextUsage } from './context-usage.js'
 import { mapSessionEvent } from './event-mapping.js'
 import { createHostInteractions } from './host-interactions.js'
 import { createHostUiBridge, type HostUiBridge } from './host-ui.js'
+import { createMcpHost, type McpHost, type McpHostLiveBinding } from './mcp-host.js'
 import {
   extractMessageText,
   mapColdMetadata,
@@ -464,6 +472,7 @@ type StructureKind =
   | 'fork'
   | 'compact'
   | 'reload'
+  | 'mcp'
 
 /** 用户 Shell（`!` / `!!`）的宿主内状态（含实时输出与完成标记）。 */
 type UserBashRun = {
@@ -765,10 +774,22 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
   // ---- 装配层：共享 modelRuntime（全宿主一份），其余每会话独立 ----
   const modelRuntime = await createSharedModelRuntime(agentDir)
+  // OAuth 凭据与日志按宿主共享；两者构造均无 I/O，连接层显式注入。
+  // 日志路径只由固定 agentDir/启动工作区推导，不读取 Pi 的日志/凭据文件。
+  const mcpOAuth = createMcpOAuthService({ agentDir })
+  const mcpLog = new McpServerLog(mcpConfigPaths(agentDir, workspacePath).log)
   const startRefresh = options.refreshCatalogOnStart ?? true
   const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
 
   const records = new Map<string, ThreadRecord>()
+  /** live MCP runtime 的弱映射：record → 当前 manager 与唯一 runtimeId。 */
+  const mcpRuntimes = new WeakMap<
+    ThreadRecord,
+    { runtimeId: string; manager: McpConnectionManager }
+  >()
+  let mcpRuntimeCounter = 0
+  /** broker 在 adapter 闭包之后创建；运行期才被调用。 */
+  let mcpHost: McpHost | undefined
   /**
    * 宿主创建过的全部 MCP integration binding。
    *
@@ -1132,6 +1153,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         trustState?.status === 'trusted' &&
         // 装配后、session_start 前新出现的资源不能沿用 no-resources 授权。
         (trustState.source !== 'no-resources' || !hasTrustRequiringProjectResources(cwd)),
+      // OAuth 与日志按宿主共享；连接层只接受公开工厂/接收器。
+      createAuthProvider: mcpOAuth.createAuthProvider,
+      onLog: (server, params) => {
+        void mcpLog.write(server, params)
+      },
     })
     mcpBindings.add(mcp)
     try {
@@ -2222,6 +2248,77 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     record.structure = undefined
     operation.markSettled()
     emitSnapshot(record)
+  }
+
+  /** MCP 管理/登录重连是否应拒绝：运行、发送、Shell、结构操作都算忙。 */
+  const mcpRuntimeBusy = (record: ThreadRecord): boolean =>
+    record.retired ||
+    record.structure !== undefined ||
+    record.session.isStreaming ||
+    record.session.isCompacting ||
+    record.session.isRetrying ||
+    record.currentRun !== undefined ||
+    record.inFlight.size > 0 ||
+    record.bash?.status === 'running' ||
+    record.session.isBashRunning
+
+  /**
+   * 返回 record 当前 live manager 与唯一 runtimeId。
+   *
+   * manager 在 reload 后会被替换；这里检测替换并同步使旧认证操作失效。
+   * 弱映射不阻止 record 回收，runtimeId 只用于宿主内部/协议 stale 校验。
+   */
+  const liveMcpBindingOf = (value: unknown): McpHostLiveBinding | undefined => {
+    const record = value as ThreadRecord | undefined
+    if (!record || disposed || record.retired) return undefined
+    const manager = record.mcp.getManager()
+    if (!manager) return undefined
+    const previous = mcpRuntimes.get(record)
+    if (previous && previous.manager !== manager) {
+      mcpRuntimes.delete(record)
+      mcpHost?.invalidateRuntime(previous.runtimeId)
+    }
+    const current = mcpRuntimes.get(record)
+    if (current) {
+      return {
+        runtimeId: current.runtimeId,
+        manager: current.manager,
+        busy: mcpRuntimeBusy(record),
+        acquireIdle: () => {
+          if (record.retired || disposed) return undefined
+          try {
+            const operation = beginStructure(record, 'mcp')
+            return { release: () => releaseStructure(record, operation) }
+          } catch {
+            return undefined
+          }
+        },
+      }
+    }
+    const runtimeId = `mcp-runtime:${++mcpRuntimeCounter}`
+    mcpRuntimes.set(record, { runtimeId, manager })
+    return {
+      runtimeId,
+      manager,
+      busy: mcpRuntimeBusy(record),
+      acquireIdle: () => {
+        if (record.retired || disposed) return undefined
+        try {
+          const operation = beginStructure(record, 'mcp')
+          return { release: () => releaseStructure(record, operation) }
+        } catch {
+          return undefined
+        }
+      },
+    }
+  }
+
+  /** 目标重载/删除/dispose 前同步失效旧认证操作与 needsRefresh 标记。 */
+  const invalidateMcpRuntime = (record: ThreadRecord): void => {
+    const entry = mcpRuntimes.get(record)
+    if (!entry) return
+    mcpRuntimes.delete(record)
+    mcpHost?.invalidateRuntime(entry.runtimeId)
   }
 
   /** 删除/销毁前取消并排空结构操作（有上限，不阻塞收尾）。 */
@@ -4160,6 +4257,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (record) {
       // 0) 进入收尾：不再接受新运行，并唤醒等待闸门的发送使其退出。
       record.retired = true
+      invalidateMcpRuntime(record)
       wakeAdmissionWaiters(record)
       // 0.4) 取消并等待用户 Shell 结束（外部副作用不可撤销，但必须释放清理）。
       await abortUserBashForRetire(record)
@@ -4238,6 +4336,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
    */
   const abandonRecord = async (record: ThreadRecord): Promise<void> => {
     record.retired = true
+    invalidateMcpRuntime(record)
     wakeAdmissionWaiters(record)
     await abortUserBashForRetire(record)
     await cancelAndDrainStructure(record)
@@ -4894,6 +4993,35 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     origin: trust.origin,
   })
 
+  /**
+   * MCP 管理 broker：复用上面的目标/信任解析，不在 broker 内重新查路径或信任。
+   * live manager 来自 record 的 MCP binding；弱映射在 manager 替换时生成新 runtimeId。
+   */
+  mcpHost = createMcpHost({
+    agentDir,
+    oauth: mcpOAuth,
+    resolveTarget: async (input) => {
+      const resolved = await resolveConfigTarget(input)
+      const trust = await configTrustOf(resolved.cwd, resolved.record)
+      return {
+        target: {
+          kind: resolved.target.kind,
+          workspacePath: resolved.target.workspacePath,
+          ...(resolved.target.threadId ? { threadId: resolved.target.threadId } : {}),
+        },
+        cwd: resolved.cwd,
+        trust: trustViewOf(trust),
+        ...(resolved.record ? { record: resolved.record } : {}),
+      }
+    },
+    getLive: liveMcpBindingOf,
+    listLive: () => [...records.values()],
+  })
+  const mcpBroker = (): McpHost => {
+    if (!mcpHost) throw new Error('MCP 管理模块尚未初始化')
+    return mcpHost
+  }
+
   /** 读取用户/项目原文与磁盘合并预览；项目未信任时不读取其原文。 */
   const settingsSnapshotOf = async (
     target: HarnessSettingsTarget,
@@ -5265,6 +5393,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 3) 先关闭本会话当前的 MCP 连接代次（只关当前 manager，不关闭 binding）：
       // 旧进程必须在其他扩展的 session_shutdown handler 可能阻塞之前回收；
       // session.reload 之后由新 factory 的 session_start 启动新代次。
+      // 旧 runtimeId 的认证操作必须立即失效，不能把结果附着到新 manager。
+      invalidateMcpRuntime(record)
       const mcpManager = record.mcp.getManager()
       if (mcpManager) {
         try {
@@ -6100,6 +6230,56 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       return providerAuth.logout(providerId)
     },
 
+    async getMcp(input) {
+      assertActive()
+      return mcpBroker().getMcp(input)
+    },
+
+    async getMcpDetails(input) {
+      assertActive()
+      return mcpBroker().getMcpDetails(input)
+    },
+
+    async getMcpConfig(input) {
+      assertActive()
+      return mcpBroker().getMcpConfig(input)
+    },
+
+    async saveMcpConfig(input) {
+      assertActive()
+      return mcpBroker().saveMcpConfig(input)
+    },
+
+    async manageMcp(input) {
+      assertActive()
+      return mcpBroker().manageMcp(input)
+    },
+
+    async getMcpAuth() {
+      assertActive()
+      return mcpBroker().getMcpAuth()
+    },
+
+    async startMcpLogin(input) {
+      assertActive()
+      return mcpBroker().startMcpLogin(input)
+    },
+
+    async respondMcpAuth(input) {
+      assertActive()
+      return mcpBroker().respondMcpAuth(input)
+    },
+
+    async cancelMcpAuth(operationId) {
+      assertActive()
+      return mcpBroker().cancelMcpAuth(operationId)
+    },
+
+    async logoutMcp(input) {
+      assertActive()
+      return mcpBroker().logoutMcp(input)
+    },
+
     subscribeHostInteractions(listener) {
       if (disposed) return () => {}
       return interactions.subscribe((snapshot) => {
@@ -6308,10 +6488,13 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       generation += 1
       // 先同步使全部 MCP binding 失效并启动管理器关闭，再 await 认证等收尾：
       // 创建进行中、尚未发布 record 的装配也必须被回收，不能只等 session_shutdown。
+      for (const record of records.values()) invalidateMcpRuntime(record)
       const closingMcp = [...mcpBindings].map((mcp) => {
         mcpBindings.delete(mcp)
         return mcp.close().catch(() => undefined)
       })
+      // 认证 broker 与 MCP broker 的取消尽早开始，避免登录/回填阻塞其他清理。
+      const closingMcpHost = mcpHost?.dispose()
       // 先结算所有宿主级启动请求与认证流程，解除 project/session 装配等待。
       interactions.dispose()
       await providerAuth.dispose()
@@ -6349,6 +6532,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       records.clear()
       recordsBySessionFile.clear()
       editorMirrors.clear()
+      // 共享 OAuth/log 必须等所有连接关闭后再收尾；放在其他 cleanup 之后，
+      // 不让登录/日志落盘阻塞会话回收。
+      await closingMcpHost
+      await mcpOAuth.close()
+      await mcpLog.close()
     },
     diagnostics: () => [...diagnostics],
   }
