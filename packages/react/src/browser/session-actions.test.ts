@@ -7,6 +7,7 @@ import type {
   HarnessSendMessageResult,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHarnessBrowser, type HarnessBrowser } from './create-browser.js'
 import type { HarnessDraftTarget } from './window-store.js'
@@ -15,6 +16,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',

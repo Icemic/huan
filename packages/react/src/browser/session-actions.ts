@@ -471,7 +471,9 @@ export const createHarnessSessionActions = (
         return {
           submissionId: submission.id,
           status: 'cancelled',
-          ...(submissionThreadId(currentSubmission) ? { threadId: submissionThreadId(currentSubmission) } : {}),
+          ...(submissionThreadId(currentSubmission)
+            ? { threadId: submissionThreadId(currentSubmission) }
+            : {}),
           message,
         }
       }

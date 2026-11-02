@@ -158,13 +158,9 @@ import type {
   HarnessWorkspaceCatalog,
   HarnessWorkspaceMutationResult,
 } from '@huan/protocol'
-import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
+
 import {
-  createHarnessEventStreamConnection,
-  createHarnessSseDecoder,
-  isTerminalStreamError,
-} from './event-source.js'
-import {
+  isHostInteractionSnapshot,
   isMcpAuthCancelResult,
   isMcpAuthRespondResult,
   isMcpAuthSnapshot,
@@ -174,9 +170,6 @@ import {
   isMcpDetailsResult,
   isMcpManageResult,
   isMcpSnapshot,
-} from './mcp-validation.js'
-import {
-  isHostInteractionSnapshot,
   isProviderAuthCancelResult,
   isProviderAuthRespondResult,
   isProviderAuthSnapshot,
@@ -195,7 +188,13 @@ import {
   isTreeCancelResult,
   isTreeLabelResult,
   isTreeNavigateResult,
-} from './validation.js'
+} from '@huan/protocol'
+import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
+import {
+  createHarnessEventStreamConnection,
+  createHarnessSseDecoder,
+  isTerminalStreamError,
+} from './event-source.js'
 
 /** HTTP 客户端选项。 */
 export interface HarnessHttpClientOptions {

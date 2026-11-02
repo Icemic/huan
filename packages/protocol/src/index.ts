@@ -19,7 +19,7 @@
  * 宿主与 UI 之间的所有可序列化契约都随此版本演进；破坏性形状变更时递增，
  * 增量可选字段不递增（消费方对未知字段宽容）。
  */
-export const HARNESS_PROTOCOL_VERSION = 14 as const
+export const HARNESS_PROTOCOL_VERSION = 15 as const
 
 export type HarnessProtocolVersion = typeof HARNESS_PROTOCOL_VERSION
 
@@ -41,7 +41,16 @@ export type {
   HarnessProviderAuthStartResult,
   HarnessProviderAuthStreamEvent,
 } from './auth.js'
-export type { HarnessClient } from './client.js'
+export type {
+  HarnessCatalogClient,
+  HarnessClient,
+  HarnessConfigurationClient,
+  HarnessHostClient,
+  HarnessMcpClient,
+  HarnessProviderAuthClient,
+  HarnessSessionClient,
+  HarnessWorkspaceClient,
+} from './client.js'
 export type {
   HarnessBuiltinCommand,
   HarnessBuiltinCommandStage,
@@ -138,6 +147,17 @@ export {
   HARNESS_MCP_CONFIG_CONTENT_MAX_BYTES,
   HARNESS_MCP_SMALL_BODY_LIMIT_BYTES,
 } from './mcp.js'
+export {
+  isMcpAuthCancelResult,
+  isMcpAuthRespondResult,
+  isMcpAuthSnapshot,
+  isMcpAuthStartResult,
+  isMcpConfigSaveResult,
+  isMcpConfigSnapshot,
+  isMcpDetailsResult,
+  isMcpManageResult,
+  isMcpSnapshot,
+} from './mcp-validation.js'
 export type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,
@@ -150,6 +170,8 @@ export type {
   HarnessCustomMessage,
   HarnessImageContent,
   HarnessKnownAgentMessage,
+  HarnessNestedToolCall,
+  HarnessNestedToolCalls,
   HarnessSessionEntry,
   HarnessStopReason,
   HarnessTextContent,
@@ -242,6 +264,8 @@ export type {
   HarnessHostUiWidget,
   HarnessHostUiWidgetPlacement,
   HarnessInputAttachment,
+  HarnessModelFallback,
+  HarnessModelFallbackReason,
   HarnessModelInfo,
   HarnessModelInput,
   HarnessQueuedMessage,
@@ -260,6 +284,7 @@ export type {
   HarnessThreadSnapshot,
   HarnessThreadStats,
   HarnessThreadStatus,
+  HarnessToolExecutionSnapshot,
   HarnessUnknownClientEventBody,
 } from './thread.js'
 export type {
@@ -275,6 +300,38 @@ export type {
   HarnessTreeNavigateStatus,
   HarnessTreeQueueRecovery,
 } from './tree.js'
+
+// R5：wire 形状守卫归 protocol；HTTP/业务信任仍由路由与 core 负责。
+export {
+  isAssistantMessage,
+  isAssistantMessageDelta,
+  isBashRun,
+  isCompleteTranscriptMessage,
+  isContextUsage,
+  isHostInteractionSnapshot,
+  isHostUiRequest,
+  isProviderAuthCancelResult,
+  isProviderAuthOperation,
+  isProviderAuthRespondResult,
+  isProviderAuthSnapshot,
+  isProviderAuthStartResult,
+  isReloadOperation,
+  isReloadResult,
+  isResourceSnapshot,
+  isSettingsSaveResult,
+  isSettingsSnapshot,
+  isThreadDetails,
+  isThreadForkResult,
+  isThreadHostUi,
+  isThreadImportPreview,
+  isThreadImportResult,
+  isThreadMetadata,
+  isThreadSnapshot,
+  isThreadTree,
+  isTreeCancelResult,
+  isTreeLabelResult,
+  isTreeNavigateResult,
+} from './wire-validation.js'
 export type {
   HarnessAssignThreadInput,
   HarnessAssignThreadResult,

@@ -23,8 +23,9 @@ import type {
 } from '@huan/protocol'
 import {
   createHarnessHttpClient,
-  createHarnessThreadState,
+  createHarnessThreadReduction,
   reduceHarnessThreadState,
+  selectThreadRunStatus,
 } from '@huan/react'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
@@ -108,7 +109,7 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 2000) => {
  * 这正是两侧约定的前向兼容行为。
  */
 const applyEvent = (
-  state: ReturnType<typeof createHarnessThreadState>,
+  state: ReturnType<typeof createHarnessThreadReduction>,
   event: HarnessAnyClientEvent,
 ) => reduceHarnessThreadState(state, event as Parameters<typeof reduceHarnessThreadState>[1])
 
@@ -144,13 +145,13 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
       await waitFor(() => observed.length === 3)
 
       // reducer 侧：权威状态正确
-      let state = createHarnessThreadState(THREAD_ID)
+      let state = createHarnessThreadReduction(THREAD_ID)
       for (const event of observed) state = applyEvent(state, event)
 
-      expect(state.loadState).toBe('loaded')
-      expect(state.runStatus).toBe('running')
-      expect(state.lastSeq).toBe(7)
-      expect(state.messages.map((m) => m.role)).toEqual(['user', 'user', 'user'])
+      expect(state.session.loadState).toBe('loaded')
+      expect(selectThreadRunStatus(state.metadata)).toBe('running')
+      expect(state.session.lastSeq).toBe(7)
+      expect(state.session.messages.map((m) => m.role)).toEqual(['user', 'user', 'user'])
     } finally {
       unsubscribe()
     }
@@ -201,11 +202,11 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
       host.emit(snapshot(20, 3))
       await waitFor(() => observed.length >= 1)
 
-      let state = createHarnessThreadState(THREAD_ID)
+      let state = createHarnessThreadReduction(THREAD_ID)
       for (const event of observed) state = applyEvent(state, event)
       // 离线期间的 3 条消息被补齐
-      expect(state.messages).toHaveLength(3)
-      expect(state.lastSeq).toBe(20)
+      expect(state.session.messages).toHaveLength(3)
+      expect(state.session.lastSeq).toBe(20)
     } finally {
       unsubscribe()
     }
@@ -232,9 +233,9 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
       host.emit({ type: 'agent_start', threadId: THREAD_ID, seq: 101 })
       await waitFor(() => observed.length === 2)
 
-      let state = createHarnessThreadState(THREAD_ID)
+      let state = createHarnessThreadReduction(THREAD_ID)
       for (const event of observed) state = applyEvent(state, event)
-      expect(state.lastSeq).toBe(101)
+      expect(state.session.lastSeq).toBe(101)
 
       // 宿主重启：序号回到 0，后续事件 seq 从 1 开始
       host.emit(snapshot(0, 2))
@@ -248,9 +249,9 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
 
       for (const event of observed.slice(2)) state = applyEvent(state, event)
       // 水位被快照下调，seq=1 的事件没有被当作过期丢弃
-      expect(state.lastSeq).toBe(1)
-      expect(state.messages).toHaveLength(3)
-      expect(state.messages.at(-1)).toMatchObject({
+      expect(state.session.lastSeq).toBe(1)
+      expect(state.session.messages).toHaveLength(3)
+      expect(state.session.messages.at(-1)).toMatchObject({
         role: 'user',
         content: 'after-reset',
       })
@@ -289,10 +290,10 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
 
       expect(observed.map((event) => event.seq)).toEqual([2, 3, 4])
 
-      let state = createHarnessThreadState(THREAD_ID)
+      let state = createHarnessThreadReduction(THREAD_ID)
       for (const event of observed) state = applyEvent(state, event)
-      expect(state.messages).toHaveLength(2)
-      expect(state.runStatus).toBe('running')
+      expect(state.session.messages).toHaveLength(2)
+      expect(selectThreadRunStatus(state.metadata)).toBe('running')
     } finally {
       unsubscribe()
     }
@@ -337,11 +338,11 @@ describe('SSE 传输链路（宿主 → HTTP/SSE → 客户端 → reducer）', 
       host.emit(snapshot(9, 2))
       await waitFor(() => observed.some((event) => event.type === 'snapshot' && event.seq === 9))
 
-      let state = createHarnessThreadState(THREAD_ID)
+      let state = createHarnessThreadReduction(THREAD_ID)
       for (const event of observed) state = applyEvent(state, event)
       // 恢复快照是权威的：状态被替换为宿主当前真实状态
-      expect(state.messages).toHaveLength(2)
-      expect(state.lastSeq).toBe(9)
+      expect(state.session.messages).toHaveLength(2)
+      expect(state.session.lastSeq).toBe(9)
     } finally {
       unsubscribe()
     }

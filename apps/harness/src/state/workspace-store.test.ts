@@ -5,6 +5,7 @@ import type {
   HarnessWorkspace,
   HarnessWorkspaceCatalog,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { createHarnessBrowser, type HarnessBrowserStorage } from '@huan/react'
 import { describe, expect, it, vi } from 'vitest'
 import { createWorkspaceFeatureStore } from './workspace-store'
@@ -13,6 +14,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',
@@ -217,7 +219,11 @@ describe('workspace-store：目录变化与工作区表单', () => {
     store.getState().openWorkspaceForm('w1')
     store.getState().setWorkspaceFormName('保留输入')
     let finish!: (value: Awaited<ReturnType<HarnessClient['updateWorkspace']>>) => void
-    vi.mocked(client.updateWorkspace).mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    vi.mocked(client.updateWorkspace).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
     const save = store.getState().saveWorkspaceForm()
     store.getState().closeWorkspaceForm()
     store.getState().openWorkspaceForm('w2')
@@ -229,7 +235,9 @@ describe('workspace-store：目录变化与工作区表单', () => {
     store.getState().openWorkspaceForm('w1')
     store.getState().setWorkspaceFormName('保留冲突草稿')
     vi.mocked(client.updateWorkspace).mockResolvedValue({
-      ok: false, error: 'conflict', workspace: workspace('w1', '其他窗口', '/a'),
+      ok: false,
+      error: 'conflict',
+      workspace: workspace('w1', '其他窗口', '/a'),
     })
     await store.getState().saveWorkspaceForm()
     expect(store.getState().form.name).toBe('保留冲突草稿')

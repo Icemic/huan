@@ -176,7 +176,10 @@ const applySnapshot = (
     messageEntryIds: snapshot.messageEntryIds ?? snapshot.messages.map(() => null),
     // 快照权威：丢弃瞬态流式指针/缓冲，使任何分歧自愈。
     streamingMessageIndex: undefined,
-    toolExecutions: {},
+    // 完整快照携带当前活动工具；缺省表示没有活动工具，不用旧值填充。
+    toolExecutions: Object.fromEntries(
+      (snapshot.toolExecutions ?? []).map((execution) => [execution.toolCallId, execution]),
+    ),
     compactionError: snapshot.compaction?.error,
     bash: snapshot.bash,
     hostUiRequests: snapshot.hostUiRequests ?? [],
@@ -282,9 +285,10 @@ export const reduceHarnessThreadState = (
       if (event.cancelledBeforeStart) {
         return withSession(state, stampSession(state.session, event.seq))
       }
-      return withSession(state, stampSession(
-        { ...state.session, streamingMessageIndex: undefined }, event.seq,
-      ))
+      return withSession(
+        state,
+        stampSession({ ...state.session, streamingMessageIndex: undefined }, event.seq),
+      )
     }
 
     case 'agent_settled': {

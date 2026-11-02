@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import type { HarnessClient, HarnessClientEvent, HarnessHostInfo } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -12,6 +13,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',

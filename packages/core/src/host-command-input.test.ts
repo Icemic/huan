@@ -189,9 +189,10 @@ describe('提交前守卫', () => {
     expect(fetchStub.calls()).toBe(0)
     expect((await host.getThread(threadId)).messages).toHaveLength(0)
 
-    // 创建首条消息也遵守同一守卫，且不产生空会话。
+    // 发送首条消息也遵守同一守卫；创建与发送是两步，发送被拒不改变历史。
+    const created = await host.createThread()
     const before = (await host.listThreads()).length
-    await expect(host.createThread({ initialMessage: { content: '/settings' } })).rejects.toThrow(
+    await expect(host.sendMessage(created.metadata.id, { content: '/settings' })).rejects.toThrow(
       ReservedBuiltinCommandError,
     )
     expect((await host.listThreads()).length).toBe(before)
@@ -229,25 +230,24 @@ describe('提交前守卫', () => {
     expect((await host.getThread(threadId)).messages).toHaveLength(0)
   })
 
-  it('首条消息图片能力在创建会话前校验', async () => {
-    const before = (await host.listThreads()).length
+  it('首条发送的图片能力在预检前校验（创建后发送唯一路径）', async () => {
+    const created = await host.createThread({
+      model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
+    })
     await expect(
-      host.createThread({
-        model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
-        initialMessage: {
-          content: '图片',
-          attachments: [
-            {
-              type: 'image',
-              mimeType: 'image/png',
-              data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nZkAAAAASUVORK5CYII=',
-            },
-          ],
-        },
+      host.sendMessage(created.metadata.id, {
+        content: '图片',
+        attachments: [
+          {
+            type: 'image',
+            mimeType: 'image/png',
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nZkAAAAASUVORK5CYII=',
+          },
+        ],
       }),
     ).rejects.toThrow(ImageInputUnsupportedError)
-    expect((await host.listThreads()).length).toBe(before)
     expect(fetchStub.calls()).toBe(0)
+    await host.deleteThread(created.metadata.id)
   })
 })
 

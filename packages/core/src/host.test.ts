@@ -277,12 +277,12 @@ describe('会话生命周期', () => {
     await host.deleteThread(snapshot.metadata.id)
   })
 
-  it('首条消息使用创建时指定的模型（initialMessage 路径）', async () => {
+  it('首条消息使用创建时指定的模型（创建→发送路径）', async () => {
     const snapshot = await host.createThread({
       model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_B },
-      initialMessage: { content: '只回答一个数字：1+1=?' },
     })
     const id = snapshot.metadata.id
+    await host.sendMessage(id, { content: '只回答一个数字：1+1=?' })
     // 等待运行结束（首条 assistant 消息写出实际使用的模型）。
     const deadline = Date.now() + 60_000
     let assistantModel: string | undefined
@@ -369,7 +369,8 @@ describe('订阅（快照优先语义）', () => {
 describe('标题口径（热/冷一致）', () => {
   it('未命名会话的标题来自首条用户消息，热读与冷读一致', async () => {
     const prompt = '只回答一个数字：3+4=?'
-    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const created = await host.createThread()
+    await host.sendMessage(created.metadata.id, { content: prompt })
     const id = created.metadata.id
 
     // 等待运行结束并落盘（首条消息写入后才有 session file）。
@@ -394,8 +395,9 @@ describe('标题口径（热/冷一致）', () => {
   }, 90_000)
 
   it('显式命名优先于首条消息', async () => {
-    const created = await host.createThread({ initialMessage: { content: '这段内容不应成为标题' } })
+    const created = await host.createThread()
     const id = created.metadata.id
+    await host.sendMessage(id, { content: '这段内容不应成为标题' })
     await host.renameThread(id, '显式标题')
     const after = await host.getThread(id)
     expect(after.metadata.title).toBe('显式标题')
@@ -404,7 +406,8 @@ describe('标题口径（热/冷一致）', () => {
 
   it('重命名为空后，热读/冷读/列表一致回退到消息标题（不出现空标题）', async () => {
     const prompt = '只回答一个数字：5+6=?'
-    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const created = await host.createThread()
+    await host.sendMessage(created.metadata.id, { content: prompt })
     const id = created.metadata.id
     const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {
@@ -433,7 +436,8 @@ describe('标题口径（热/冷一致）', () => {
 
   it('命名 → 清空的转换不出现空标题（需要先有非空名称）', async () => {
     const prompt = '只回答一个数字：8+9=?'
-    const created = await host.createThread({ initialMessage: { content: prompt } })
+    const created = await host.createThread()
+    await host.sendMessage(created.metadata.id, { content: prompt })
     const id = created.metadata.id
     const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {

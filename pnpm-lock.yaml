@@ -198,9 +198,6 @@ importers:
       '@huan/protocol':
         specifier: workspace:*
         version: link:../protocol
-      assistant-stream:
-        specifier: 0.3.50
-        version: 0.3.50
       react:
         specifier: ^19.3.0
         version: 19.3.0

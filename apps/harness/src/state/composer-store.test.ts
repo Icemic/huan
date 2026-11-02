@@ -4,6 +4,7 @@ import type {
   HarnessHostInfo,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { createHarnessBrowser, type HarnessBrowser } from '@huan/react'
 import { describe, expect, it, vi } from 'vitest'
 import { createComposerFeatureStore } from './composer-store'
@@ -14,6 +15,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',

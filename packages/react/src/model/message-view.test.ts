@@ -252,6 +252,35 @@ describe('message-view（独立展示投影）', () => {
     })
   })
 
+  it('历史工具结果保留有界 nestedCalls 摘要', () => {
+    const views = projectHarnessMessages(
+      input([
+        assistant([{ type: 'toolCall', id: 'parent', name: 'codemode', arguments: {} }]),
+        {
+          role: 'toolResult',
+          toolCallId: 'parent',
+          toolName: 'codemode',
+          content: [{ type: 'text', text: 'done' }],
+          isError: false,
+          timestamp: 2,
+          nestedCalls: {
+            calls: [{ id: 'parent/1', name: 'read', status: 'ok', durationMs: 4 }],
+            complete: true,
+          },
+        },
+      ]),
+    )
+    expect(
+      views[0]?.parts.find((part) => part.type === 'tool' && part.toolCallId === 'parent'),
+    ).toMatchObject({
+      output: 'done',
+      nestedCalls: {
+        calls: [{ id: 'parent/1', name: 'read', status: 'ok', durationMs: 4 }],
+        complete: true,
+      },
+    })
+  })
+
   it('data 回退保留来源：bash、隐藏 custom、未知角色', () => {
     const bash = projectHarnessMessages(
       input(

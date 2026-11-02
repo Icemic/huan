@@ -229,8 +229,9 @@ async function createEmptyThread(): Promise<string> {
 }
 
 async function createTurn(content: string, reply: string): Promise<string> {
-  const created = await host.createThread({ initialMessage: { content } })
+  const created = await host.createThread()
   const threadId = created.metadata.id
+  await host.sendMessage(threadId, { content })
   await model.waitForPending()
   model.release(reply)
   await waitIdle(threadId)

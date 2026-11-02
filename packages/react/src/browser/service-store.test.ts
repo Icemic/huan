@@ -7,6 +7,7 @@ import type {
   HarnessThreadSnapshot,
   HarnessWorkspaceCatalog,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createHarnessServiceStore,
@@ -18,6 +19,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',
@@ -111,6 +113,21 @@ describe('service-store：唯一元数据与运行数据', () => {
     expect(store.getState().host).toEqual(hostInfo)
     expect(store.getState().hostLoading).toBe(false)
     expect(onHostInfo).toHaveBeenCalledWith(hostInfo)
+  })
+
+  it('宿主协议版本不匹配时停止初始化并记录错误', async () => {
+    const onHostInfo = vi.fn()
+    const store = createHarnessServiceStore({
+      client: createClient({
+        getHostInfo: vi.fn(async () => ({ ...hostInfo, protocolVersion: 99 })),
+      }),
+      onHostInfo,
+    })
+    const host = await store.getState().loadHostInfo()
+    expect(host).toBeUndefined()
+    expect(store.getState().host).toBeUndefined()
+    expect(store.getState().hostError).toContain('协议版本不匹配')
+    expect(onHostInfo).not.toHaveBeenCalled()
   })
 
   it('目录扫描更新唯一实体，保留运行中字段并只保存结果 ID', async () => {

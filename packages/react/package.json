@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@huan/protocol": "workspace:*",
-    "assistant-stream": "0.3.50",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

@@ -95,6 +95,16 @@ export type HarnessQueuedMessage = {
   content: string
 }
 
+/** 模型回退原因（只含受控字段，不含任意错误/凭据）。 */
+export type HarnessModelFallbackReason = 'restore-failed' | 'no-model' | 'unknown'
+
+export type HarnessModelFallback = {
+  reason: HarnessModelFallbackReason
+  requested?: { provider: string; modelId: string }
+  active?: { provider: string; modelId: string }
+  message: string
+}
+
 /** 会话目录条目元数据。 */
 export type HarnessThreadMetadata = {
   id: string
@@ -121,6 +131,8 @@ export type HarnessThreadMetadata = {
   autoCompactionEnabled?: boolean
   /** 当前会话的模型选择范围；空数组为全部。 */
   scopedModelKeys?: readonly string[]
+  /** SDK 恢复/默认解析时发生的模型回退；只含受控原因与原/有效模型。 */
+  modelFallback?: HarnessModelFallback
   /** 共享模型目录显式刷新代数。 */
   modelCatalogRevision?: number
   /** 当前模型声明的输入模态；用于提交前校验图片能力。 */
@@ -200,7 +212,6 @@ export type HarnessCreateThreadInput = {
   model?: { provider: string; modelId: string }
   /** 新会话的 Thinking 级别（可选；在模型应用之后生效）。 */
   thinkingLevel?: HarnessThinkingLevel
-  initialMessage?: HarnessSendMessageInput
 }
 
 /** Host UI 请求种类。 */
@@ -451,6 +462,16 @@ export type HarnessThreadDetails = {
   branchEntryCount: number
 }
 
+/** 活动工具执行的瞬态快照（结束后不保留为第二份历史）。 */
+export interface HarnessToolExecutionSnapshot {
+  toolCallId: string
+  toolName?: string
+  args?: unknown
+  partialResult?: unknown
+  status: 'running' | 'complete' | 'error'
+  parentToolCallId?: string
+}
+
 /** 会话快照（权威状态；订阅首帧与重连恢复均用它）。 */
 export type HarnessThreadSnapshot = {
   metadata: HarnessThreadMetadata
@@ -460,6 +481,8 @@ export type HarnessThreadSnapshot = {
    * 消息投影据此保留 sourceEntryId，供树定位与后续 fork 复用。
    */
   messageEntryIds?: (string | null)[]
+  /** 当前活动的工具调用（重连后恢复运行中提示；结束即移除）。 */
+  toolExecutions?: readonly HarnessToolExecutionSnapshot[]
   /** 待处理的阻断式 Host UI 请求（存活于宿主 record，重连后仍可见）。 */
   hostUiRequests?: readonly HarnessHostUiRequest[]
   /** 扩展报告的状态/通知/widget/标题/编辑器指令（运行期快照权威）。 */

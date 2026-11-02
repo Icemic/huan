@@ -1,4 +1,4 @@
-import type { HarnessHostInfo } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION, type HarnessHostInfo } from '@huan/protocol'
 import { createHarnessHttpClient } from '@huan/react'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
@@ -6,6 +6,7 @@ import type { ServerConfig } from './config.js'
 import { registerHostRoutes } from './host-routes.js'
 
 const info: HarnessHostInfo = {
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   workspacePath: '/workspace',
   agentDir: '/private/agent',
   agentDirSource: 'option',

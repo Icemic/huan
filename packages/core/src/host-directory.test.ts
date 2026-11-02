@@ -109,7 +109,8 @@ describe('默认会话目录', () => {
     const env = await newEnv('huan-dir-default-')
     const host = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
 
-    const created = await host.createThread({ initialMessage: { content: '默认目录探针' } })
+    const created = await host.createThread()
+    await host.sendMessage(created.metadata.id, { content: '默认目录探针' })
     const id = created.metadata.id
     const sessionFile = created.metadata.sessionFile
     expect(sessionFile).toBeDefined()
@@ -152,7 +153,8 @@ describe('显式会话目录（平铺覆盖）', () => {
       sessionDir: flatDir,
     })
 
-    const created = await hostA.createThread({ initialMessage: { content: '平铺目录探针' } })
+    const created = await hostA.createThread()
+    await hostA.sendMessage(created.metadata.id, { content: '平铺目录探针' })
     const id = created.metadata.id
     expect(dirname(created.metadata.sessionFile ?? '')).toBe(flatDir)
     await waitForFile(created.metadata.sessionFile ?? '')
@@ -228,7 +230,8 @@ describe('显式会话目录（平铺覆盖）', () => {
     const host = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
     // 测试显式允许项目 settings（信任是真实决定，不是生产旁路）。
     await host.decideProjectTrust({ path: env.workspace, trusted: true })
-    const created = await host.createThread({ initialMessage: { content: 'setting 目录探针' } })
+    const created = await host.createThread()
+    await host.sendMessage(created.metadata.id, { content: 'setting 目录探针' })
     expect(dirname(created.metadata.sessionFile ?? '')).toBe(
       join(env.workspace, 'project-sessions'),
     )
@@ -252,25 +255,23 @@ describe('显式会话目录（平铺覆盖）', () => {
     })
     // 测试显式允许项目 settings（信任是真实决定，不是生产旁路）。
     await optionHost.decideProjectTrust({ path: env.workspace, trusted: true })
-    const optionThread = await optionHost.createThread({
-      initialMessage: { content: '显式优先' },
-    })
+    const optionThread = await optionHost.createThread()
     expect(dirname(optionThread.metadata.sessionFile ?? '')).toBe(optionDir)
 
     const envHost = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
     await envHost.decideProjectTrust({ path: env.workspace, trusted: true })
-    const envThread = await envHost.createThread({ initialMessage: { content: '环境变量' } })
+    const envThread = await envHost.createThread()
     expect(dirname(envThread.metadata.sessionFile ?? '')).toBe(envDir)
 
     // 覆盖值在宿主创建时固定：后续改环境变量不影响已创建宿主。
     delete process.env[SESSION_DIR_ENV]
-    const envThread2 = await envHost.createThread({ initialMessage: { content: '环境变量已固定' } })
+    const envThread2 = await envHost.createThread()
     expect(dirname(envThread2.metadata.sessionFile ?? '')).toBe(envDir)
 
     delete process.env[SESSION_DIR_ENV]
     const settingHost = await openHost({ workspacePath: env.workspace, agentDir: env.agentDir })
     await settingHost.decideProjectTrust({ path: env.workspace, trusted: true })
-    const settingThread = await settingHost.createThread({ initialMessage: { content: 'setting' } })
+    const settingThread = await settingHost.createThread()
     expect(dirname(settingThread.metadata.sessionFile ?? '')).toBe(
       join(env.workspace, 'setting-sessions'),
     )
@@ -289,8 +290,8 @@ describe('同进程多用户空间', () => {
     const hostA = await openHost({ workspacePath: envA.workspace, agentDir: envA.agentDir })
     const hostB = await openHost({ workspacePath: envB.workspace, agentDir: envB.agentDir })
 
-    const threadA = await hostA.createThread({ initialMessage: { content: '空间 A' } })
-    const threadB = await hostB.createThread({ initialMessage: { content: '空间 B' } })
+    const threadA = await hostA.createThread()
+    const threadB = await hostB.createThread()
     expect(threadA.metadata.config?.modelId).not.toBe(threadB.metadata.config?.modelId)
     expect(dirname(threadA.metadata.sessionFile ?? '')).toBe(
       defaultSessionDir(envA.agentDir, envA.workspace),
@@ -421,9 +422,7 @@ describe('作用域内查找与安全边界', () => {
       agentDir: env.agentDir,
       sessionDir: join(notADir, 'nested'),
     })
-    await expect(
-      createHost.createThread({ initialMessage: { content: '应失败' } }),
-    ).rejects.toThrow(/not-a-dir|ENOTDIR|EEXIST/i)
+    await expect(createHost.createThread()).rejects.toThrow(/not-a-dir|ENOTDIR|EEXIST/i)
     // 不得静默回退到用户默认空间。
     const defaultDir = defaultSessionDir(env.agentDir, env.workspace)
     const files = await readdir(defaultDir).catch(() => [])
@@ -451,7 +450,7 @@ describe('作用域内查找与安全边界', () => {
       sessionDir: flatDir,
     })
     await expect(host.listThreads()).resolves.toEqual([])
-    const created = await host.createThread({ initialMessage: { content: '自动建目录' } })
+    const created = await host.createThread()
     expect(dirname(created.metadata.sessionFile ?? '')).toBe(flatDir)
   }, 60_000)
 })

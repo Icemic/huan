@@ -1,11 +1,11 @@
-import type { HarnessProviderAuthSnapshot } from '@huan/protocol'
 import { describe, expect, it } from 'vitest'
+import type { HarnessProviderAuthSnapshot } from './index.js'
 import {
   isProviderAuthCancelResult,
   isProviderAuthRespondResult,
   isProviderAuthSnapshot,
   isProviderAuthStartResult,
-} from './validation.js'
+} from './wire-validation.js'
 
 const snapshot: HarnessProviderAuthSnapshot = {
   seq: 4,
@@ -57,15 +57,21 @@ describe('认证协议运行时守卫', () => {
 
   it('拒绝未知阶段、未知提示类型与畸形事件', () => {
     const unknownPhase = structuredClone(snapshot)
-    unknownPhase.operations[0]!.phase = 'hacking' as never
+    const phase = unknownPhase.operations[0]
+    if (!phase) throw new Error('fixture missing')
+    phase.phase = 'hacking' as never
     expect(isProviderAuthSnapshot(unknownPhase)).toBe(false)
 
     const unknownPrompt = structuredClone(snapshot)
-    unknownPrompt.operations[0]!.prompt!.kind = 'password' as never
+    const prompt = unknownPrompt.operations[0]?.prompt
+    if (!prompt) throw new Error('fixture missing')
+    prompt.kind = 'password' as never
     expect(isProviderAuthSnapshot(unknownPrompt)).toBe(false)
 
     const badEvent = structuredClone(snapshot)
-    badEvent.operations[0]!.events = [{ type: 'progress' }, {}] as never
+    const operation = badEvent.operations[0]
+    if (!operation) throw new Error('fixture missing')
+    operation.events = [{ type: 'progress' }, {}] as never
     expect(isProviderAuthSnapshot(badEvent)).toBe(false)
   })
 
@@ -87,6 +93,73 @@ describe('认证协议运行时守卫', () => {
     expect(isProviderAuthCancelResult({ status: 'not-found' })).toBe(true)
     expect(
       isProviderAuthCancelResult({ status: 'cancelling', operation: snapshot.operations[0] }),
+    ).toBe(true)
+  })
+})
+
+describe('R5 wire 形状守卫', () => {
+  it('完整快照接受受控模型回退与活动工具；缺省/未知形状被拒绝', async () => {
+    const { isThreadSnapshot } = await import('./wire-validation.js')
+    const snapshot = {
+      metadata: {
+        id: 't1',
+        status: 'running',
+        modelFallback: {
+          reason: 'restore-failed',
+          requested: { provider: 'old', modelId: 'gone' },
+          active: { provider: 'new', modelId: 'ok' },
+          message: 'Could not restore model old/gone. Using new/ok',
+        },
+      },
+      messages: [],
+      toolExecutions: [
+        {
+          toolCallId: 'c1',
+          toolName: 'read',
+          args: { path: 'a' },
+          partialResult: { content: [{ type: 'text', text: '...' }] },
+          status: 'running',
+          parentToolCallId: 'parent',
+        },
+      ],
+    }
+    expect(isThreadSnapshot(snapshot)).toBe(true)
+    expect(
+      isThreadSnapshot({
+        ...snapshot,
+        metadata: { id: 't1', status: 'running', modelFallback: { reason: 'hacked' } },
+      }),
+    ).toBe(false)
+    expect(
+      isThreadSnapshot({
+        ...snapshot,
+        toolExecutions: [{ toolCallId: 'c1', status: 'unknown' }],
+      }),
+    ).toBe(false)
+  })
+
+  it('历史工具结果保留有界 nestedCalls 摘要', async () => {
+    const { isCompleteTranscriptMessage } = await import('./wire-validation.js')
+    expect(
+      isCompleteTranscriptMessage({
+        role: 'toolResult',
+        toolCallId: 'c1',
+        toolName: 'codemode',
+        content: [],
+        isError: false,
+        timestamp: 1,
+        nestedCalls: {
+          calls: [
+            {
+              id: 'c1/1',
+              name: 'read',
+              status: 'ok',
+              durationMs: 3,
+            },
+          ],
+          complete: true,
+        },
+      }),
     ).toBe(true)
   })
 })

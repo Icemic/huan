@@ -4,6 +4,7 @@ import type {
   HarnessHostInfo,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createHarnessBrowser } from './create-browser.js'
 import type { HarnessFrameScheduler } from './resources.js'
@@ -12,6 +13,7 @@ const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
   agentDir: '/agent',
   agentDirSource: 'settings',
+  protocolVersion: HARNESS_PROTOCOL_VERSION,
   sessionStorage: {
     mode: 'grouped',
     root: '/sessions',

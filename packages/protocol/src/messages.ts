@@ -88,6 +88,22 @@ export interface HarnessAssistantMessage {
   timestamp: number
 }
 
+/** 嵌套工具调用摘要（SDK 有界记录；不承诺完整历史子结果）。 */
+export interface HarnessNestedToolCall {
+  id: string
+  name: string
+  arguments?: Record<string, unknown>
+  argumentsBytes?: number
+  status: 'ok' | 'error' | 'unfinished'
+  durationMs?: number
+  error?: string
+}
+
+export interface HarnessNestedToolCalls {
+  calls: HarnessNestedToolCall[]
+  complete: boolean
+}
+
 /** 工具结果消息（content 为可渲染输出；details 为工具特定元数据）。 */
 export interface HarnessToolResultMessage {
   role: 'toolResult'
@@ -95,6 +111,8 @@ export interface HarnessToolResultMessage {
   toolName: string
   content: HarnessToolResultContent[]
   details?: unknown
+  /** 本次模型工具调用所发起的嵌套调用摘要；缺失表示无或旧记录。 */
+  nestedCalls?: HarnessNestedToolCalls
   isError: boolean
   timestamp: number
 }

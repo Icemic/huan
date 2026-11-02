@@ -391,6 +391,42 @@ describe('thread-state（元数据与运行数据分离的纯归约）', () => {
     expect(selectThreadQueue(after.metadata)).toEqual({ steering: [], followUp: [] })
   })
 
+  it('完整快照恢复活动工具；下一次无工具快照清除旧活动状态', () => {
+    const running = apply(
+      createHarnessThreadReduction('t1'),
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: { id: 't1', status: 'running' },
+          messages: [],
+          toolExecutions: [
+            {
+              toolCallId: 'child',
+              toolName: 'read',
+              args: { path: 'a' },
+              partialResult: { content: [{ type: 'text', text: 'partial' }] },
+              status: 'running',
+              parentToolCallId: 'parent',
+            },
+          ],
+        },
+      }),
+    )
+    expect(running.session.toolExecutions.child).toMatchObject({
+      toolName: 'read',
+      status: 'running',
+      parentToolCallId: 'parent',
+    })
+    const settled = apply(
+      running,
+      ev({
+        type: 'snapshot',
+        snapshot: { metadata: { id: 't1', status: 'idle' }, messages: [] },
+      }),
+    )
+    expect(settled.session.toolExecutions).toEqual({})
+  })
+
   it('流快照重置序号时重设实时状态基线', () => {
     const before = apply(
       createHarnessThreadReduction('t1'),

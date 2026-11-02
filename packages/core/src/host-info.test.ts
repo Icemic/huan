@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SessionManager } from '@earendil-works/pi-coding-agent'
@@ -102,6 +103,33 @@ describe('只读宿主状态与默认模型恢复', () => {
     await expect(
       host.createThread({ model: { provider: 'missing', modelId: 'missing' } }),
     ).rejects.toThrow('not in Pi')
+  })
+
+  it('恢复缺失模型时按会话暴露受控回退原因与有效模型', async () => {
+    const seed = SessionManager.create(env.workspace, env.defaultSessionDir())
+    seed.appendModelChange('missing', 'gone-model')
+    seed.appendMessage({ role: 'user', content: 'history', timestamp: 1 })
+    const id = seed.getSessionId()
+    const host = await open()
+    // 打开 live 会话但不发起模型请求。
+    await host.listCommands({ threadId: id })
+    const snapshot = await host.getThread(id)
+    expect(snapshot.metadata.modelFallback).toMatchObject({
+      reason: 'restore-failed',
+      requested: { provider: 'missing', modelId: 'gone-model' },
+      active: { provider: TEST_PROVIDER, modelId: TEST_MODEL_A },
+    })
+    expect(snapshot.metadata.modelFallback?.message).not.toContain(TEST_API_KEY)
+    expect(snapshot.readiness?.state).toBe('ready')
+  })
+
+  it('live 且尚未落盘的会话仍在目录中可发现', async () => {
+    const host = await open()
+    const created = await host.createThread()
+    // 新建会话在首条消息前不一定已有 JSONL；目录不能只依赖磁盘 infos。
+    expect(existsSync(created.metadata.sessionFile ?? '')).toBe(false)
+    const listed = await host.listThreads()
+    expect(listed.map((item) => item.id)).toContain(created.metadata.id)
   })
 
   it('缺凭据可见且运行失败，不调用网络', async () => {

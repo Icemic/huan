@@ -132,14 +132,10 @@ describe('宿主工作区生命周期', () => {
     expect(first.ok && second.ok).toBe(true)
     if (!first.ok || !second.ok) throw new Error('工作区创建失败')
 
-    const threadA = await host.createThread({
-      workspaceId: first.workspace.id,
-      initialMessage: { content: '工作区 A 会话' },
-    })
-    const threadB = await host.createThread({
-      workspaceId: second.workspace.id,
-      initialMessage: { content: '工作区 B 会话' },
-    })
+    const threadA = await host.createThread({ workspaceId: first.workspace.id })
+    await host.sendMessage(threadA.metadata.id, { content: '工作区 A 会话' })
+    const threadB = await host.createThread({ workspaceId: second.workspace.id })
+    await host.sendMessage(threadB.metadata.id, { content: '工作区 B 会话' })
     expect(threadA.metadata.workspaceId).toBe(first.workspace.id)
     expect(threadB.metadata.workspaceId).toBe(second.workspace.id)
     expect(threadA.metadata.workspacePath).toBe(threadB.metadata.workspacePath)

@@ -13,24 +13,3 @@ export {
 } from './event-source.js'
 export type { HarnessHttpClientOptions } from './http-client.js'
 export { createHarnessHttpClient, HarnessHttpError } from './http-client.js'
-// 载荷校验（供宿主侧测试与自定义传输实现复用；后续迁移由 R2/R5 决定）。
-export {
-  isAssistantMessage,
-  isAssistantMessageDelta,
-  isCompleteTranscriptMessage,
-  isContextUsage,
-  isHostInteractionSnapshot,
-  isHostUiRequest,
-  isReloadOperation,
-  isReloadResult,
-  isResourceSnapshot,
-  isSettingsSaveResult,
-  isSettingsSnapshot,
-  isThreadDetails,
-  isThreadMetadata,
-  isThreadSnapshot,
-  isThreadTree,
-  isTreeCancelResult,
-  isTreeLabelResult,
-  isTreeNavigateResult,
-} from './validation.js'

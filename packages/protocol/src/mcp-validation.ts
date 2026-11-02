@@ -16,8 +16,8 @@ import type {
   HarnessMcpManageResult,
   HarnessMcpServerSummary,
   HarnessMcpSnapshot,
-} from '@huan/protocol'
-import { isRecord } from '../vendor/anti-corruption.js'
+} from './index.js'
+import { isRecord } from './wire.js'
 
 const isOptionalString = (value: unknown): boolean =>
   value === undefined || typeof value === 'string'

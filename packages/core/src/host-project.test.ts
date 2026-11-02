@@ -223,8 +223,9 @@ describe('项目信任与安全启动', () => {
     expect(await markerCount(marker)).toBe(0)
     expect(existsSync(join(env.agentDir, 'trust.json'))).toBe(false)
 
-    const created = await host.createThread({ initialMessage: { content: '拒绝后仍可对话' } })
+    const created = await host.createThread()
     expect(created.metadata.id).toBeTruthy()
+    await host.sendMessage(created.metadata.id, { content: '拒绝后仍可对话' })
     expect(await markerCount(marker)).toBe(0)
   }, 60_000)
 

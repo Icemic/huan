@@ -27,6 +27,7 @@ import type {
   HarnessWorkspace,
   HarnessWorkspaceState,
 } from '@huan/protocol'
+import { HARNESS_PROTOCOL_VERSION } from '@huan/protocol'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { errorText } from '../error-text.js'
 import {
@@ -360,6 +361,12 @@ export const createHarnessServiceStore = (
         try {
           const host = await client.getHostInfo()
           if (get().disposed || epoch !== hostEpoch) return undefined
+          // 同版部署：一次明确比较；不匹配立即停止业务初始化，不做范围协商。
+          if (host.protocolVersion !== HARNESS_PROTOCOL_VERSION) {
+            throw new Error(
+              `协议版本不匹配：宿主 ${host.protocolVersion}，页面 ${HARNESS_PROTOCOL_VERSION}；请更新页面或宿主。`,
+            )
+          }
           set({ host, hostLoading: false, hostError: undefined })
           onHostInfo?.(host)
           return host

@@ -224,8 +224,9 @@ async function waitIdle(threadId: string): Promise<void> {
 
 /** 新建会话并完成一次真实合成运行（用户 + 助手两条 entry）。 */
 async function createTurn(content: string, reply: string): Promise<string> {
-  const created = await host.createThread({ initialMessage: { content } })
+  const created = await host.createThread()
   const threadId = created.metadata.id
+  await host.sendMessage(threadId, { content })
   await model.waitForPending()
   model.release(reply)
   await waitIdle(threadId)

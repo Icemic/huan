@@ -5,6 +5,8 @@ export type HarnessConfigSource = 'option' | 'env' | 'settings' | 'default'
 
 /** 只读宿主信息；可在尚未创建会话时查询。 */
 export type HarnessHostInfo = {
+  /** wire 协议版本；浏览器启动时与自身版本比较，不做范围协商。 */
+  protocolVersion: number
   workspacePath: string
   agentDir: string
   agentDirSource: HarnessConfigSource

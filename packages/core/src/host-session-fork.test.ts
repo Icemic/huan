@@ -67,8 +67,9 @@ async function waitIdle(threadId: string, minMessages = 1): Promise<void> {
 
 /** 新建会话并等待首轮合成回复落盘。 */
 async function createTurn(content: string): Promise<string> {
-  const created = await host.createThread({ initialMessage: { content } })
+  const created = await host.createThread()
   const threadId = created.metadata.id
+  await host.sendMessage(threadId, { content })
   await waitIdle(threadId, 2)
   return threadId
 }

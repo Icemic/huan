@@ -11,8 +11,8 @@
  * 线格式与重连都在这里。
  *
  * 两部分：
- * - `createHarnessSseDecoder()`——增量 SSE 帧解析器，包装 assistant-stream
- *   的 `SSEEventDecoder`。喂入文本块（可能从帧中间断开），返回目前完整的帧。
+ * - `createHarnessSseDecoder()`——增量 SSE 帧解析器（小型标准实现）。
+ *   喂入文本块（可能从帧中间断开），返回目前完整的帧。
  * - `openHarnessEventStream()`——`fetch` + `ReadableStream` 循环，喂给解码器
  *   并产出解析后的 `HarnessAnyClientEvent`。快照优先的重连：服务端在每次
  *   （重）连接时重发 `snapshot`，因此断流靠替换本地状态恢复，绝不靠重放。
@@ -22,9 +22,6 @@
  */
 
 import type { HarnessAnyClientEvent, HarnessClientEvent } from '@huan/protocol'
-import { SSEEventDecoder, SSEEventDecoderError } from 'assistant-stream/utils'
-import { isKnownHarnessClientEventType } from '../model/event-types.js'
-import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import {
   isAssistantMessageDelta,
   isBashRun,
@@ -34,7 +31,10 @@ import {
   isReloadOperation,
   isThreadHostUi,
   isThreadSnapshot,
-} from './validation.js'
+} from '@huan/protocol'
+import { isKnownHarnessClientEventType } from '../model/event-types.js'
+import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
+import { SSEEventDecoder, SSEEventDecoderError } from './sse-decoder.js'
 
 /**
  * 一个解码后的 SSE 帧。

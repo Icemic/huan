@@ -32,6 +32,7 @@ import type {
   HarnessCompactionSummaryMessage,
   HarnessCustomMessage,
   HarnessImageContent,
+  HarnessNestedToolCalls,
   HarnessStopReason,
   HarnessThinkingContent,
   HarnessToolCall,
@@ -88,6 +89,8 @@ export interface HarnessToolViewPart extends HarnessMessageViewPartBase {
   outputImages?: readonly HarnessImageViewPart[]
   /** 工具特定元数据。 */
   details?: unknown
+  /** 历史记录中的子调用有界摘要；不承诺完整子结果。 */
+  nestedCalls?: HarnessNestedToolCalls
   /** 实时部分输出（最终结果尚未落地）。 */
   isPreliminary?: boolean
 }
@@ -194,6 +197,7 @@ type ProjectedToolResult = {
   output?: string
   images?: readonly HarnessImageViewPart[]
   details?: unknown
+  nestedCalls?: HarnessNestedToolCalls
   isError: boolean
   sourceEntryId?: string
 }
@@ -221,6 +225,7 @@ const projectToolResultMessage = (
 ): ProjectedToolResult => ({
   ...projectToolResultContent(message.content, sourceEntryId),
   details: message.details,
+  ...(message.nestedCalls ? { nestedCalls: message.nestedCalls } : {}),
   isError: message.isError,
   ...(sourceEntryId ? { sourceEntryId } : {}),
 })
@@ -288,6 +293,7 @@ const toolViewOfCall = (
     ...(output.output !== undefined ? { output: output.output } : {}),
     ...(output.images !== undefined ? { outputImages: output.images } : {}),
     ...(paired?.details !== undefined ? { details: paired.details } : {}),
+    ...(paired?.nestedCalls ? { nestedCalls: paired.nestedCalls } : {}),
     ...(paired === undefined && live?.status === 'running' && output.output !== undefined
       ? { isPreliminary: true }
       : {}),
@@ -857,10 +863,7 @@ export class HarnessMessageViewProjector {
     }
 
     const messageChangeIndex = firstChangedMessageIndex(previousInput.messages, input.messages)
-    const changedTools = changedToolExecutionIds(
-      previousInput.toolExecutions,
-      input.toolExecutions,
-    )
+    const changedTools = changedToolExecutionIds(previousInput.toolExecutions, input.toolExecutions)
 
     const affectedToolCallIds = changedTools
     let dirtyIndex = messageChangeIndex
@@ -894,7 +897,10 @@ export class HarnessMessageViewProjector {
         dirtyIndex = dirtyIndex === undefined ? index : Math.min(dirtyIndex, index)
     }
 
-    if (messageChangeIndex !== undefined || previousInput.messageEntryIds !== input.messageEntryIds) {
+    if (
+      messageChangeIndex !== undefined ||
+      previousInput.messageEntryIds !== input.messageEntryIds
+    ) {
       updateToolResults(
         this.toolResults,
         previousInput.messages,

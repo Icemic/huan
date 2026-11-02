@@ -1,10 +1,9 @@
 /**
  * 客户端事件与快照载荷的运行时校验（形状守卫）。
  *
- * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的
- * `src/client/validation.ts`（MIT 许可）。改动：类型改用
- * `@huan/protocol`，命名 `Pi*` → `Harness*`，上游内部工具改从
- * `../vendor/anti-corruption.js` 引入，注释译为中文。
+ * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的 `src/client/validation.ts`
+ * （MIT 许可）。R5 起归 `@huan/protocol`：只做 wire 形状守卫，不承担 HTTP
+ * 鉴权/业务信任；命名 `Pi*` → `Harness*`，注释译为中文。
  *
  * 用途：SSE / HTTP 收到的载荷形状不可信，落进 reducer 之前先做守卫，
  * 使畸形载荷被丢弃而不是污染状态。
@@ -37,8 +36,8 @@ import type {
   HarnessTreeCancelResult,
   HarnessTreeLabelResult,
   HarnessTreeNavigateResult,
-} from '@huan/protocol'
-import { isRecord } from '../vendor/anti-corruption.js'
+} from './index.js'
+import { isRecord } from './wire.js'
 
 const isOptionalString = (value: unknown): boolean =>
   value === undefined || typeof value === 'string'
@@ -88,6 +87,22 @@ const isAssistantContentPart = (value: unknown): boolean => {
   return true
 }
 
+const isNestedToolCalls = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.complete === 'boolean' &&
+  Array.isArray(value.calls) &&
+  value.calls.every(
+    (call) =>
+      isRecord(call) &&
+      typeof call.id === 'string' &&
+      typeof call.name === 'string' &&
+      (call.status === 'ok' || call.status === 'error' || call.status === 'unfinished') &&
+      (call.arguments === undefined || isRecord(call.arguments)) &&
+      isOptionalNumber(call.argumentsBytes) &&
+      isOptionalNumber(call.durationMs) &&
+      isOptionalString(call.error),
+  )
+
 const isUsage = (value: unknown): boolean =>
   isRecord(value) &&
   typeof value.input === 'number' &&
@@ -134,6 +149,7 @@ export const isCompleteTranscriptMessage = (value: unknown): value is HarnessAge
         Array.isArray(value.content) &&
         value.content.every(isUserContentPart) &&
         typeof value.isError === 'boolean' &&
+        (value.nestedCalls === undefined || isNestedToolCalls(value.nestedCalls)) &&
         typeof value.timestamp === 'number'
       )
     case 'bashExecution':
@@ -814,6 +830,25 @@ export const isReloadResult = (value: unknown): value is HarnessReloadResult => 
 }
 
 /** 会话元数据守卫。 */
+const isModelRef = (value: unknown): boolean =>
+  isRecord(value) && typeof value.provider === 'string' && typeof value.modelId === 'string'
+
+const isModelFallback = (value: unknown): boolean =>
+  isRecord(value) &&
+  (value.reason === 'restore-failed' ||
+    value.reason === 'no-model' ||
+    value.reason === 'unknown') &&
+  (value.requested === undefined || isModelRef(value.requested)) &&
+  (value.active === undefined || isModelRef(value.active)) &&
+  typeof value.message === 'string'
+
+const isToolExecutionSnapshot = (value: unknown): boolean =>
+  isRecord(value) &&
+  typeof value.toolCallId === 'string' &&
+  isOptionalString(value.toolName) &&
+  (value.status === 'running' || value.status === 'complete' || value.status === 'error') &&
+  isOptionalString(value.parentToolCallId)
+
 export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata =>
   isRecord(value) &&
   typeof value.id === 'string' &&
@@ -834,6 +869,7 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
     value.compactionReason === 'overflow') &&
   isOptionalBoolean(value.autoCompactionEnabled) &&
   (value.scopedModelKeys === undefined || isStringArray(value.scopedModelKeys)) &&
+  (value.modelFallback === undefined || isModelFallback(value.modelFallback)) &&
   isOptionalNumber(value.modelCatalogRevision) &&
   isOptionalBoolean(value.retryActive) &&
   isOptionalNumber(value.retryAttempt) &&
@@ -909,6 +945,9 @@ export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot
     !isOptionalNumber(value.seq) ||
     !Array.isArray(value.messages) ||
     !value.messages.every(isRenderableTranscriptMessage) ||
+    (value.toolExecutions !== undefined &&
+      (!Array.isArray(value.toolExecutions) ||
+        !value.toolExecutions.every(isToolExecutionSnapshot))) ||
     (value.hostUiRequests !== undefined &&
       (!Array.isArray(value.hostUiRequests) || !value.hostUiRequests.every(isHostUiRequest))) ||
     (value.hostUi !== undefined && !isThreadHostUi(value.hostUi)) ||
