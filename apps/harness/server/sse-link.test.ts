@@ -7,7 +7,7 @@
  *
  * 用 Hono 应用直接处理 `Request`（`app.fetch`），避免起真实端口；
  * 客户端是全真实的 `createHarnessHttpClient`（含 SSE 解码与重连），
- * 消费方是真实的 `HarnessThreadController` 与 reducer。
+ * 消费方是真实的纯 reducer 归约（`@huan/react/model`）。
  *
  * 断言的两条关键语义：
  * 1. 快照优先：接上先投递快照，之后的事件按 seq 递增投递；
@@ -21,12 +21,12 @@ import type {
   HarnessClient,
   HarnessHostInteractionEvent,
 } from '@huan/protocol'
+import { createHarnessHttpClient } from '@huan/react/client'
 import {
-  createHarnessHttpClient,
   createHarnessThreadReduction,
   reduceHarnessThreadState,
   selectThreadRunStatus,
-} from '@huan/react'
+} from '@huan/react/model'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import { createEventsRoute, createHostInteractionEventsRoute } from './sse.js'

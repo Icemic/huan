@@ -7,12 +7,14 @@ import {
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useEffect } from 'react'
+import { ChatView } from '@/components/chat/chat-view'
 import { ImportThreadButton, ImportThreadDialog } from '@/components/import-thread-dialog'
 import { PiHostInteractions } from '@/components/pi-host-interactions'
 import { PiHostStatus } from '@/components/pi-host-status'
 import { McpDialog } from '@/components/pi-mcp-panel'
 import { ProviderAuthDialog } from '@/components/pi-provider-auth'
-import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
+import { PiRunStatus } from '@/components/pi-run-status'
+import { PiThreadHostUi } from '@/components/pi-thread-host-ui'
 import { SessionContextBar } from '@/components/session-context-bar'
 import { SessionDialogs } from '@/components/session-dialogs'
 import { ForkThreadDialog } from '@/components/session-fork-dialog'
@@ -90,48 +92,7 @@ function WorkspaceStatusBanner() {
   )
 }
 
-/** 当前选择摘要；聊天展示由 R7 接通，不在此恢复旧 aui 面板。 */
-function SelectionSummary() {
-  const selection = useWindowStore((state) => state.selection)
-  const thread = useServiceStore((state) =>
-    selection?.kind === 'thread' ? state.threadsById[selection.threadId] : undefined,
-  )
-  const workspacePath =
-    selection?.kind === 'new' ? selection.startProjectPath : (thread?.workspacePath ?? undefined)
-
-  if (selection?.kind === 'new') {
-    return (
-      <div className="flex flex-col gap-2 p-6 text-sm">
-        <p className="font-medium">
-          <Trans>新会话目标已确定</Trans>
-        </p>
-        <p className="text-muted-foreground break-all">{workspacePath}</p>
-      </div>
-    )
-  }
-
-  if (selection?.kind === 'thread') {
-    return (
-      <div className="flex flex-col gap-2 p-6 text-sm">
-        <p className="font-medium">{thread?.title ?? <Trans>未命名会话</Trans>}</p>
-        {workspacePath && <p className="text-muted-foreground break-all">{workspacePath}</p>}
-        <p className="text-muted-foreground text-xs">
-          <Trans>会话已选中；聊天展示将在展示接入阶段接通。</Trans>
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-1 items-center justify-center p-6 text-sm">
-      <p className="text-muted-foreground">
-        <Trans>从左侧选择会话或新建会话。</Trans>
-      </p>
-    </div>
-  )
-}
-
-/** 应用主体：顶栏 + 工作区侧栏；旧聊天/管理面板在后续阶段接入。 */
+/** 应用主体：顶栏、工作区侧栏与最终聊天视图。 */
 function AppShell() {
   const initialize = useWorkspaceStore((state) => state.initialize)
   const hostLoading = useServiceStore((state) => state.hostLoading)
@@ -175,8 +136,10 @@ function AppShell() {
         <main className="flex min-h-0 min-w-0 flex-grow flex-col overflow-hidden">
           <SessionContextBar />
           <PiThreadHostUi />
-          <PiHostUiRequests />
-          <SelectionSummary />
+          <PiRunStatus threadId={selection?.kind === 'thread' ? selection.threadId : undefined} />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <ChatView />
+          </div>
         </main>
       </div>
       <SessionDialogs />

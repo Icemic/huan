@@ -50,9 +50,34 @@ export type LiveSessionsDeps = {
   workspaceStore: WorkspaceStore
   storeId: string
   assembly: Pick<ProjectAssembly, 'acquire' | 'closeBinding' | 'transferBinding'>
-  catalog: Pick<SessionCatalog, 'assertSessionFileInScope' | 'findSessionInfo' | 'getThread' | 'invalidateCatalog' | 'openScopedSessionManager' | 'scopeOf'>
-  events: Pick<SessionEvents, 'clearEditorMirrors' | 'createUiBridge' | 'emit' | 'emitHostUiSnapshot' | 'forgetEditorMirrors' | 'onSessionEvent' | 'snapshotOf'>
-  coordinator: Pick<OperationCoordinator, 'beginStructure' | 'cancelAndDrainStructure' | 'drainInFlight' | 'mcpRuntimeBusy' | 'releaseStructure' | 'wakeAdmissionWaiters'>
+  catalog: Pick<
+    SessionCatalog,
+    | 'assertSessionFileInScope'
+    | 'findSessionInfo'
+    | 'getThread'
+    | 'invalidateCatalog'
+    | 'openScopedSessionManager'
+    | 'scopeOf'
+  >
+  events: Pick<
+    SessionEvents,
+    | 'clearEditorMirrors'
+    | 'createUiBridge'
+    | 'emit'
+    | 'emitHostUiSnapshot'
+    | 'forgetEditorMirrors'
+    | 'onSessionEvent'
+    | 'snapshotOf'
+  >
+  coordinator: Pick<
+    OperationCoordinator,
+    | 'beginStructure'
+    | 'cancelAndDrainStructure'
+    | 'drainInFlight'
+    | 'mcpRuntimeBusy'
+    | 'releaseStructure'
+    | 'wakeAdmissionWaiters'
+  >
   /** 解析已保存的模型范围模式；配置/模型模块提供。 */
   resolveScopePatterns: (patterns: readonly string[]) => Promise<{
     scopedModels: Awaited<

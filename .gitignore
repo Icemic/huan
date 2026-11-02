@@ -8,3 +8,6 @@ coverage
 test-results
 playwright-report
 blob-report
+
+# Lingui 编译产物（由构建/compile 生成）
+apps/harness/src/locales/*.js

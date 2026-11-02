@@ -1,9 +1,10 @@
 /**
  * 输入区附加 UI：命令/文件补全、队列、长输入、命令面板与提示。
  *
- * 全部使用现有 Base UI 对话框/按钮与原生可访问角色；不引入 Radix/cmdk。
+ * 所有状态读取自 composer feature store；组件只持有“搜索/高亮”这类瞬时
+ * 交互状态。输入文字、附件、队列和提交都不在此复制。
  */
-import { useAuiState } from '@assistant-ui/react'
+
 import { Trans } from '@lingui/react/macro'
 import {
   ArrowUpIcon,
@@ -11,17 +12,16 @@ import {
   CheckIcon,
   ChevronUpIcon,
   Maximize2Icon,
+  SquareIcon,
   SquareTerminalIcon,
   XIcon,
 } from 'lucide-react'
-import { memo, useEffect, useMemo, useState } from 'react'
-import { TooltipIconButton } from '@/components/assistant-ui/elements/tooltip-icon-button'
+import { memo, type RefObject, useEffect, useMemo, useState } from 'react'
 import {
   type AppCommand,
   commandSourceLabel,
   commandStageLabel,
 } from '@/components/pi-builtin-commands'
-import type { PiComposerController } from '@/components/pi-composer-controller'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -33,14 +33,31 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { TooltipIconButton } from '@/components/ui/tooltip-icon-button'
 import { cn } from '@/lib/utils'
+import { useComposerStore } from '@/state/app-context'
+import type { ComposerCompletionItem } from '@/state/composer-store'
 
-/** 队列展示：标注 steer/follow-up，并支持整体取回。 */
+/** 把焦点与光标放到输入框指定位置。 */
+export const focusTextareaAt = (
+  inputRef: RefObject<HTMLTextAreaElement | null>,
+  position: number,
+): void => {
+  requestAnimationFrame(() => {
+    const element = inputRef.current
+    if (!element) return
+    element.focus()
+    const caret = Math.min(Math.max(position, 0), element.value.length)
+    element.setSelectionRange(caret, caret)
+  })
+}
+
+/** 服务端队列：只呈现权威 steering/followUp，并提供整体取回。 */
 export const ComposerQueue = memo(function ComposerQueue({
   queue,
   onRetrieve,
 }: {
-  queue: PiComposerController['queue']
+  queue: { steering: readonly string[]; followUp: readonly string[] }
   onRetrieve: () => Promise<void>
 }) {
   const { steering, followUp } = queue
@@ -49,11 +66,11 @@ export const ComposerQueue = memo(function ComposerQueue({
     <div data-slot="huan-composer-queue" className="mb-1 flex flex-col gap-1">
       {steering.map((content, index) => (
         <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: 队列只暴露文本，无稳定条目 ID
+          // biome-ignore lint/suspicious/noArrayIndexKey: 服务端队列只暴露文本，无稳定条目 ID
           key={`steer:${index}`}
-          className="border-foreground/10 text-muted-foreground flex items-start gap-2 rounded-(--composer-radius) border border-dashed px-3 py-1.5 text-sm"
+          className="border-foreground/10 text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm"
         >
-          <span className="rounded bg-muted px-1 text-[10px] leading-5">
+          <span className="bg-muted rounded px-1 text-[10px] leading-5">
             <Trans>转向</Trans>
           </span>
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{content}</span>
@@ -61,11 +78,11 @@ export const ComposerQueue = memo(function ComposerQueue({
       ))}
       {followUp.map((content, index) => (
         <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: 队列只暴露文本，无稳定条目 ID
+          // biome-ignore lint/suspicious/noArrayIndexKey: 服务端队列只暴露文本，无稳定条目 ID
           key={`follow:${index}`}
-          className="border-foreground/10 text-muted-foreground flex items-start gap-2 rounded-(--composer-radius) border border-dashed px-3 py-1.5 text-sm"
+          className="border-foreground/10 text-muted-foreground flex items-start gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm"
         >
-          <span className="rounded bg-muted px-1 text-[10px] leading-5">
+          <span className="bg-muted rounded px-1 text-[10px] leading-5">
             <Trans>后续</Trans>
           </span>
           <span className="min-w-0 flex-1 whitespace-pre-wrap">{content}</span>
@@ -88,9 +105,18 @@ export const ComposerQueue = memo(function ComposerQueue({
 })
 
 /** 输入上方的补全列表（role=listbox，键盘由输入框处理）。 */
-export function ComposerCompletionMenu({ controller }: { controller: PiComposerController }) {
-  const completion = controller.completion
+export function ComposerCompletionMenu({
+  inputRef,
+}: {
+  inputRef: RefObject<HTMLTextAreaElement | null>
+}) {
+  const completion = useComposerStore((state) => state.completion)
+  const chooseCompletion = useComposerStore((state) => state.chooseCompletion)
   if (!completion || completion.items.length === 0) return null
+  const apply = (item: ComposerCompletionItem) => {
+    const caret = chooseCompletion(item)
+    if (caret !== undefined) focusTextareaAt(inputRef, caret)
+  }
   return (
     <div
       data-slot="huan-composer-completions"
@@ -102,7 +128,7 @@ export function ComposerCompletionMenu({ controller }: { controller: PiComposerC
             ? '命令参数补全'
             : '命令补全'
       }
-      className="border-foreground/10 bg-popover text-popover-foreground mb-1 max-h-64 overflow-y-auto rounded-(--composer-radius) border p-1 shadow-sm"
+      className="bg-popover text-popover-foreground mb-1 max-h-64 overflow-y-auto rounded-md border p-1 shadow-sm"
     >
       {completion.items.map((item, index) => (
         <button
@@ -116,7 +142,7 @@ export function ComposerCompletionMenu({ controller }: { controller: PiComposerC
             index === completion.index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
           )}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => controller.chooseCompletion(item)}
+          onClick={() => apply(item)}
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate font-mono text-xs">{item.label}</span>
@@ -136,20 +162,22 @@ export function ComposerCompletionMenu({ controller }: { controller: PiComposerC
 }
 
 /** 输入区提示（命令不可用、图片拒绝、操作失败等）。 */
-export function ComposerNotice({ controller }: { controller: PiComposerController }) {
-  if (!controller.notice) return null
+export function ComposerNotice() {
+  const notice = useComposerStore((state) => state.notice)
+  const clearNotice = useComposerStore((state) => state.clearNotice)
+  if (!notice) return null
   return (
     <div
       role="status"
       data-slot="huan-composer-notice"
       className="border-foreground/10 text-muted-foreground mx-1 flex items-start gap-2 border-t px-1 pt-1 text-xs whitespace-pre-wrap"
     >
-      <span className="flex-1">{controller.notice}</span>
+      <span className="flex-1">{notice}</span>
       <button
         type="button"
         aria-label="关闭输入提示"
         className="text-muted-foreground hover:text-foreground"
-        onClick={controller.clearNotice}
+        onClick={clearNotice}
       >
         <XIcon aria-hidden className="size-3" />
       </button>
@@ -172,24 +200,22 @@ export const ComposerTools = memo(function ComposerTools({
         side="bottom"
         type="button"
         variant="ghost"
-        size="icon"
-        className="size-7 rounded-full"
+        size="icon-xs"
         aria-label="打开命令面板"
         onClick={onOpenPalette}
       >
-        <SquareTerminalIcon className="size-4" />
+        <SquareTerminalIcon aria-hidden />
       </TooltipIconButton>
       <TooltipIconButton
         tooltip="引用文件"
         side="bottom"
         type="button"
         variant="ghost"
-        size="icon"
-        className="size-7 rounded-full"
+        size="icon-xs"
         aria-label="插入文件引用"
         onClick={onInsertMention}
       >
-        <AtSignIcon className="size-4" />
+        <AtSignIcon aria-hidden />
       </TooltipIconButton>
     </>
   )
@@ -238,32 +264,56 @@ export const ComposerQueueMode = memo(function ComposerQueueMode({
   )
 })
 
-/** 自定义发送按钮：保留队列模式并统一走命令路由。 */
+/** 发送按钮：队列模式由 store 决定，点击统一走命令路由。 */
 export const ComposerSendButton = memo(function ComposerSendButton({
   isRunning,
   queueMode,
   busy,
+  canSend,
   onSubmit,
 }: {
   isRunning: boolean
   queueMode: 'followUp' | 'steer'
   busy: boolean
+  canSend: boolean
   onSubmit: () => Promise<void>
 }) {
-  const canSend = useAuiState((state) => state.composer.canSend)
   return (
     <TooltipIconButton
       tooltip={isRunning && queueMode === 'steer' ? '转向发送' : '发送消息'}
       side="bottom"
       type="button"
       variant="default"
-      size="icon"
-      className="aui-composer-send size-7 rounded-full"
-      aria-label="Send message"
+      size="icon-sm"
+      aria-label="发送消息"
       disabled={!canSend || busy}
       onClick={() => void onSubmit()}
     >
-      <ArrowUpIcon className="size-4" />
+      <ArrowUpIcon aria-hidden />
+    </TooltipIconButton>
+  )
+})
+
+/** 运行中停止当前会话。 */
+export const ComposerStopButton = memo(function ComposerStopButton({
+  busy,
+  onStop,
+}: {
+  busy: boolean
+  onStop: () => Promise<void>
+}) {
+  return (
+    <TooltipIconButton
+      tooltip="停止运行"
+      side="bottom"
+      type="button"
+      variant="outline"
+      size="icon-sm"
+      aria-label="停止当前运行"
+      disabled={busy}
+      onClick={() => void onStop()}
+    >
+      <SquareIcon aria-hidden />
     </TooltipIconButton>
   )
 })
@@ -280,45 +330,58 @@ export const ComposerExpandButton = memo(function ComposerExpandButton({
       side="bottom"
       type="button"
       variant="ghost"
-      size="icon"
-      className="text-muted-foreground size-7 rounded-full"
+      size="icon-xs"
       aria-label="展开编辑长输入"
       onClick={onExpand}
     >
-      <Maximize2Icon className="size-3.5" />
+      <Maximize2Icon aria-hidden />
     </TooltipIconButton>
   )
 })
 
 /** 命令面板：可搜索、可键盘选择，插入到当前光标位置。 */
-function CommandPaletteDialog({ controller }: { controller: PiComposerController }) {
+function CommandPaletteDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaElement | null> }) {
+  const open = useComposerStore((state) => state.paletteOpen)
+  const close = useComposerStore((state) => state.closePalette)
+  const catalog = useComposerStore((state) => state.catalog)
+  const diagnostics = useComposerStore((state) => state.catalogDiagnostics)
+  const insertCommand = useComposerStore((state) => state.insertCommandFromPalette)
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   useEffect(() => {
-    if (!controller.paletteOpen) return
+    if (!open) return
     setQuery('')
     setIndex(0)
-  }, [controller.paletteOpen])
+  }, [open])
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return controller.catalog.filter(
+    return catalog.filter(
       (command) =>
         !needle ||
         command.name.toLowerCase().includes(needle) ||
         (command.description ?? '').toLowerCase().includes(needle),
     )
-  }, [controller.catalog, query])
+  }, [catalog, query])
   useEffect(() => {
     if (index >= filtered.length) setIndex(0)
   }, [filtered.length, index])
 
   const choose = (command: AppCommand | undefined) => {
     if (!command) return
-    controller.insertCommandFromPalette(command)
+    const caret = insertCommand(command)
+    close()
+    if (caret !== undefined) focusTextareaAt(inputRef, caret)
   }
 
   return (
-    <Dialog open={controller.paletteOpen} onOpenChange={controller.setPaletteOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) return
+        close()
+        focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
+      }}
+    >
       <DialogContent data-slot="huan-command-palette" aria-label="命令面板" className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
@@ -398,13 +461,13 @@ function CommandPaletteDialog({ controller }: { controller: PiComposerController
             ))
           )}
         </div>
-        {controller.catalogDiagnostics.length > 0 && (
+        {diagnostics.length > 0 && (
           <p className="text-muted-foreground text-[11px] whitespace-pre-wrap">
-            {controller.catalogDiagnostics.join('\n')}
+            {diagnostics.join('\n')}
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => controller.setPaletteOpen(false)}>
+          <Button variant="outline" onClick={close}>
             <Trans>关闭</Trans>
           </Button>
         </DialogFooter>
@@ -414,9 +477,20 @@ function CommandPaletteDialog({ controller }: { controller: PiComposerController
 }
 
 /** 长输入编辑：Esc/取消保留原草稿，确认才写回。 */
-function LongInputDialog({ controller }: { controller: PiComposerController }) {
+function LongInputDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaElement | null> }) {
+  const longInput = useComposerStore((state) => state.longInput)
+  const setText = useComposerStore((state) => state.setLongInputText)
+  const apply = useComposerStore((state) => state.applyLongInput)
+  const close = useComposerStore((state) => state.closeLongInput)
   return (
-    <Dialog open={controller.longInputOpen} onOpenChange={controller.setLongInputOpen}>
+    <Dialog
+      open={longInput !== undefined}
+      onOpenChange={(next) => {
+        if (next) return
+        close()
+        focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
+      }}
+    >
       <DialogContent data-slot="huan-long-input" aria-label="长输入编辑" className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>
@@ -430,15 +504,24 @@ function LongInputDialog({ controller }: { controller: PiComposerController }) {
           aria-label="长输入内容"
           autoFocus
           rows={12}
-          value={controller.longInputText}
-          onChange={(event) => controller.setLongInputText(event.target.value)}
+          value={longInput?.text ?? ''}
+          onChange={(event) => setText(event.target.value)}
           className="min-h-48"
         />
+        {longInput?.conflict ? (
+          <p role="alert" className="text-destructive text-xs">
+            {longInput.conflict}
+          </p>
+        ) : null}
         <DialogFooter>
-          <Button variant="outline" onClick={() => controller.setLongInputOpen(false)}>
+          <Button variant="outline" onClick={close}>
             <Trans>取消</Trans>
           </Button>
-          <Button onClick={controller.applyLongInput}>
+          <Button
+            onClick={() => {
+              if (apply()) focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
+            }}
+          >
             <CheckIcon aria-hidden className="size-4" />
             <Trans>应用</Trans>
           </Button>
@@ -449,11 +532,15 @@ function LongInputDialog({ controller }: { controller: PiComposerController }) {
 }
 
 /** 挂在输入区一次即可的弹层宿主。 */
-export function PiComposerDialogs({ controller }: { controller: PiComposerController }) {
+export function PiComposerDialogs({
+  inputRef,
+}: {
+  inputRef: RefObject<HTMLTextAreaElement | null>
+}) {
   return (
     <>
-      <CommandPaletteDialog controller={controller} />
-      <LongInputDialog controller={controller} />
+      <CommandPaletteDialog inputRef={inputRef} />
+      <LongInputDialog inputRef={inputRef} />
     </>
   )
 }

@@ -8,9 +8,11 @@ import {
 } from '@huan/core/testing'
 import type { HarnessAnyClientEvent, HarnessClientEventBody } from '@huan/protocol'
 import {
-  createHarnessThreadState,
-  type HarnessThreadState,
+  createHarnessThreadReduction,
+  type HarnessThreadReduction,
   reduceHarnessThreadState,
+  selectThreadQueue,
+  selectThreadRunStatus,
 } from '@huan/react'
 import { describe, expect, it } from 'vitest'
 
@@ -51,9 +53,9 @@ function envelope(body: HarnessClientEventBody, seq: number): HarnessAnyClientEv
  * 而 reducer 的入参是窄联合（`HarnessClientEvent`）。reducer 的 default 分支会对
  * 未知类型只记 seq 并忽略——这正是两侧约定的前向兼容行为，因此此处断言安全。
  */
-function replay(events: readonly HarnessAnyClientEvent[]): HarnessThreadState {
+function replay(events: readonly HarnessAnyClientEvent[]): HarnessThreadReduction {
   const transported = JSON.parse(JSON.stringify(events)) as HarnessAnyClientEvent[]
-  let state = createHarnessThreadState(THREAD_ID)
+  let state = createHarnessThreadReduction(THREAD_ID)
   for (const event of transported) {
     state = reduceHarnessThreadState(state, event as Parameters<typeof reduceHarnessThreadState>[1])
   }
@@ -139,13 +141,17 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
     const state = replay(events)
 
     // 消息：历史 + 本轮用户 + 助手（顺序与条数）。
-    expect(state.messages.map((message) => message.role)).toEqual(['user', 'user', 'assistant'])
-    expect(state.runStatus).toBe('idle')
+    expect(state.session.messages.map((message) => message.role)).toEqual([
+      'user',
+      'user',
+      'assistant',
+    ])
+    expect(selectThreadRunStatus(state.metadata)).toBe('idle')
     expect(state.metadata.status).toBe('idle')
     // 流式索引在 message_end 后清空。
-    expect(state.streamingMessageIndex).toBeUndefined()
+    expect(state.session.streamingMessageIndex).toBeUndefined()
     // seq 水位线推进到最后一条事件。
-    expect(state.lastSeq).toBe(11)
+    expect(state.session.lastSeq).toBe(11)
   })
 
   it('无快照的冷启动：事件流单独也能还原状态（SSE 重连缺失快照的兜底口径）', () => {
@@ -156,23 +162,31 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope(mapped({ type: 'message_start', message: userMessage('只有增量') }), 2),
       envelope(mapped({ type: 'message_end', message: userMessage('只有增量') }), 3),
       envelope(mapped({ type: 'agent_end', messages: [], willRetry: false }), 4),
+      envelope(mapped({ type: 'agent_settled', aborted: false }), 5),
     ]
 
     const state = replay(events)
-    expect(state.messages.map((message) => message.role)).toEqual(['user'])
-    expect(state.runStatus).toBe('idle')
+    expect(state.session.messages.map((message) => message.role)).toEqual(['user'])
+    expect(selectThreadRunStatus(state.metadata)).toBe('idle')
   })
 
-  it('运行中状态：agent_start 置 running，agent_end 回落 idle', () => {
+  it('运行中状态：agent_end 仍保持 running，agent_settled 才回到 idle', () => {
     const running = replay([envelope(mapped({ type: 'agent_start' }), 1)])
-    expect(running.runStatus).toBe('running')
+    expect(selectThreadRunStatus(running.metadata)).toBe('running')
     expect(running.metadata.status).toBe('running')
+
+    const ended = replay([
+      envelope(mapped({ type: 'agent_start' }), 1),
+      envelope(mapped({ type: 'agent_end', messages: [], willRetry: false }), 2),
+    ])
+    expect(selectThreadRunStatus(ended.metadata)).toBe('running')
 
     const settled = replay([
       envelope(mapped({ type: 'agent_start' }), 1),
       envelope(mapped({ type: 'agent_end', messages: [], willRetry: false }), 2),
+      envelope(mapped({ type: 'agent_settled', aborted: false }), 3),
     ])
-    expect(settled.runStatus).toBe('idle')
+    expect(selectThreadRunStatus(settled.metadata)).toBe('idle')
   })
 
   it('agent_end(willRetry=true) 保持 running（重试语义不得误判为结束）', () => {
@@ -181,7 +195,7 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope(mapped({ type: 'agent_start' }), 1),
       envelope(mapped({ type: 'agent_end', messages: [], willRetry: true }), 2),
     ])
-    expect(state.runStatus).toBe('running')
+    expect(selectThreadRunStatus(state.metadata)).toBe('running')
   })
 
   it('queue_update 还原队列文本（steer 与 followUp 分流）', () => {
@@ -191,21 +205,20 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
         1,
       ),
     ])
-    expect(state.queue.steering).toEqual(['插队'])
-    expect(state.queue.followUp).toEqual(['排队一', '排队二'])
+    expect(selectThreadQueue(state.metadata).steering).toEqual(['插队'])
+    expect(selectThreadQueue(state.metadata).followUp).toEqual(['排队一', '排队二'])
   })
 
   it('压缩与重试的活动标记可还原（compaction / auto_retry）', () => {
     const compacting = replay([
       envelope(mapped({ type: 'compaction_start', reason: 'threshold' }), 1),
     ])
-    expect(compacting.compaction).toEqual({ active: true, reason: 'threshold' })
     expect(compacting.metadata.compactionActive).toBe(true)
+    expect(compacting.metadata.compactionReason).toBe('threshold')
 
     const retrying = replay([
       envelope(mapped({ type: 'auto_retry_start', attempt: 2, delayMs: 1000 }), 1),
     ])
-    expect(retrying.retry).toEqual({ active: true, attempt: 2 })
     expect(retrying.metadata.retryActive).toBe(true)
     expect(retrying.metadata.retryAttempt).toBe(2)
   })
@@ -222,7 +235,7 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       ),
       envelope(mapped({ type: 'thinking_level_changed', level: 'high' }), 2),
     ])
-    expect(state.contextUsage).toEqual({ tokens: 100, contextWindow: 1000, percent: 10 })
+    expect(state.metadata.contextUsage).toEqual({ tokens: 100, contextWindow: 1000, percent: 10 })
     expect(state.metadata.config?.thinkingLevel).toBe('high')
   })
 
@@ -245,8 +258,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
 
   it('error 事件置失败状态与错误文本（宿主直发）', () => {
     const state = replay([envelope({ type: 'error', error: '模型不可用' }, 1)])
-    expect(state.lastError).toBe('模型不可用')
-    expect(state.runStatus).toBe('failed')
+    expect(state.session.lastError).toBe('模型不可用')
+    expect(selectThreadRunStatus(state.metadata)).toBe('failed')
     expect(state.metadata.status).toBe('failed')
   })
 
@@ -256,8 +269,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope({ type: 'error', error: '连接中断' }, 1),
       envelope({ type: 'error', error: '连接中断', terminal: true }, 2),
     ])
-    expect(state.lastError).toBe('连接中断')
-    expect(state.runStatus).toBe('failed')
+    expect(state.session.lastError).toBe('连接中断')
+    expect(selectThreadRunStatus(state.metadata)).toBe('failed')
   })
 
   it('agent_start 清除此前错误（新运行的失败状态不残留）', () => {
@@ -265,8 +278,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope({ type: 'error', error: '上一轮失败' }, 1),
       envelope(mapped({ type: 'agent_start' }), 2),
     ])
-    expect(state.lastError).toBeUndefined()
-    expect(state.runStatus).toBe('running')
+    expect(state.session.lastError).toBeUndefined()
+    expect(selectThreadRunStatus(state.metadata)).toBe('running')
   })
 
   it('entry_appended 不改变可视化状态但推进 seq（行为字段不丢）', () => {
@@ -280,8 +293,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
         1,
       ),
     ])
-    expect(state.lastSeq).toBe(1)
-    expect(state.messages).toEqual([])
+    expect(state.session.lastSeq).toBe(1)
+    expect(state.session.messages).toEqual([])
   })
 
   it('cancelledBeforeStart 不引入额外状态变化（取消不产生失败）', () => {
@@ -290,8 +303,9 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope({ type: 'agent_start' }, 1),
       envelope({ type: 'agent_end', cancelledBeforeStart: true }, 2),
     ])
-    expect(state.runStatus).toBe('idle')
-    expect(state.lastError).toBeUndefined()
+    // 未启动取消不结束当前运行；服务端 settled 才结算。
+    expect(selectThreadRunStatus(state.metadata)).toBe('running')
+    expect(state.session.lastError).toBeUndefined()
   })
 
   it('未知事件类型被忽略但推进 seq（前向兼容）', () => {
@@ -299,8 +313,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope({ type: 'snapshot', snapshot: snapshot([]) }, 0),
       envelope({ type: 'future_event_kind', payload: { anything: true } } as never, 1),
     ])
-    expect(state.lastSeq).toBe(1)
-    expect(state.messages).toEqual([])
+    expect(state.session.lastSeq).toBe(1)
+    expect(state.session.messages).toEqual([])
   })
 
   it('seq 水位线：旧事件被丢弃（去重与乱序防护）', () => {
@@ -310,8 +324,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope(mapped({ type: 'message_start', message: userMessage('重复') }), 3),
       envelope(mapped({ type: 'message_start', message: userMessage('有效') }), 6),
     ])
-    expect(state.messages.map((message) => message.role)).toEqual(['user'])
-    expect(state.lastSeq).toBe(6)
+    expect(state.session.messages.map((message) => message.role)).toEqual(['user'])
+    expect(state.session.lastSeq).toBe(6)
   })
 
   it('快照可降低 seq（宿主重启后的序号重置，权威性优先）', () => {
@@ -321,8 +335,8 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       envelope({ type: 'snapshot', snapshot: snapshot([], { status: 'idle' }) }, 0),
       envelope(mapped({ type: 'message_start', message: userMessage('新序列') }), 1),
     ])
-    expect(state.messages.map((message) => message.role)).toEqual(['user'])
-    expect(state.lastSeq).toBe(1)
+    expect(state.session.messages.map((message) => message.role)).toEqual(['user'])
+    expect(state.session.lastSeq).toBe(1)
   })
 
   it('Host UI 请求可订阅与结算（宿主直发，approval 面）', () => {
@@ -333,14 +347,14 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
       message: '需要确认',
     }
     const pending = replay([envelope({ type: 'extension_ui_request', request }, 1)])
-    expect(pending.hostUiRequests).toHaveLength(1)
-    expect(pending.hostUiRequests[0]?.id).toBe('ui-1')
+    expect(pending.session.hostUiRequests).toHaveLength(1)
+    expect(pending.session.hostUiRequests[0]?.id).toBe('ui-1')
 
     const resolved = replay([
       envelope({ type: 'extension_ui_request', request }, 1),
       envelope({ type: 'extension_ui_resolved', requestId: 'ui-1' }, 2),
     ])
-    expect(resolved.hostUiRequests).toHaveLength(0)
+    expect(resolved.session.hostUiRequests).toHaveLength(0)
   })
 
   it('快照携带 lastError 与 readiness（重连恢复口径）', () => {
@@ -362,9 +376,9 @@ describe('事件回放（映射 → JSON 往返 → 真实 reducer）', () => {
         0,
       ),
     ])
-    expect(state.lastError).toBe('上一轮崩溃')
-    expect(state.runStatus).toBe('failed')
-    expect(state.readiness?.state).toBe('ready')
+    expect(state.session.lastError).toBe('上一轮崩溃')
+    expect(selectThreadRunStatus(state.metadata)).toBe('failed')
+    expect(state.session.readiness?.state).toBe('ready')
   })
 })
 
@@ -449,25 +463,27 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
       const replayed = replay(events)
 
       // 消息口径：角色序列与条数一致（system 由 SDK 注入，属预期）。
-      expect(replayed.messages.map((message) => message.role)).toEqual(
+      expect(replayed.session.messages.map((message) => message.role)).toEqual(
         authoritative.messages.map((message) => message.role),
       )
       // 内容口径：JSON 归一化后完全一致（不只比角色——文本映射错误必须暴露）。
-      expect(JSON.parse(JSON.stringify(replayed.messages))).toEqual(
+      expect(JSON.parse(JSON.stringify(replayed.session.messages))).toEqual(
         JSON.parse(JSON.stringify(authoritative.messages)),
       )
       // 本轮助手回复的文本确实被还原。
-      const replayedAssistant = replayed.messages.find((message) => message.role === 'assistant')
+      const replayedAssistant = replayed.session.messages.find(
+        (message) => message.role === 'assistant',
+      )
       expect(JSON.stringify(replayedAssistant)).toContain('你好')
       // 运行状态一致。
-      expect(replayed.runStatus).toBe('idle')
+      expect(selectThreadRunStatus(replayed.metadata)).toBe('idle')
       expect(replayed.metadata.status).toBe(authoritative.metadata.status)
       // 模型配置与队列口径一致。
       expect(replayed.metadata.config).toEqual(authoritative.metadata.config)
-      expect(replayed.queue).toEqual({ steering: [], followUp: [] })
+      expect(selectThreadQueue(replayed.metadata)).toEqual({ steering: [], followUp: [] })
       // seq 水位线：回放终态 == 最后一条事件的 seq == 权威快照的 seq。
       const lastSeq = events[events.length - 1]?.seq
-      expect(replayed.lastSeq).toBe(lastSeq)
+      expect(replayed.session.lastSeq).toBe(lastSeq)
       expect(lastSeq).toBe(authoritative.seq)
       // 首帧快照必须是「订阅时点」的状态（不得被后续运行污染）。
       const firstEvent = events[0] as { type: string; snapshot?: unknown } | undefined
@@ -517,16 +533,16 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
 
     // 中间态（尚未 message_end）：流式索引指向助手消息，内容为最后一次增量。
     const mid = replay(streamEvents)
-    expect(mid.streamingMessageIndex).toBe(0)
-    expect(JSON.stringify(mid.messages[0])).toContain('第一段第二段')
+    expect(mid.session.streamingMessageIndex).toBe(0)
+    expect(JSON.stringify(mid.session.messages[0])).toContain('第一段第二段')
 
     // 终态：message_end 收敛，流式索引清空，内容为最终文本。
     const final = replay([
       ...streamEvents,
       envelope(mapped({ type: 'message_end', message: assistantMessage('第一段第二段') }), 5),
     ])
-    expect(final.streamingMessageIndex).toBeUndefined()
-    expect(JSON.stringify(final.messages[0])).toContain('第一段第二段')
+    expect(final.session.streamingMessageIndex).toBeUndefined()
+    expect(JSON.stringify(final.session.messages[0])).toContain('第一段第二段')
   })
 
   it('工具执行生命周期可还原（start → update → end，含错误标记）', () => {
@@ -541,7 +557,7 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
         1,
       ),
     ])
-    expect(running.toolExecutions.c1).toMatchObject({
+    expect(running.session.toolExecutions.c1).toMatchObject({
       toolName: 'read',
       status: 'running',
     })
@@ -560,7 +576,7 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
         2,
       ),
     ])
-    expect(streaming.toolExecutions.c1?.partialResult).toEqual({ content: '部分' })
+    expect(streaming.session.toolExecutions.c1?.partialResult).toEqual({ content: '部分' })
 
     const failed = replay([
       envelope(
@@ -577,7 +593,7 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
         2,
       ),
     ])
-    expect(failed.toolExecutions.c1).toMatchObject({ status: 'error' })
+    expect(failed.session.toolExecutions.c1).toMatchObject({ status: 'error' })
 
     const ok = replay([
       envelope(
@@ -594,7 +610,7 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
         2,
       ),
     ])
-    expect(ok.toolExecutions.c2).toMatchObject({ status: 'complete' })
+    expect(ok.session.toolExecutions.c2).toMatchObject({ status: 'complete' })
   })
 
   it('压缩与重试的结束分支清除活动标记', () => {
@@ -602,15 +618,14 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
       envelope(mapped({ type: 'compaction_start', reason: 'overflow' }), 1),
       envelope(mapped({ type: 'compaction_end', aborted: false, willRetry: false }), 2),
     ])
-    expect(compactionDone.compaction.active).toBe(false)
     expect(compactionDone.metadata.compactionActive).toBe(false)
 
     const retryDone = replay([
       envelope(mapped({ type: 'auto_retry_start', attempt: 1, delayMs: 100 }), 1),
       envelope(mapped({ type: 'auto_retry_end', success: true }), 2),
     ])
-    expect(retryDone.retry).toEqual({ active: false, attempt: 0 })
     expect(retryDone.metadata.retryActive).toBe(false)
+    expect(retryDone.metadata.retryAttempt).toBe(0)
   })
 
   it('重连快照清空旧队列（队列恢复的权威口径）', () => {
@@ -619,6 +634,6 @@ describe('事件回放（真实宿主事件流 vs 权威快照）', () => {
       envelope(mapped({ type: 'queue_update', steering: ['旧排队'], followUp: [] }), 1),
       envelope({ type: 'snapshot', snapshot: snapshot([], { status: 'idle' }) }, 2),
     ])
-    expect(state.queue).toEqual({ steering: [], followUp: [] })
+    expect(selectThreadQueue(state.metadata)).toEqual({ steering: [], followUp: [] })
   })
 })

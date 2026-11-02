@@ -13,7 +13,7 @@ import { useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { useHarnessApp, useHostStore, useSessionsStore } from '@/state/app-context'
+import { useChatStore, useHarnessApp, useHostStore, useSessionsStore } from '@/state/app-context'
 
 const typeClass = (type: 'info' | 'warning' | 'error'): string =>
   type === 'error'
@@ -34,8 +34,14 @@ function ThreadRequestCard({
   const draft = useHostStore((state) => state.threadAnswers[key])
   const setAnswer = useHostStore((state) => state.setThreadAnswer)
   const respond = useHostStore((state) => state.respondThreadRequest)
+  const markAnswered = useChatStore((state) => state.markRequestAnswered)
   if (!draft) return null
   const busy = draft.busy
+  const reply = (response: Parameters<typeof respond>[2]) => {
+    void respond(threadId, request.id, response).then((accepted) => {
+      if (accepted) markAnswered(request.id)
+    })
+  }
 
   return (
     <div
@@ -65,9 +71,7 @@ function ThreadRequestCard({
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() =>
-                void respond(threadId, request.id, { requestId: request.id, value: option })
-              }
+              onClick={() => reply({ requestId: request.id, value: option })}
             >
               {option}
             </Button>
@@ -99,9 +103,7 @@ function ThreadRequestCard({
             <Button
               size="sm"
               disabled={busy}
-              onClick={() =>
-                void respond(threadId, request.id, { requestId: request.id, confirmed: true })
-              }
+              onClick={() => reply({ requestId: request.id, confirmed: true })}
             >
               <Trans>允许</Trans>
             </Button>
@@ -109,16 +111,14 @@ function ThreadRequestCard({
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() =>
-                void respond(threadId, request.id, { requestId: request.id, confirmed: false })
-              }
+              onClick={() => reply({ requestId: request.id, confirmed: false })}
             >
               <Trans>拒绝</Trans>
             </Button>
           </>
         ) : null}
         {request.kind === 'input' || request.kind === 'editor' ? (
-          <Button size="sm" disabled={busy} onClick={() => void respond(threadId, request.id)}>
+          <Button size="sm" disabled={busy} onClick={() => reply(undefined)}>
             <Trans>提交</Trans>
           </Button>
         ) : null}
@@ -126,9 +126,7 @@ function ThreadRequestCard({
           size="sm"
           variant="ghost"
           disabled={busy}
-          onClick={() =>
-            void respond(threadId, request.id, { requestId: request.id, dismissed: true })
-          }
+          onClick={() => reply({ requestId: request.id, dismissed: true })}
         >
           <Trans>取消</Trans>
         </Button>
@@ -395,6 +393,7 @@ export function PiComposerHostUi({
         </span>
         <span className="text-muted-foreground max-w-64 truncate">{directive.text}</span>
         <Button
+          type="button"
           size="sm"
           onClick={() => {
             const cursor = inputRef.current?.selectionStart ?? draft?.text.length ?? 0
@@ -405,7 +404,7 @@ export function PiComposerHostUi({
         >
           <Trans>应用</Trans>
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => void discard(threadId)}>
+        <Button type="button" size="sm" variant="ghost" onClick={() => void discard(threadId)}>
           <Trans>忽略</Trans>
         </Button>
       </div>

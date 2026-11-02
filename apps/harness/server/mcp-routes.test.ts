@@ -15,7 +15,7 @@ import {
   HARNESS_MCP_CONFIG_BODY_LIMIT_BYTES,
   HARNESS_MCP_SMALL_BODY_LIMIT_BYTES,
 } from '@huan/protocol'
-import { createHarnessHttpClient } from '@huan/react'
+import { createHarnessHttpClient } from '@huan/react/client'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.js'
 import type { ServerConfig } from './config.js'

@@ -6,7 +6,7 @@
 
 import { ImageInputUnsupportedError, ReservedBuiltinCommandError } from '@huan/core'
 import type { HarnessClient } from '@huan/protocol'
-import { createHarnessHttpClient, HarnessHttpError } from '@huan/react'
+import { createHarnessHttpClient, HarnessHttpError } from '@huan/react/client'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.js'
 import type { ServerConfig } from './config.js'

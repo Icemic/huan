@@ -8,7 +8,7 @@ import type {
   HarnessThreadMetadata,
   HarnessWorkspace,
 } from '@huan/protocol'
-import { createHarnessHttpClient } from '@huan/react'
+import { createHarnessHttpClient } from '@huan/react/client'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.js'
 import type { ServerConfig } from './config.js'

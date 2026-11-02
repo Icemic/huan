@@ -5,7 +5,7 @@
  * busy/failed 原样转发（不改成 5xx）与客户端响应校验。
  */
 import type { HarnessClient, HarnessReloadResult } from '@huan/protocol'
-import { createHarnessHttpClient } from '@huan/react'
+import { createHarnessHttpClient } from '@huan/react/client'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.js'
 import type { ServerConfig } from './config.js'

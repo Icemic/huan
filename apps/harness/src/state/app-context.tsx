@@ -9,6 +9,7 @@ import { createContext, type ReactNode, useContext } from 'react'
 import { useStore } from 'zustand'
 import type { HarnessApp } from '../bootstrap'
 import type { AuthFeatureState } from './auth-store'
+import type { ChatFeatureState } from './chat-store'
 import type { ComposerFeatureState } from './composer-store'
 import type { HostFeatureState } from './host-store'
 import type { McpFeatureState } from './mcp-store'
@@ -46,6 +47,10 @@ export const useWorkspaceStore = <T,>(selector: (state: WorkspaceFeatureState) =
 /** 订阅会话 feature 状态。 */
 export const useSessionsStore = <T,>(selector: (state: SessionsFeatureState) => T): T =>
   useStore(useHarnessApp().sessionsStore, selector)
+
+/** 订阅聊天展示 feature 状态。 */
+export const useChatStore = <T,>(selector: (state: ChatFeatureState) => T): T =>
+  useStore(useHarnessApp().chatStore, selector)
 
 /** 订阅 composer feature 状态。 */
 export const useComposerStore = <T,>(selector: (state: ComposerFeatureState) => T): T =>

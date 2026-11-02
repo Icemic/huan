@@ -222,12 +222,11 @@ export interface HarnessHttpClientOptions {
 const trimTrailingSlash = (value: string): string =>
   value.endsWith('/') ? value.slice(0, -1) : value
 
-/** 对任何非 2xx 响应抛出可诊断错误（含响应体）。 */
 /**
  * 宿主 HTTP 错误（保留状态码与类型化错误码）。
  *
- * 运行时据此把“请求未被接受”的 4xx 重新包成 assistant-ui 的
- * MessageNotSentError，让输入框恢复文字与附件；5xx 不自动重投。
+ * 调用方据此区分“请求未被接受”的 4xx 与可重试的 5xx：前者按业务拒绝
+ * 保留输入，后者先同步服务端状态，不自动重投。
  */
 export class HarnessHttpError extends Error {
   constructor(

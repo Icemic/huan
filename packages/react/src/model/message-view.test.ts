@@ -330,6 +330,138 @@ describe('message-view（独立展示投影）', () => {
     })
   })
 
+  it('历史 toolResult 缺少助手调用时仍按工具结果展示', () => {
+    const views = projectHarnessMessages(
+      input(
+        [
+          user('早先的问题'),
+          toolResult(
+            'orphan-result',
+            [
+              { type: 'text', text: '独立结果' },
+              { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+            ],
+            {
+              toolName: 'screenshot',
+              isError: true,
+              nestedCalls: {
+                calls: [{ id: 'n1', name: 'read', status: 'error', error: '失败' }],
+                complete: false,
+              },
+            },
+          ),
+          user('之后的问题'),
+        ],
+        { messageEntryIds: ['e1', 'e2', 'e3'] },
+      ),
+    )
+    expect(views.map((view) => view.role)).toEqual(['user', 'assistant', 'user'])
+    expect(views[1]?.sourceEntryId).toBe('e2')
+    expect(views[1]?.parts[0]).toMatchObject({
+      type: 'tool',
+      toolCallId: 'orphan-result',
+      toolName: 'screenshot',
+      status: 'error',
+      output: '独立结果',
+      outputImages: [{ data: 'data:image/png;base64,AAAA' }],
+      nestedCalls: { complete: false },
+      sourceEntryId: 'e2',
+    })
+  })
+
+  it('完全缺父项的多级子执行按根子树保序展示', () => {
+    const views = projectHarnessMessages(
+      input([assistant([{ type: 'text', text: '正文' }])], {
+        toolExecutions: {
+          root: execution('root', {
+            toolName: 'codemode',
+            parentToolCallId: 'missing',
+            status: 'complete',
+          }),
+          child: execution('child', {
+            toolName: 'read',
+            parentToolCallId: 'root',
+            status: 'complete',
+          }),
+          grandchild: execution('grandchild', {
+            toolName: 'grep',
+            parentToolCallId: 'child',
+            status: 'error',
+            partialResult: { content: [{ type: 'text', text: '未找到' }] },
+          }),
+        },
+      }),
+    )
+    const tools = (views[0]?.parts ?? []).filter((part) => part.type === 'tool')
+    expect(tools.map((part) => part.toolCallId)).toEqual(['root', 'child', 'grandchild'])
+    expect(tools.map((part) => part.parentToolCallId)).toEqual(['missing', 'root', 'child'])
+    expect(tools[2]).toMatchObject({ status: 'error', output: '未找到' })
+  })
+
+  it('增量投影不把前缀历史工具重复附到后缀末尾', () => {
+    const projector = new HarnessMessageViewProjector()
+    const oldCall = assistant([{ type: 'toolCall', id: 'old', name: 'read', arguments: {} }])
+    const first = projector.project(
+      input([oldCall, user('继续'), assistant([{ type: 'text', text: '第一段' }])], {
+        toolExecutions: {
+          old: execution('old', {
+            toolName: 'read',
+            status: 'complete',
+            partialResult: { content: [{ type: 'text', text: '旧输出' }] },
+          }),
+        },
+      }),
+    )
+    expect(
+      first
+        .flatMap((view) => view.parts)
+        .filter((part) => part.type === 'tool' && part.toolCallId === 'old'),
+    ).toHaveLength(1)
+
+    const next = projector.project(
+      input([oldCall, user('继续'), assistant([{ type: 'text', text: '第一段第二段' }])], {
+        toolExecutions: {
+          old: execution('old', {
+            toolName: 'read',
+            status: 'complete',
+            partialResult: { content: [{ type: 'text', text: '旧输出' }] },
+          }),
+        },
+      }),
+    )
+    const oldTools = next
+      .flatMap((view) => view.parts)
+      .filter((part) => part.type === 'tool' && part.toolCallId === 'old')
+    expect(oldTools).toHaveLength(1)
+    expect(oldTools[0]).toMatchObject({ output: '旧输出', status: 'complete' })
+  })
+
+  it('实时工具的部分输出同时保留文本、图片与运行标记', () => {
+    const views = projectHarnessMessages(
+      input([assistant([{ type: 'toolCall', id: 'tc1', name: 'screenshot', arguments: {} }])], {
+        runStatus: 'running',
+        toolExecutions: {
+          tc1: execution('tc1', {
+            toolName: 'screenshot',
+            partialResult: {
+              content: [
+                { type: 'text', text: '正在生成' },
+                { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+              ],
+            },
+          }),
+        },
+      }),
+    )
+    expect(views[0]?.parts[0]).toMatchObject({
+      type: 'tool',
+      status: 'running',
+      output: '正在生成',
+      isPreliminary: true,
+      outputImages: [{ data: 'data:image/png;base64,AAAA' }],
+    })
+  })
+
   it('运行状态只影响尾部助手消息', () => {
     const messages = [user('hi'), assistant([{ type: 'text', text: 'working' }])]
     const running = projectHarnessMessages(input(messages, { runStatus: 'running' }))

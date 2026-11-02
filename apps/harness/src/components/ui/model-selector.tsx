@@ -18,15 +18,15 @@ import {
   useModelSelectorContext,
   useModelSelectorEfforts,
   type ModelOption,
-} from '../utils/model-selection'
+} from './model-selection'
 
 export {
   DEFAULT_EFFORT_OPTIONS,
   resolveModelEffort,
   useModelSelectorContext,
   useModelSelectorEfforts,
-} from '../utils/model-selection'
-export type { ModelOption, ModelSelectorEffortOption } from '../utils/model-selection'
+} from './model-selection'
+export type { ModelOption, ModelSelectorEffortOption } from './model-selection'
 
 export type ModelSelectorRootProps = {
   models: readonly ModelOption[]

@@ -5,7 +5,7 @@
  * method/超大正文被明确拒绝，鉴权仍沿用现有中间件。
  */
 import type { HarnessClient, HarnessProviderAuthSnapshot } from '@huan/protocol'
-import { createHarnessHttpClient } from '@huan/react'
+import { createHarnessHttpClient } from '@huan/react/client'
 import { describe, expect, it, vi } from 'vitest'
 import { createApp } from './app.js'
 import type { ServerConfig } from './config.js'

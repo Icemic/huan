@@ -40,6 +40,31 @@ SOFTWARE.
 
 本应用组件为按自身需求维护的最小封装，不引入完整 DataGrid、Tree 等未使用组件。
 
+### 2026-11-03 获取的官方 Base UI registry 组合
+
+最终聊天展示直接采用以下官方 registry 源码，未用本地自写 DOM 冒充组合：
+
+| 官方来源 | 本地文件 | 本地差异 |
+| --- | --- | --- |
+| https://ui.shadcn.com/r/styles/base-nova/message.json | `src/components/ui/message.tsx` | 仅改本地 `cn` 导入 |
+| https://ui.shadcn.com/r/styles/base-nova/bubble.json | `src/components/ui/bubble.tsx` | 仅改本地 `cn` 导入 |
+| https://ui.shadcn.com/r/styles/base-nova/trace.json | `src/components/ui/trace.tsx` | 本地 collapsible 路径；官网 create 占位图标换为 lucide `ChevronRightIcon` |
+| https://ui.shadcn.com/r/styles/base-nova/input-group.json | `src/components/ui/input-group.tsx` | 本地 Button/Input/Textarea 路径 |
+| https://ui.shadcn.com/r/styles/base-nova/attachment.json | `src/components/ui/attachment.tsx` | 本地 Button 路径 |
+| https://ui.shadcn.com/r/styles/base-nova/code-block.json | `src/components/ui/code-block.tsx` | 本地 Button 路径；复制按钮接本应用剪贴板 hook 与中文可访问名称；不引入官网 `use-highlighted-code`/Shiki 运行时 |
+| https://ui.shadcn.com/r/styles/base-nova/empty.json | `src/components/ui/empty.tsx` | 补充 React 类型导入 |
+| https://ui.shadcn.com/r/styles/base-nova/collapsible.json | `src/components/ui/collapsible.tsx` | 原样本地路径 |
+
+`src/components/ui/model-selector.tsx` 与 `model-selection.ts` 保留原 Base UI 选择器组合，已移除 assistant-ui 状态/运行时绑定；现无 `@assistant-ui/*` 运行依赖。
+
+上游 MIT 许可：`Copyright (c) 2023 shadcn`。
+
+## react-markdown / remark-gfm
+
+- 来源：https://github.com/remarkjs/react-markdown 、https://github.com/remarkjs/remark-gfm
+- 用途：消息 Markdown、GFM 表格/任务列表/删除线与代码块渲染。
+- 许可：MIT
+
 ## Geist 可变字体
 
 - 来源：https://github.com/vercel/geist-font

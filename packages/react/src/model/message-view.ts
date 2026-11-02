@@ -4,7 +4,7 @@
  * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的 `src/runtime/messageProjection.ts`
  * （MIT 许可，见包内 THIRD-PARTY-NOTICES.md）。类型改用 `@huan/protocol`，
  * 输出从 assistant-ui 的 `ThreadMessageLike`/`ExportedMessageRepository`
- * 改为本包的独立展示类型，供 R7 组合最终界面。
+ * 改为本包的独立展示类型，供最终界面组合。
  *
  * 设计：
  * - 每个 Pi **轮次**是一条助手消息（text/thinking/toolCall 部分）。多步运行
@@ -194,6 +194,8 @@ const readToolResultContent = (value: unknown): readonly HarnessToolResultConten
 }
 
 type ProjectedToolResult = {
+  toolCallId: string
+  toolName: string
   output?: string
   images?: readonly HarnessImageViewPart[]
   details?: unknown
@@ -221,13 +223,29 @@ const projectToolResultContent = (
 
 const projectToolResultMessage = (
   message: HarnessToolResultMessage,
-  sourceEntryId?: string,
+  sourceEntryId: string | undefined,
 ): ProjectedToolResult => ({
+  toolCallId: message.toolCallId,
+  toolName: message.toolName,
   ...projectToolResultContent(message.content, sourceEntryId),
   details: message.details,
   ...(message.nestedCalls ? { nestedCalls: message.nestedCalls } : {}),
   isError: message.isError,
   ...(sourceEntryId ? { sourceEntryId } : {}),
+})
+
+/** 没有对应助手 toolCall 的历史结果仍按工具内容显示，不丢弃记录。 */
+const toolViewOfResult = (result: ProjectedToolResult): HarnessToolViewPart => ({
+  type: 'tool',
+  toolCallId: result.toolCallId,
+  toolName: result.toolName,
+  arguments: {},
+  status: result.isError ? 'error' : 'complete',
+  ...(result.output !== undefined ? { output: result.output } : {}),
+  ...(result.images !== undefined ? { outputImages: result.images } : {}),
+  ...(result.details !== undefined ? { details: result.details } : {}),
+  ...(result.nestedCalls ? { nestedCalls: result.nestedCalls } : {}),
+  ...(result.sourceEntryId ? { sourceEntryId: result.sourceEntryId } : {}),
 })
 
 const buildToolResultMap = (input: HarnessMessageProjectionInput) => {
@@ -409,6 +427,7 @@ const projectFrom = (
   input: HarnessMessageProjectionInput,
   startIndex: number,
   toolResults: ReadonlyMap<string, ProjectedToolResult>,
+  toolCallIndices: ReadonlyMap<string, number>,
 ): HarnessMessageView[] => {
   const { messages } = input
   const out: HarnessMessageView[] = []
@@ -426,14 +445,35 @@ const projectFrom = (
     else childrenByParent.set(execution.parentToolCallId, [execution])
   }
 
-  const appendNested = (parentId: string, sourceEntryId: string | undefined) => {
+  /** 找到执行的根工具调用下标；没有可定位的根时回落到最后一条助手消息。 */
+  const rootIndexOfExecution = (execution: HarnessToolExecutionState): number | undefined => {
+    let current = execution
+    const seen = new Set<string>()
+    while (current.parentToolCallId) {
+      if (seen.has(current.toolCallId)) break
+      seen.add(current.toolCallId)
+      const parent = input.toolExecutions[current.parentToolCallId]
+      if (parent) {
+        current = parent
+        continue
+      }
+      return toolCallIndices.get(current.parentToolCallId)
+    }
+    return toolCallIndices.get(current.toolCallId) ?? trailingAssistantMessageIndex(messages)
+  }
+
+  const appendNested = (
+    parentId: string,
+    sourceEntryId: string | undefined,
+    sink: HarnessMessageViewPart[],
+  ) => {
     const children = childrenByParent.get(parentId)
     if (!children) return
     for (const child of children) {
       if (emittedExecutionIds.has(child.toolCallId)) continue
       emittedExecutionIds.add(child.toolCallId)
-      group?.parts.push(toolViewOfExecution(child, sourceEntryId))
-      appendNested(child.toolCallId, sourceEntryId)
+      sink.push(toolViewOfExecution(child, sourceEntryId))
+      appendNested(child.toolCallId, sourceEntryId, sink)
     }
   }
 
@@ -442,7 +482,7 @@ const projectFrom = (
     for (const part of group.parts) {
       if (part.type === 'tool') emittedExecutionIds.add(part.toolCallId)
     }
-    for (const id of contentToolIds) appendNested(id, group.sourceEntryId)
+    for (const id of contentToolIds) appendNested(id, group.sourceEntryId, group.parts)
     out.push(buildAssistantView(group, input, isLast))
     group = null
     contentToolIds.clear()
@@ -478,10 +518,32 @@ const projectFrom = (
         break
       }
 
-      case 'toolResult':
-        // 按 id 配对进工具部分；从不单独发出。
-        // 保持助手组打开，使后续助手轮次合并进来。
+      case 'toolResult': {
+        // 能找到助手 toolCall 的结果由该工具部分配对；找不到调用来源的
+        // 历史结果仍单独显示，不能因为记录顺序/裁剪而整条消失。
+        const result = message as HarnessToolResultMessage
+        if (toolCallIndices.has(result.toolCallId)) {
+          // 保持助手组打开，使后续助手轮次合并进来。
+          break
+        }
+        const projected = toolResults.get(result.toolCallId)
+        if (!projected) break
+        flush(false)
+        out.push({
+          id: messageId(index),
+          role: 'assistant',
+          createdAt: createdAtOf(result),
+          status: { type: 'complete', reason: 'stop' },
+          sourceEntryId: sourceEntryId ?? projected.sourceEntryId,
+          parts: [
+            toolViewOfResult({
+              ...projected,
+              ...(sourceEntryId ? { sourceEntryId } : {}),
+            }),
+          ],
+        })
         break
+      }
 
       case 'user': {
         flush(false)
@@ -595,22 +657,39 @@ const projectFrom = (
   flush(true)
 
   // 缺父项的嵌套执行（或没有内容部分的独立执行）仍必须可读。
-  const orphans = Object.values(input.toolExecutions).filter(
-    (execution) =>
-      !emittedExecutionIds.has(execution.toolCallId) &&
-      !contentToolIds.has(execution.toolCallId) &&
-      !(
-        execution.parentToolCallId &&
-        (emittedExecutionIds.has(execution.parentToolCallId) ||
-          contentToolIds.has(execution.parentToolCallId))
-      ),
-  )
-  if (orphans.length > 0) {
+  // 只输出属于本次投影范围的根执行；否则增量后缀会把已在前缀展示的
+  // 历史工具重复附到末尾。
+  const executions = Object.values(input.toolExecutions)
+  const executionIds = new Set(executions.map((item) => item.toolCallId))
+  const orphanRoots = executions
+    .filter((execution) => {
+      if (emittedExecutionIds.has(execution.toolCallId)) return false
+      if (contentToolIds.has(execution.toolCallId)) return false
+      const parentId = execution.parentToolCallId
+      // 有父执行或父调用时由祖先统一递归输出；只有完全缺父项的子树才是根。
+      if (parentId && (executionIds.has(parentId) || toolCallIndices.has(parentId))) {
+        return false
+      }
+      const rootIndex = rootIndexOfExecution(execution)
+      return rootIndex === undefined || rootIndex >= startIndex
+    })
+    .sort((left, right) => {
+      const leftIndex = rootIndexOfExecution(left) ?? Number.MAX_SAFE_INTEGER
+      const rightIndex = rootIndexOfExecution(right) ?? Number.MAX_SAFE_INTEGER
+      return leftIndex === rightIndex
+        ? left.toolCallId.localeCompare(right.toolCallId)
+        : leftIndex - rightIndex
+    })
+
+  if (orphanRoots.length > 0) {
     const last = out.at(-1)
-    const orphanParts = orphans.map((execution) =>
-      toolViewOfExecution(execution, last?.sourceEntryId),
-    )
-    for (const part of orphanParts) emittedExecutionIds.add(part.toolCallId)
+    const orphanParts: HarnessMessageViewPart[] = []
+    for (const root of orphanRoots) {
+      if (emittedExecutionIds.has(root.toolCallId)) continue
+      emittedExecutionIds.add(root.toolCallId)
+      orphanParts.push(toolViewOfExecution(root, last?.sourceEntryId))
+      appendNested(root.toolCallId, last?.sourceEntryId, orphanParts)
+    }
     if (last && last.role === 'assistant') {
       out[out.length - 1] = { ...last, parts: [...last.parts, ...orphanParts] }
     } else {
@@ -629,7 +708,8 @@ const projectFrom = (
 /** 投影整段记录为展示消息数组。 */
 export const projectHarnessMessages = (
   input: HarnessMessageProjectionInput,
-): HarnessMessageView[] => projectFrom(input, 0, buildToolResultMap(input))
+): HarnessMessageView[] =>
+  projectFrom(input, 0, buildToolResultMap(input), buildToolCallIndices(input.messages))
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype
@@ -855,7 +935,10 @@ export class HarnessMessageViewProjector {
       const previousViews = this.views
       this.toolResults = buildToolResultMap(input)
       this.toolCallIndices = buildToolCallIndices(input.messages)
-      this.views = shareHarnessMessageViews(projectFrom(input, 0, this.toolResults), this.views)
+      this.views = shareHarnessMessageViews(
+        projectFrom(input, 0, this.toolResults, this.toolCallIndices),
+        this.views,
+      )
       this.projectedSourceIndices = validatedProjectedSourceIndices(this.views)
       this.changedViewIndex = this.views === previousViews ? undefined : 0
       this.previousInput = input
@@ -940,7 +1023,7 @@ export class HarnessMessageViewProjector {
     const projectionStartIndex = projectedBoundary === undefined ? 0 : startIndex
     const previousSuffix = this.views.slice(projectedStartIndex)
     const nextSuffix = shareHarnessMessageViews(
-      projectFrom(input, projectionStartIndex, this.toolResults),
+      projectFrom(input, projectionStartIndex, this.toolResults, this.toolCallIndices),
       previousSuffix,
     )
 

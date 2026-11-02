@@ -10,6 +10,7 @@ import { createHarnessHttpClient } from '@huan/react/client'
 import type { StoreApi } from 'zustand/vanilla'
 import { applyThemeToDocument, type ThemeStorage } from './lib/theme'
 import { type AuthFeatureState, createAuthFeatureStore } from './state/auth-store'
+import { type ChatFeatureState, createChatFeatureStore } from './state/chat-store'
 import { type ComposerFeatureState, createComposerFeatureStore } from './state/composer-store'
 import { createHostFeatureStore, type HostFeatureState } from './state/host-store'
 import { createMcpFeatureStore, type McpFeatureState } from './state/mcp-store'
@@ -32,6 +33,7 @@ export interface HarnessApp {
   runtimeStore: StoreApi<RuntimeFeatureState>
   modelStore: StoreApi<ModelFeatureState>
   composerStore: StoreApi<ComposerFeatureState>
+  chatStore: StoreApi<ChatFeatureState>
   themeStore: StoreApi<ThemeStoreState>
   dispose(): void
 }
@@ -115,6 +117,7 @@ export const createHarnessApp = (): HarnessApp => {
     },
   })
   const authStore = createAuthFeatureStore({ browser })
+  const chatStore = createChatFeatureStore()
   const hostStore = createHostFeatureStore({ browser })
   const mcpStore = createMcpFeatureStore({ browser, fallbackWorkspacePath })
   const runtimeStore = createRuntimeFeatureStore({ browser, fallbackWorkspacePath })
@@ -196,6 +199,7 @@ export const createHarnessApp = (): HarnessApp => {
     runtimeStore,
     modelStore,
     composerStore,
+    chatStore,
     themeStore,
     dispose: () => {
       if (disposed) return
@@ -208,6 +212,11 @@ export const createHarnessApp = (): HarnessApp => {
       media?.removeEventListener('change', onSystemThemeChange)
       try {
         unsubscribeWindow()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        chatStore.getState().dispose()
       } catch (error) {
         errors.push(error)
       }

@@ -1,4 +1,3 @@
-
 packages:
   - packages/*
   - apps/*
@@ -6,10 +5,6 @@ packages:
 catalog:
   typescript: ^5.9.3
 minimumReleaseAge: 4320
-
-# 例外：assistant-ui 生态（本项目 UI 基座）跟随最新版本，不受发布龄约束。
-minimumReleaseAgeExclude:
-  - '@assistant-ui/*'
 
 overrides:
   # 临时约束：Vite 8 依赖的 rolldown 新版本不满足发布龄约束，固定到 1.2.12。

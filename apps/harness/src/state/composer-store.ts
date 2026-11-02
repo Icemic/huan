@@ -118,6 +118,14 @@ export interface ComposerFeatureState {
   setNotice: (notice: string | undefined) => void
   clearNotice: () => void
   setQueueMode: (mode: 'followUp' | 'steer') => void
+  /** 无窗口选择时，明确选用当前工作区起始目录作为新会话目标。 */
+  ensureTarget: () => boolean
+  /** 停止当前会话运行；未建立后端会话时只给出提示。 */
+  stop: () => Promise<void>
+  /** 把本窗未确认提交的文本放回输入框；不自动重投。 */
+  restoreSubmissionContent: (submissionId: string) => boolean
+  /** 忽略本窗已结算失败的提交提示；不触碰服务端状态。 */
+  dismissSubmission: (submissionId: string) => void
 
   submit: (options?: { steer?: boolean }) => Promise<void>
   retrieveQueue: () => Promise<void>
@@ -866,15 +874,90 @@ export const createComposerFeatureStore = (
       set({ queueMode })
     },
 
+    ensureTarget: () => {
+      const state = get()
+      if (state.disposed) return false
+      if (browser.windowStore.getState().selection) return true
+      const service = browser.serviceStore.getState()
+      const workspaceId =
+        workspaceStore.getState().activeWorkspaceId ??
+        service.startupWorkspaceId ??
+        service.workspaceIds[0]
+      const startProjectPath = workspaceId
+        ? workspaceStore.getState().startProjectFor(workspaceId)
+        : undefined
+      const path = startProjectPath ?? service.host?.workspacePath
+      if (!path) {
+        set({ notice: '尚未加载可用工作区；请先从左侧选择或新建会话。' })
+        return false
+      }
+      if (workspaceId && startProjectPath) {
+        // 优先走工作区业务动作，持久化起始项目与活动工作区偏好。
+        workspaceStore.getState().beginNewSession(workspaceId, startProjectPath)
+      }
+      if (!browser.windowStore.getState().selection) {
+        browser.windowStore.getState().selectTarget({
+          kind: 'new',
+          // 只有起始项目确实来自工作区成员时才带归属；宿主默认目录不冒充成员。
+          ...(workspaceId && startProjectPath ? { workspaceId } : {}),
+          startProjectPath: path,
+        })
+      }
+      set({ notice: undefined })
+      return true
+    },
+
+    stop: async () => {
+      const state = get()
+      if (state.disposed) return
+      const threadId = currentThreadId()
+      if (!threadId) {
+        set({ notice: '当前还没有后端会话可停止。' })
+        return
+      }
+      const result = await browser.sessionActions.stop(threadId)
+      setIfAlive((current) => ({
+        ...current,
+        notice:
+          result.status === 'stopped'
+            ? '已请求停止当前运行。'
+            : (result.message ?? '停止请求失败，已重新同步服务端。'),
+      }))
+    },
+
+    restoreSubmissionContent: (submissionId) => {
+      const state = get()
+      if (state.disposed) return false
+      const submission = browser.windowStore.getState().submissionsById[submissionId]
+      if (!submission?.content.trim()) return false
+      if (!get().ensureTarget()) return false
+      const current = currentDraft()
+      if (!current?.draft) return false
+      if (current.draft.text.includes(submission.content)) return true
+      const next = current.draft.text.trim()
+        ? `${current.draft.text}\n\n${submission.content}`
+        : submission.content
+      browser.windowStore.getState().editDraftText(current.draftId, next)
+      set({ notice: '已把未确认内容放回输入框；不会自动重新发送。' })
+      return true
+    },
+
+    dismissSubmission: (submissionId) => {
+      if (get().disposed) return
+      browser.windowStore.getState().removeSubmission(submissionId)
+    },
+
     submit: async (submitOptions) => {
       const state = get()
       if (state.disposed) return
+      if (!browser.windowStore.getState().selection && !get().ensureTarget()) return
       const current = currentDraft()
       if (!current?.draft) return
       const trimmed = current.draft.text.trim()
       const hasAttachments = current.draft.attachmentIds.length > 0
       if (!trimmed && !hasAttachments) return
       set({ notice: undefined })
+      get().clearCompletion()
       get().resetHistoryBrowse()
 
       const parsed = trimmed.startsWith('/') ? parseLeadingSlashCommand(trimmed) : undefined
@@ -984,6 +1067,9 @@ export const createComposerFeatureStore = (
     onInputChange: (value, caret) => {
       const state = get()
       if (state.disposed) return
+      if (!browser.windowStore.getState().selection && !get().ensureTarget()) return
+      const current = currentDraft()
+      if (current?.draft) browser.windowStore.getState().editDraftText(current.draftId, value)
       set({ notice: undefined })
       completionEpoch += 1
       fileAbort?.abort()

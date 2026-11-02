@@ -4,6 +4,7 @@
  * 本包由三层组成：
  * - `client/`：纯 HTTP/SSE transport（同时通过 `@huan/react/client` 子入口导出）；
  * - `model/`：纯事件归约、消息展示投影与 Host UI 语义，不导入 React；
+ *   同时通过 `@huan/react/model` 子入口供 Node 测试/服务端消费；
  * - `browser/` 与 `react/`：显式注入 client 的 Zustand 实例、资源所有者与
  *   selector 绑定。Context 只传实例，不复制业务状态。
  *

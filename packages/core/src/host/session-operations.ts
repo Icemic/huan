@@ -64,10 +64,44 @@ import {
 } from './shared.js'
 
 export type SessionOperationsDeps = {
-  live: Pick<LiveSessions, 'abandon' | 'beginStartingSend' | 'cancelStartingSends' | 'coldStructure' | 'endStartingSend' | 'ensureOpen' | 'get' | 'hasPendingOpen' | 'openSession'>
-  catalog: Pick<SessionCatalog, 'assertSessionFileInScope' | 'findSessionInfo' | 'invalidateCatalog' | 'openScopedSessionManager' | 'scopeOf'>
-  events: Pick<SessionEvents, 'emit' | 'emitSnapshot' | 'metadataOf' | 'rememberCallerDraft' | 'setHostUiCommandTarget' | 'snapshotOf'>
-  coordinator: Pick<OperationCoordinator, 'acquireAdmission' | 'beginStructure' | 'markStructureSummarizing' | 'releaseStructure' | 'stop' | 'stopForNavigation'>
+  live: Pick<
+    LiveSessions,
+    | 'abandon'
+    | 'beginStartingSend'
+    | 'cancelStartingSends'
+    | 'coldStructure'
+    | 'endStartingSend'
+    | 'ensureOpen'
+    | 'get'
+    | 'hasPendingOpen'
+    | 'openSession'
+  >
+  catalog: Pick<
+    SessionCatalog,
+    | 'assertSessionFileInScope'
+    | 'findSessionInfo'
+    | 'invalidateCatalog'
+    | 'openScopedSessionManager'
+    | 'scopeOf'
+  >
+  events: Pick<
+    SessionEvents,
+    | 'emit'
+    | 'emitSnapshot'
+    | 'metadataOf'
+    | 'rememberCallerDraft'
+    | 'setHostUiCommandTarget'
+    | 'snapshotOf'
+  >
+  coordinator: Pick<
+    OperationCoordinator,
+    | 'acquireAdmission'
+    | 'beginStructure'
+    | 'markStructureSummarizing'
+    | 'releaseStructure'
+    | 'stop'
+    | 'stopForNavigation'
+  >
   assembly: Pick<ProjectAssembly, 'acquire' | 'closeBinding'>
   workspaceStore: WorkspaceStore
   storeId: string

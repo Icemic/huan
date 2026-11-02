@@ -15,7 +15,7 @@ import {
   ModelSelectorRoot,
   ModelSelectorTrigger,
   ModelSelectorValue,
-} from '@/components/assistant-ui/elements/model-selector'
+} from '@/components/ui/model-selector'
 import { useModelStore } from '@/state/app-context'
 import type { ModelTarget } from '@/state/model-store'
 
@@ -61,6 +61,9 @@ export const PiModelSelector = memo(function PiModelSelector() {
     currentTarget ? selectHarnessModelCatalog(state, currentTarget) : undefined,
   )
   const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
+  const readOnly = useServiceStore(
+    (state) => state.workspaceState !== undefined && state.workspaceState !== 'ok',
+  )
   const models = entry?.models ?? []
 
   const open = useModelStore((state) => state.open)
@@ -136,7 +139,7 @@ export const PiModelSelector = memo(function PiModelSelector() {
           size="sm"
           variant="ghost"
           aria-label="选择模型"
-          disabled={!currentTarget}
+          disabled={!currentTarget || readOnly}
         >
           <ModelSelectorValue showEffort placeholder="选择模型" />
         </ModelSelectorTrigger>

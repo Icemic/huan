@@ -2,7 +2,7 @@
  * 当前会话上下文条：工作区、固定起始目录、实际生效 revision 与管理入口。
  *
  * 会话归属只读目录元数据；树/fork/详情/归档/删除/未归属加入都触发 sessions
- * feature 动作；工作区编辑触发 workspace feature。聊天输入主体留 R7。
+ * feature 动作；工作区编辑触发 workspace feature。
  */
 
 import { useServiceStore, useWindowStore } from '@huan/react'

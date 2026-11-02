@@ -68,7 +68,20 @@ export type ConfigurationServiceDeps = {
   modelRuntime: SharedModelRuntime
   modelService: ModelCatalogService
   live: Pick<LiveSessions, 'all' | 'ensureOpen' | 'get' | 'invalidateMcpRuntime'>
-  assembly: Pick<ProjectAssembly, 'explicitTrust' | 'hasPendingLoad' | 'inspectPath' | 'inspectTrust' | 'loadRuntime' | 'prepare' | 'query' | 'registerPreparedProviders' | 'runtime' | 'runtimeFrom' | 'workspaceReloads'>
+  assembly: Pick<
+    ProjectAssembly,
+    | 'explicitTrust'
+    | 'hasPendingLoad'
+    | 'inspectPath'
+    | 'inspectTrust'
+    | 'loadRuntime'
+    | 'prepare'
+    | 'query'
+    | 'registerPreparedProviders'
+    | 'runtime'
+    | 'runtimeFrom'
+    | 'workspaceReloads'
+  >
   catalog: Pick<SessionCatalog, 'findSessionInfo'>
   events: Pick<SessionEvents, 'emit' | 'emitSnapshot' | 'resetHostUiForReload' | 'snapshotOf'>
   coordinator: Pick<OperationCoordinator, 'beginStructure' | 'releaseStructure'>

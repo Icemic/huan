@@ -4,7 +4,7 @@
  * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的 `src/runtime/hostUi.ts`
  * （MIT 许可）。类型改用 `@huan/protocol`，命名 `Pi*` → `Harness*`，
  * 并移除 assistant-ui 的 approval/interrupt 适配：本包只表达 Pi 的原始
- * 四种请求与应答语义，展示层（R7）自行组合。
+ * 四种请求与应答语义，展示层自行组合。
  *
  * Pi 没有内建审批系统；唯一的闸门是扩展/工具调用
  * `ctx.ui.confirm / select / input / editor`。每次阻断式调用以一个

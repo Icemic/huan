@@ -1,5 +1,5 @@
 import { HARNESS_PROTOCOL_VERSION, type HarnessHostInfo } from '@huan/protocol'
-import { createHarnessHttpClient } from '@huan/react'
+import { createHarnessHttpClient } from '@huan/react/client'
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
 import type { ServerConfig } from './config.js'
