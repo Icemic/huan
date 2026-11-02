@@ -47,7 +47,7 @@ huan/
 
 依赖方向（强制）：`apps/*` → `@huan/core` / `@huan/react` / `@huan/history` → `@huan/protocol`；core 可消费 `@huan/mcp`，后者依赖官方 pi-mcp / Pi SDK 公开 API，不反向依赖 core。`core` / `mcp` / `protocol` 不依赖 React；`react` 不依赖 Node。
 
-MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项目 `<cwd>/.pi/mcp.json`；持久修改影响双方后续加载，保存不自动改变 live。OAuth 凭据/日志仍独立于 Pi，路径为 `<agentDir>/huan/mcp-auth.json` / `<agentDir>/huan/mcp.log`；huan 专属设置独立存储。当前 core 已按会话注入 huan 的 `builtin:mcp`，读取共享配置并后台连接，工具/资源经 Pi 权限管线注册，支持 codemode/tool_search 与动态扩展注册；目录查询不启动连接。可用静态 Authorization、环境/命令值及 provider token 认证；OAuth 登录与独立认证/日志落盘已接入，认证操作通过独立宿主通道提供授权链接、回填与取消；管理接口支持运行态启停/重连/exposure和配置读写。MCP 管理 GUI 尚未接入。配置保存后需显式资源重载，旧连接在重载、删除、创建取消和宿主退出时回收。不要同时在 Pi 与 huan 编辑同一配置：revision 可检测已发生的外部修改，但不提供跨进程 CAS；冲突时重读再保存。旧隔离配置路径不迁移、不作 fallback。
+MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项目 `<cwd>/.pi/mcp.json`；持久修改影响双方后续加载，保存不自动改变 live。OAuth 凭据/日志仍独立于 Pi，路径为 `<agentDir>/huan/mcp-auth.json` / `<agentDir>/huan/mcp.log`；huan 专属设置独立存储。当前 core 已按会话注入 huan 的 `builtin:mcp`，读取共享配置并后台连接，工具/资源经 Pi 权限管线注册，支持 codemode/tool_search 与动态扩展注册；目录查询不启动连接。可用静态 Authorization、环境/命令值及 provider token 认证；OAuth 登录与独立认证/日志落盘已接入，认证操作通过独立宿主通道提供授权链接、回填与取消；管理接口支持运行态启停/重连/exposure和配置读写。顶栏“MCP”与 `/mcp [login|logout|reconnect] [server]` 提供管理入口：服务器状态/工具资源详情、本会话启停与暴露、共享配置常用表单/JSON编辑及OAuth回填；配置页才读取原文，错误/冲突保留草稿。配置保存后需显式资源重载，旧连接在重载、删除、创建取消和宿主退出时回收。不要同时在 Pi 与 huan 编辑同一配置：revision 可检测已发生的外部修改，但不提供跨进程 CAS；冲突时重读再保存。旧隔离配置路径不迁移、不作 fallback。
 
 ## 4. 开发期约定
 
@@ -87,11 +87,12 @@ MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项�
 
 - 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
-- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 63 条流程，单 worker，不并行运行多套实例。
+- 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 69 条流程，单 worker，不并行运行多套实例。
 - 主题验证：顶栏主题选择写入浏览器 localStorage `huan.theme`，只影响当前浏览器；不改 Pi 配置、`settings.json` 或 huan `state.json`。
 - 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与宿主 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意无效，先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
 - 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。
 - 生产性能对照：先 `pnpm build`，再 `HUAN_E2E_PREVIEW=1 pnpm dev:e2e`（PowerShell 先设置 `$env:HUAN_E2E_PREVIEW='1'`）。复用相同隔离宿主与端口，页面改为 Vite preview；不要与其他浏览器测试同时运行。大列表输入/流式回归位于 `e2e/render-performance.spec.ts`，覆盖 250/1,000 条合成历史，测试附件记录往返时间与组件入口计数；开发模式含 StrictMode，时间包含自动化与双帧开销。
+- Playwright 产物隔离：需要排查默认 `test-results` 下产物消失或并行外部工具干扰时，可用 `HUAN_E2E_OUTPUT_DIR="C:/Users/Icemic/AppData/Local/Temp/huan-playwright-run" pnpm test:e2e` 指定独立输出目录；仍单 worker、同一时刻只运行一套隔离服务。该选项不改变测试断言或应用行为。
 - 浏览器失败产物位于 `apps/harness/test-results`，包括截图和 trace；使用 `pnpm --filter @huan/harness exec playwright show-trace <trace.zip路径>` 查看。产物不入 Git。
 - 容器与检查的覆盖范围：typecheck 覆盖全部 workspace 包；测试根运行（`vitest.config.ts` 统一 include）。
 

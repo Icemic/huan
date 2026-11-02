@@ -15,6 +15,7 @@ export type PiIntentKind =
   | 'import'
   | 'trust'
   | 'settings'
+  | 'mcp'
   | 'provider-auth'
   | 'new-session'
 

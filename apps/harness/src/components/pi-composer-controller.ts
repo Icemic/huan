@@ -938,6 +938,30 @@ export function usePiComposer(): PiComposerController {
     [],
   )
 
+  /**
+   * /mcp 打开管理面板；显式子命令只传意图，不把服务器名或参数发给模型。
+   * 未知子命令保留输入并给出受控提示，交给用户修正。
+   */
+  const runMcpCommand = useCallback((args: string): boolean => {
+    const parts = args.split(/\s+/).filter(Boolean)
+    if (parts.length === 0) {
+      requestPiIntent('mcp')
+      return true
+    }
+    const mode = parts[0]
+    if (mode !== 'login' && mode !== 'logout' && mode !== 'reconnect') {
+      setNotice('未知 /mcp 子命令；可用 login、logout 或 reconnect。该输入不会发给模型。')
+      return false
+    }
+    if (parts.length > 2) {
+      setNotice('用法：/mcp [login|logout|reconnect] [server]；该输入不会发给模型。')
+      return false
+    }
+    const server = parts[1]
+    requestPiIntent('mcp', { mode, ...(server ? { server } : {}) })
+    return true
+  }, [])
+
   /** 执行一个内置命令；返回 true 表示输入已处理（可清空输入框）。 */
   const runBuiltinCommand = useCallback(
     async (command: AppCommand, args: string): Promise<boolean> => {
@@ -1028,6 +1052,8 @@ export function usePiComposer(): PiComposerController {
         case 'settings':
           requestPiIntent('settings')
           return true
+        case 'mcp':
+          return runMcpCommand(args)
         case 'login':
           return runProviderAuthCommand('login', args)
         case 'logout':
@@ -1045,6 +1071,7 @@ export function usePiComposer(): PiComposerController {
       cwd,
       actions,
       isPending,
+      runMcpCommand,
       runModelCommand,
       runNameCommand,
       runProviderAuthCommand,

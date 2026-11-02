@@ -571,6 +571,22 @@ describe('真实 SDK：codemode 与 tool_search', () => {
     expect(harness.session.getToolDefinition('list_mcp_resources')?.exposure).toBe('hidden')
   }, 20_000)
 
+  it('单工具临时暴露更新发现激活和系统段', async () => {
+    const harness = await openHarness({
+      userConfig: { mcpServers: { mem: { command: 'fixture', exposure: 'hidden' } } },
+      memories: { mem: {} },
+      extraExtensions: [createToolSearchExtension()],
+    })
+    const manager = harness.integration.getManager()
+    if (!manager) throw new Error('missing manager')
+    await manager.waitForServers(['mem'])
+    expect(harness.session.getActiveToolNames()).not.toContain('tool_search')
+    manager.setToolExposure('mem', 'echo', 'deferred')
+    expect(harness.session.getActiveToolNames()).toContain('tool_search')
+    await promptScripted(harness, [{ text: '完成' }])
+    expect(harness.probe.sections.at(-1)).toContain('mcp__mem')
+  }, 20_000)
+
   it('tool_search激活的工具在无关目录更新后保持声明', async () => {
     const harness = await openHarness({
       userConfig: { mcpServers: { mem: { command: 'fixture', exposure: 'deferred' } } },

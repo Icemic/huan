@@ -66,6 +66,12 @@ export const HARNESS_BUILTIN_COMMANDS: readonly HarnessBuiltinCommand[] = [
     stage: 'available',
   },
   {
+    name: 'mcp',
+    description: '打开 MCP 管理面板',
+    argumentHint: '[login|logout|reconnect] [server]',
+    stage: 'available',
+  },
+  {
     name: 'login',
     description: '配置 provider 认证',
     argumentHint: '[provider]',

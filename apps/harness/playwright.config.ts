@@ -17,7 +17,7 @@ export default defineConfig({
   retries: 0,
   timeout: 60_000,
   reporter: [['list']],
-  outputDir: 'test-results',
+  outputDir: process.env.HUAN_E2E_OUTPUT_DIR ?? 'test-results',
   use: {
     baseURL: E2E_APP_URL,
     trace: 'retain-on-failure',

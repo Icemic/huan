@@ -6,6 +6,7 @@ import { PiCommandPanels } from '@/components/pi-command-panels'
 import { PiHostInteractions } from '@/components/pi-host-interactions'
 import { PiHostStatus } from '@/components/pi-host-status'
 import { PiLiveSubscription } from '@/components/pi-live-subscription'
+import { McpDialog } from '@/components/pi-mcp-panel'
 import { ProviderAuthDialog } from '@/components/pi-provider-auth'
 import { PiRunStatus } from '@/components/pi-run-status'
 import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
@@ -119,6 +120,7 @@ function WorkspaceApp() {
             <Trans>多项目工作区</Trans>
           </span>
           <div className="ms-auto flex items-center gap-2">
+            <McpDialog />
             <ProviderAuthDialog />
             <SettingsResourcesDialog />
             <ThemeSelector />

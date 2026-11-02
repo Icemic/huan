@@ -20,7 +20,9 @@ describe('内置命令行为索引', () => {
 
   it('已知内置命令被识别，未知扩展/skill 不在守卫名单', () => {
     expect(builtinCommandNameOf('/settings now')).toBe('settings')
+    expect(builtinCommandNameOf('/mcp login demo')).toBe('mcp')
     expect(isBuiltinCommandName('debug')).toBe(true)
+    expect(isBuiltinCommandName('mcp')).toBe(true)
     expect(builtinCommandNameOf('/plan alpha')).toBeUndefined()
     expect(builtinCommandNameOf('/skill:demo')).toBeUndefined()
     expect(new Set(HARNESS_BUILTIN_COMMANDS.map((command) => command.name)).size).toBe(

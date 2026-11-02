@@ -22,6 +22,7 @@ import {
   E2E_HOST_URL,
   E2E_UNASSIGNED_TITLE,
 } from './config.js'
+import { startMcpFixtures } from './mcp-oauth-fixture.js'
 import { installModelControl } from './model-control.js'
 
 // 不继承个人 Pi 配置与默认模型；所有作用域都显式落在临时目录。
@@ -206,7 +207,8 @@ await writeFile(
   )}\n`,
 )
 
-const modelControl = installModelControl()
+const mcpFixtures = await startMcpFixtures(resolve(import.meta.dirname, 'mcp-stdio-fixture.mjs'))
+const modelControl = installModelControl([mcpFixtures.oauthOrigin])
 
 // 启动前落盘一个没有 huan 归属的 Pi 会话：用于验证未归属分组与显式接入。
 // 必须在宿主启动前写入，避免绕过宿主目录缓存。
@@ -443,6 +445,50 @@ app.put('/__e2e__/settings-file', async (c) => {
   return c.body(null, 204)
 })
 
+// MCP 配置读写：仅供浏览器测试制造外部 revision、准备独立 target 与清理。
+const mcpTargetPath = (scope: 'user' | 'project', projectPath?: string): string =>
+  scope === 'user'
+    ? join(env.agentDir, 'mcp.json')
+    : join(projectPath ?? env.workspace, '.pi', 'mcp.json')
+
+app.get('/__e2e__/mcp-file', async (c) => {
+  const scope = c.req.query('scope') === 'project' ? 'project' : 'user'
+  const path = mcpTargetPath(scope, c.req.query('projectPath') ?? undefined)
+  if (!withinTestRoot(path)) return c.json({ error: 'outside-scope' }, 400)
+  const content = await readFile(path, 'utf8').catch(() => null)
+  return c.json({ path, content })
+})
+
+app.put('/__e2e__/mcp-file', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    scope?: unknown
+    projectPath?: unknown
+    content?: unknown
+  }
+  const scope = body.scope === 'project' ? 'project' : 'user'
+  const path = mcpTargetPath(
+    scope,
+    typeof body.projectPath === 'string' ? body.projectPath : undefined,
+  )
+  if (!withinTestRoot(path)) return c.json({ error: 'outside-scope' }, 400)
+  if (typeof body.content === 'string') {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, body.content)
+  } else {
+    await rm(path, { force: true })
+  }
+  return c.body(null, 204)
+})
+
+app.get('/__e2e__/mcp-fixture', (c) =>
+  c.json({
+    stdioFixturePath: mcpFixtures.stdioFixturePath,
+    oauthOrigin: mcpFixtures.oauthOrigin,
+    oauthResourceUrl: mcpFixtures.oauthResourceUrl,
+    nodePath: mcpFixtures.nodePath,
+  }),
+)
+
 // 测试控制面：在临时用户空间/工作区内写入文件（扩展、模板、指令探针）。
 // 只允许 env.agentDir 与 env.workspace 下的路径；不进入生产应用。
 app.put('/__e2e__/file', async (c) => {
@@ -471,6 +517,27 @@ app.delete('/__e2e__/file', async (c) => {
   if (!withinTestRoot(target)) return c.json({ error: 'outside-scope' }, 400)
   await rm(target, { force: true })
   return c.body(null, 204)
+})
+
+app.get('/__e2e__/file', async (c) => {
+  const root = c.req.query('root') === 'agent' ? env.agentDir : env.workspace
+  const relative = c.req.query('path') ?? ''
+  if (!relative || relative.includes('..')) return c.json({ error: 'invalid-file-read' }, 400)
+  const target = join(root, relative)
+  if (!withinTestRoot(target)) return c.json({ error: 'outside-scope' }, 400)
+  const content = await readFile(target, 'utf8').catch(() => null)
+  return c.json({ content })
+})
+
+app.get('/__e2e__/process-alive', (c) => {
+  const pid = Number(c.req.query('pid'))
+  if (!Number.isInteger(pid) || pid <= 0) return c.json({ error: 'invalid-pid' }, 400)
+  try {
+    process.kill(pid, 0)
+    return c.json({ alive: true })
+  } catch (error) {
+    return c.json({ alive: (error as NodeJS.ErrnoException).code !== 'ESRCH' })
+  }
 })
 
 // 外部 Pi 会话：用于验证「显式刷新重新扫描作用域」能发现宿主启动后新增的文件。
@@ -522,6 +589,13 @@ app.post('/__e2e__/stream/reset', (c) => {
   modelControl.reset()
   return c.body(null, 204)
 })
+
+app.post('/__e2e__/model-turns', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { turns?: unknown }
+  if (!Array.isArray(body.turns)) return c.json({ error: 'invalid-turns' }, 400)
+  modelControl.configureTurns(body.turns as Parameters<typeof modelControl.configureTurns>[0])
+  return c.body(null, 204)
+})
 // 让所有在途事件流正常结束，客户端应读到 EOF 并重连。
 app.post('/__e2e__/disconnect', (c) => {
   for (const stream of liveSseStreams) stream.close()
@@ -562,6 +636,7 @@ const shutdown = async () => {
     new Promise((resolveTimeout) => setTimeout(resolveTimeout, 3000)),
   ])
   await host.dispose().catch(() => {})
+  await mcpFixtures.close().catch(() => {})
   await env.cleanup().catch(() => {})
   console.log('[e2e] 已释放临时目录')
   process.exit(0)

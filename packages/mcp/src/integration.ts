@@ -477,7 +477,8 @@ export function createMcpIntegration(options: McpIntegrationOptions): McpIntegra
       const server = snapshots.get(entry.name)
       if (server ? !server.enabled : !isEnabled(entry)) continue
       exposures.add(server?.exposure ?? exposureOf(entry))
-      for (const exposure of Object.values(entry.config.toolExposure ?? {})) exposures.add(exposure)
+      const config = run.manager?.getServerEntry(entry.name).config ?? entry.config
+      for (const exposure of Object.values(config.toolExposure ?? {})) exposures.add(exposure)
     }
     const needsCodemode = exposures.has('codemode')
     const needsToolSearch = exposures.has('deferred')
@@ -553,7 +554,7 @@ export function createMcpIntegration(options: McpIntegrationOptions): McpIntegra
       listings.push({
         entry: {
           ...entry,
-          config: { ...entry.config, enabled: server.enabled, exposure: server.exposure },
+          config: manager.getServerEntry(server.name).config,
         },
         ...(catalog.instructions ? { connection: { instructions: catalog.instructions } } : {}),
       })

@@ -27,13 +27,21 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：976 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；本轮63 条 Chromium 回归通过。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：983 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；本轮69 条 Chromium 回归通过。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### G1.4d4 MCP 管理界面与整体验收（✅ 开发完成，`feat`）
+
+记录：[MCP管理界面](iteration/2026-11/2026-11-02-feat-mcp-gui.md)
+
+- 顶栏与/mcp路由共用Base UI面板，服务器/配置/OAuth交互、临时管理与持久草稿、详情、资源重载、跨窗认证接管已接入真实宿主。
+- 主agent独立review修复配置误覆盖、原文按需读取、同目标重开代次、资源条件读取、单工具exposure发现和宽屏样式；补本地stdio/OAuth成功/失败/取消重开与多窗测试。
+- 亲验983项通过、2项平台跳过、69条Chromium、check/build与Lingui413。截图已生成但当前环境禁用图片读取，未宣称视觉审阅；e2e独立输出目录完整复跑通过，既有provider-auth偶发断言失败后定向/完整复跑通过。
 
 ### G1.4d3 MCP OAuth 与宿主管理接口（✅ 开发完成，`feat`）
 
@@ -261,13 +269,13 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | --- | --- |
 | `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false） |
 | 附件仅图片 | 无其他文件类型支持 |
-| 资源管理尚未完整 | skills/模板/扩展命令已有目录与调用；完整资源配置与重载归G1.4 |
+| 资源管理边界 | 资源清单、配置/重载与命令调用已有入口；终端专属扩展组件按能力规范边界处理 |
 | 外部会话并行改写 | 已加载 live 会话由宿主持有，外部 Pi 同时改写同一文件不提供多写者合并 |
 | 无文件快照 / 回滚 | 属后续增强能力 |
 | 会话搜索范围有限 | 只匹配显式名称与首条用户消息，不含全历史全文检索；支持全部/当前工作区范围与最近活动/创建时间/名称排序 |
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
-| MCP 管理界面未接入 | `@huan/mcp` 已接入Pi工具/资源/权限及codemode/tool_search；OAuth登录/存储、独立日志与宿主管理接口已具备，GUI尚未接入 |
-| 多项原生操作无 GUI 入口 | reload、认证、设置、MCP与导出/分享等仍未实施；Shell和compact已有入口 |
+| MCP共享文件并行编辑 | 与Pi共用服务器定义；revision拒已发生修改，不承诺跨进程CAS，避免双方同时编辑；OAuth/日志独立 |
+| 输出操作尚未完整 | 导出/分享等按G1.5验收；reload、认证、设置、MCP、Shell与compact已有入口 |
 | 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
 
 ---
