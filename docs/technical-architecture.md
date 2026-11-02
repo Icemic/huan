@@ -1,7 +1,7 @@
 # 幻（huan）— 技术架构文档
 
 **最后更新**：2026-11-02
-**状态**：持续维护文档，随技术变更同步更新。当前源码仍为 Controller + aui 混合运行时；已确认目标改为前端统一 Zustand 并移除 assistant-ui，尚未实施。整体问题与计划见[整改子路线图](architecture-remediation-roadmap.md)，本文不将目标写成现状。
+**状态**：持续维护文档，随技术变更同步更新。当前源码仍为 Controller + aui 混合运行时；已确认目标改为前端统一 Zustand 并移除 assistant-ui，尚未实施。[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)已给出待确认的详细结构，本文继续区分现状与目标。整体问题与计划见[整改子路线图](architecture-remediation-roadmap.md)。
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
 ---
@@ -235,7 +235,7 @@ apps/harness（页面、应用业务绑定与布局）
 
 当前没有此前图示的独立features目录，也没有`@huan/react`公共Thread/Composer组件或`rendererId + schemaVersion`注册接口。工具/data渲染使用aui机制与应用本地回退；未知data的可读回退存在遗漏，见整改AR-14/24。
 
-目标为Zustand状态与业务动作、React绑定、展示单向依赖，公共与应用责任在整改R1明确；不为满足旧架构图新增无消费者的通用Registry。工具输出保持语义数据，工具内与独立Host UI入口继续可用。
+目标为Zustand状态与业务动作、React绑定、展示单向依赖。R1详细方案将公共浏览器状态规范化为serviceStore与windowStore，应用feature store保存面板业务，Node按装配/会话/操作与共享资源所有权分解；包入口、动作时序、资源关闭与旧文件处理见[R1设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，方案尚待确认。工具输出保持语义数据，工具内与独立Host UI入口继续可用；专用渲染按当前消费者静态组织。
 
 ### 6.2 展示组合原则
 

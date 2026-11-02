@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小可用应用（迭代②）、M1.5 Node运行时自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前状态**：`refactor`分支进行整体架构整改；已交付启动研究与[R0能力/历史验收盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)，业务代码尚未改造。原功能主线继续阻塞，已发现遗漏与后续修复状态统一见[整改问题清单](architecture-remediation-roadmap.md)。
+- **当前状态**：`refactor`分支进行整体架构整改；已交付启动研究、[R0能力/历史验收盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)及[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，业务代码尚未改造。原功能主线继续阻塞，已发现遗漏与后续修复状态统一见[整改问题清单](architecture-remediation-roadmap.md)。
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -34,6 +34,14 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### R1 状态与资源所有权、目标架构（设计交付，`feat`）
+
+记录：[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)
+
+- 明确服务连接实例的规范化Zustand状态、窗口草稿/提交与应用feature状态；逐项规定创建、持久化、失效、释放及敏感原文处理。
+- 给出Node装配/会话/准入/结构/配置服务的唯一持有者、资源转移与关闭矩阵，以及双端文件/API迁移清单。
+- 对照子路线图全部43个AR与37个稳定能力ID；本次仅交付文档，未运行业务验证，未改业务代码。
 
 ### R0 能力与历史验收盘点（文档交付，`test`）
 

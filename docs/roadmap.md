@@ -112,7 +112,7 @@ G1.1 已交付：
 
 用户确认：整改覆盖前后端架构、状态所有权、业务流程、协议、模块、展示、测试和文档；前端业务状态统一 Zustand，移除 assistant-ui 合并其中。所有大小问题关闭后才能恢复原路线图，不能仅完成去依赖。
 
-详细范围、AR问题清单、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档、启动调研与R0能力/历史验收盘点，未授权编码。R0证据见[能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)，详细步骤状态仍由子路线图维护。
+详细范围、AR问题清单、偏离时间线、R0～R9步骤与关闭证据唯一维护于 [整体架构整改子路线图](architecture-remediation-roadmap.md)。主路线图只维护本次总阻塞与最终恢复决定。启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。当前授权为文档、启动调研、R0能力/历史验收盘点及R1所有权/目标架构设计，未授权编码。R0证据见[能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)，R1方案见[详细所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)；详细步骤状态仍由子路线图维护。
 
 分支为 `refactor`，基线 `5ff6565`（业务源码与 `5400b8f`一致）。中间允许不可运行/构建或测试失败的WIP提交；不为保持阶段检查通过维护兼容层、双状态或临时adapter。最终合并前必须完整可用并完成独立review、行为/性能验证及文档核对，默认不自行合并或push。
 
