@@ -16,7 +16,7 @@
  * 但保留其**对外语义**：每次 subscribe 建立独立连接；`includeSnapshot: false`
  * 时首帧跳过快照、断线重连切到带快照的 URL 以恢复；终止性流错误
  *（解码器大小/配置限制）向监听者投递带外 error 事件并关闭连接。
- * 防抖由 Controller 侧的 30 秒断开定时器承担，客户端不再叠加延迟。
+ * 连接生命周期由浏览器实例的 live lease 承担，客户端不叠加延迟。
  *
  * 浏览器安全：不导入任何 Pi SDK 包。路由层是唯一接触 Pi SDK 之处，
  * 且位于服务端的 `@huan/core` 中。
@@ -851,7 +851,7 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
           return
         }
         // 终止性错误：解码器限制无法继续重连，投递带外 error 事件后关闭。
-        // 监听者（Controller）据此重置订阅状态，使后续 connect() 能重新建立。
+        // 监听者（浏览器实例资源层）据此关闭订阅，待下次取得 lease 时重建。
         queueMicrotask(() => {
           connection?.close()
           void invokeUserCallback('huan-react', 'onError', onStreamError, error)

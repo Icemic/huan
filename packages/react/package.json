@@ -4,14 +4,16 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@huan/protocol": "workspace:*",
-    "assistant-stream": "0.3.50"
+    "assistant-stream": "0.3.50",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",
@@ -21,7 +23,6 @@
     "typescript": "catalog:"
   },
   "peerDependencies": {
-    "@assistant-ui/react": "^0.15.28",
     "react": "^19.3.0"
   }
 }

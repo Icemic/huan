@@ -2,8 +2,7 @@
  * 已知客户端事件类型的判据。
  *
  * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的 `src/eventTypes.ts`
- * （MIT 许可）。改动：类型改用 `@huan/protocol`，命名 `Pi*` → `Harness*`，
- * 注释译为中文。逻辑与上游等价。
+ * （MIT 许可）。类型改用 `@huan/protocol`，命名 `Pi*` → `Harness*`。
  *
  * `satisfies` 约束保证此表与协议里的事件联合保持同步：
  * 协议新增事件类型时，这里会编译报错直到补齐。

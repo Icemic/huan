@@ -4,11 +4,10 @@
  * 出处：移植自 `@assistant-ui/react-pi@0.0.29` 的 `src/client/eventSource.ts`
  * （MIT 许可）。改动：类型改用 `@huan/protocol`，命名 `Pi*` → `Harness*`，
  * 上游内部工具改从 `../vendor/anti-corruption.js` 引入，
- * `isKnownPiClientEventType` 改从 `../event-types.js` 引入，注释译为中文。
- * 逻辑与上游逐行等价。
+ * 事件判据改从 `../model/event-types.js` 引入，注释译为中文。
  *
- * SSE 属于客户端层，**不属于** controller：`HarnessThreadController` 只会
- * 通过 `HarnessClient.subscribe` 看到已解码的 `HarnessClientEvent`。
+ * SSE 属于客户端层：浏览器实例的 live 资源只会通过
+ * `HarnessClient.subscribe` 看到已解码的 `HarnessClientEvent`。
  * 线格式与重连都在这里。
  *
  * 两部分：
@@ -24,7 +23,7 @@
 
 import type { HarnessAnyClientEvent, HarnessClientEvent } from '@huan/protocol'
 import { SSEEventDecoder, SSEEventDecoderError } from 'assistant-stream/utils'
-import { isKnownHarnessClientEventType } from '../event-types.js'
+import { isKnownHarnessClientEventType } from '../model/event-types.js'
 import { invokeUserCallback, isRecord } from '../vendor/anti-corruption.js'
 import {
   isAssistantMessageDelta,

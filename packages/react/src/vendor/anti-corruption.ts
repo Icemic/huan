@@ -3,17 +3,13 @@
  *
  * 出处：`@assistant-ui/core@0.3.27` 的内部子路径模块
  * （`utils/json/is-json`、`utils/invoke-user-callback`、`utils/data-url`、
- * `utils/image-media-type`、`utils/wire-media`、`utils/run-lease`）。
+ * `utils/image-media-type`、`utils/wire-media`）。
  * 许可：MIT（@assistant-ui/core）。
  *
  * 为什么复制而不是导入：这些工具只经 `@assistant-ui/core/internal` 暴露，
  * 该子路径是上游明示的内部 API，可能在不递增主版本的情况下增删导出。
- * 实证：`RunLeases` 在 0.3.21 中完全不存在，0.3.27 才加入——一个补丁级
- * 版本漂移即可让导入崩溃。本包在 `node_modules` 布局变化时不随之破裂。
- *
- * 改动：仅调整格式以符合本项目风格；逻辑与上游保持逐行等价，便于后续
- * 与上游 diff 对照。`useLatestRef` / `useReplaySafeEffect` 因涉及 React
- * shim，单独放在 hooks.ts。
+ * 本包只保留实际使用或后续图片准备需要的纯函数，不保留上游的运行时状态
+ * 机制；格式按本项目规范调整。
  */
 
 /** 对象且非 null 且非数组。 */
@@ -219,34 +215,4 @@ export function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
   }
   return btoa(binary)
-}
-
-/** 一次运行的租约；`isCurrent()` 在下一代运行开始前保持 true。 */
-export type RunLease = {
-  isCurrent(): boolean
-}
-
-/**
- * 迟到异步工作的代号栅栏（generation fence）。
- *
- * `begin()` 推进代号并为新运行返回租约；`current()` 按现状捕获代号；
- * `invalidate()` 只推进代号，不启动运行。租约在下一次 `begin()` 或
- * `invalidate()` 之前保持 current。
- */
-export class RunLeases {
-  private generation = 0
-
-  begin(): RunLease {
-    this.generation++
-    return this.current()
-  }
-
-  current(): RunLease {
-    const generation = this.generation
-    return { isCurrent: () => generation === this.generation }
-  }
-
-  invalidate(): void {
-    this.generation++
-  }
 }

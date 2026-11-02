@@ -1,9 +1,9 @@
 /**
  * vendor/anti-corruption 的单元测试。
  *
- * 覆盖上游工具的边界行为，重点是 reducer / 投影依赖的那几个：
- * `RunLeases`（迟到异步防护）、`parseDataUrl` / `dataUrlMediaType`
- * （媒体类型决议）、`detectImageMediaType`（字节嗅探）、`bytesToBase64`。
+ * 覆盖上游工具的边界行为：`parseDataUrl` / `dataUrlMediaType`
+ * （媒体类型决议）、`detectImageMediaType`（字节嗅探）、`bytesToBase64`
+ * 与用户回调隔离。
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -14,7 +14,6 @@ import {
   isParsableUrl,
   isRecord,
   parseDataUrl,
-  RunLeases,
   resolveImageMediaType,
 } from './anti-corruption.js'
 
@@ -188,37 +187,5 @@ describe('bytesToBase64', () => {
     } finally {
       ;(globalThis as { Buffer?: unknown }).Buffer = original
     }
-  })
-})
-
-describe('RunLeases', () => {
-  it('begin 之后旧租约失效', () => {
-    const leases = new RunLeases()
-    const first = leases.begin()
-    expect(first.isCurrent()).toBe(true)
-    const second = leases.begin()
-    expect(first.isCurrent()).toBe(false)
-    expect(second.isCurrent()).toBe(true)
-  })
-
-  it('current 捕获现状，不推进代号', () => {
-    const leases = new RunLeases()
-    const snapshot = leases.current()
-    expect(snapshot.isCurrent()).toBe(true)
-    expect(leases.current().isCurrent()).toBe(true)
-  })
-
-  it('invalidate 使租约失效但不返回新租约', () => {
-    const leases = new RunLeases()
-    const lease = leases.begin()
-    leases.invalidate()
-    expect(lease.isCurrent()).toBe(false)
-  })
-
-  it('valueOf 不推进代号', () => {
-    const leases = new RunLeases()
-    const lease = leases.current()
-    expect(lease.isCurrent()).toBe(true)
-    expect(lease.isCurrent()).toBe(true)
   })
 })

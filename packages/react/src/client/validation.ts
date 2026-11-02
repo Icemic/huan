@@ -5,7 +5,6 @@
  * `src/client/validation.ts`（MIT 许可）。改动：类型改用
  * `@huan/protocol`，命名 `Pi*` → `Harness*`，上游内部工具改从
  * `../vendor/anti-corruption.js` 引入，注释译为中文。
- * 逻辑与上游逐行等价。
  *
  * 用途：SSE / HTTP 收到的载荷形状不可信，落进 reducer 之前先做守卫，
  * 使畸形载荷被丢弃而不是污染状态。
