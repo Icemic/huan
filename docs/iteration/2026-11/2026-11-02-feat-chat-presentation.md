@@ -120,7 +120,130 @@ DOM/功能回归与截图视觉审阅分别记录。视觉方向需在实际可�
 
 回退以阶段提交为单位恢复旧展示代码，不回滚个人Pi文件、共享配置或凭据。仍使用的aui移植实现保留MIT声明；复制shadcn/ReUI组件前核对版本/源路径/许可与本地差异，不因换目录删除来源说明。
 
-## 7. 调研来源与未验证边界
+## 7. V0 具体组件、布局与功能对照
+
+本节为2026-11-02主agent亲自完成的源码与声明核对，接续`197c650`中的原则。这里只形成可实施的组合设计，未编写组件、安装依赖或进行浏览器可用性验证；阶段状态以roadmap为准。
+
+### 7.1 采用的官方组合
+
+采用Base UI版Chat基础示例的“用户右对齐muted气泡、助手开放正文、Trace过程行、独立输入分区”结构，不复制示例的AI SDK数据层、重置历史按钮、固定演示高度、motion动画和官网主题。Reasoning、Tool、Terminal是由Trace等基础组件组合的模式，不假定有可直接安装的同名独立包。
+
+| 采用来源 | 具体组件 / 组织 | 本地使用方式与必要差异 |
+| --- | --- | --- |
+| Chat / Message / Bubble | `Message`、`MessageContent`、`MessageFooter`、`Bubble variant="muted"`、`BubbleContent` | 用户消息末端对齐；助手正文默认无整块卡片边框。继续以aui消息枚举/上下文提供身份，无新增头像或重复会话标题 |
+| Reasoning / Tool / Terminal | `Trace`、`TraceLine`、`TraceIcon`、`TraceTitle`、`TraceDescription`、`TraceCollapsible*` | 单行摘要+展开内容，取代旧ToolGroup外层折叠卡片；推理与工具保留时间顺序，不把所有过程挪到整条回复开头 |
+| Prompt Input | `InputGroup`、`InputGroupAddon align="block-start|block-end"`、`InputGroupButton`及textarea的展示规则 | 上方附件，中间输入，下方工具栏；aui Input继续提供文字/自动增高/粘贴/焦点，不照搬示例的本地text/files state |
+| Attachment | `Attachment`、`AttachmentMedia`、`AttachmentContent`、`AttachmentTitle`、`AttachmentActions`、`AttachmentTrigger` | 以aui附件上下文提供状态/名称/URL，保留图片预览Dialog、移除与预览关闭焦点返回；不用示例重新创建预览URL |
+| Code Block | `CodeBlock`、Header/Title/Actions、Footer等展示结构 | 工具JSON/输出可用`CodeBlockContent`；Markdown保持现有解析和`pre/code`，通过CodeHeader与pre外观组合，避免套出第二个`pre/code` |
+| Empty | `Empty`、`EmptyHeader`、`EmptyTitle`、`EmptyDescription` | 空白页使用官方空状态层级，输入区保持同一底部位置；不再把输入框在居中/底部之间搬动，也不制造第二个composer |
+
+本地基础`Button`、Tooltip、Dialog、Popover、Select/Combobox与模型选择器继续复用。当前没有必须从ReUI新增的具体组件，V0不列ReUI安装清单；后续缺项再按同一Base UI路线补充，避免为了品牌一致复制第二套基础组件。
+
+### 7.2 新组件树与布局
+
+以下为组织示意，不是已实现文件名或要求逐层新增包装组件。
+
+```text
+ThreadPrimitive.Root                         现有运行时与滚动上下文
+  ThreadPrimitive.Viewport                   唯一聊天滚动容器
+    transcript column                        居中内容列、min-w-0、响应式侧距
+      Empty / history loading / LoadEarlier  按现有状态分流
+      ThreadPrimitive.Messages
+        MessagePrimitive.Root asChild        保留hover和top-anchor注册
+          Message                            官方消息行结构
+            MessageContent
+              user: attachments + muted Bubble
+              assistant: GroupedParts
+                text → Markdown正文
+                adjacent process → Trace
+                  reasoning → TraceCollapsible
+                  tool → TraceCollapsible + input/output
+                    pending Host UI          不藏在默认关闭内容内
+                image/file/data → 对应展示
+              MessageError                   当前消息错误，不吞掉原状态
+            MessageFooter                    复制/更多/树定位/fork等动作
+      ThreadPrimitive.ViewportFooter         保留底部高度测量，sticky bottom-0
+        回到底部 / follow-up suggestions
+        aboveEditor widget / queue
+        ComposerPrimitive.Root               唯一form，保留现有发送上下文
+          completion list                    相对输入区定位，不截断弹层
+          AttachmentDropzone + InputGroup
+            block-start → Composer.Attachments / Attachment
+            Composer.Input                   单一textarea
+            block-end → 工具栏
+          notice / Host UI / belowEditor widget
+        dialogs                              仍按需挂载
+```
+
+官方Chat的布局分区通过现有ViewportFooter实现，不把MessageScroller嵌入aui Viewport，也不把footer搬出上下文后自行计算滚动高度。内容列初始以`max-w-3xl`为上限、移动端全宽和响应式侧距，正文与输入区对齐；不保留旧44rem限制作为兼容条件。工具内部代码/长行独立横向滚动，不使聊天视口横向滚动。具体间距在实现截图中检查，继续使用项目token和控件规格，不复制示例p-8/rounded-xl等主题尺度。
+
+保持相邻分段顺序。现有`groupPartByType`/`MessagePrimitive.GroupedParts`可继续承担分发；只替换其group渲染。无专用工具UI时显示通用Trace，`part.toolUI`与`dataRendererUI`优先级保持，不用按工具名猜测或重排输出。运行、失败、取消和等待应答有显式文案，不能只用Trace的running/error/pending三个外观枚举表示全部业务状态。
+
+推理/普通工具内容的展开策略沿用当前组件行为，先换其容器与布局；不把官网演示的固定“5s”或`open ?? running`直接当产品默认。工具等待应答时显示请求摘要、应答入口与结果，不受折叠隐藏；错误摘要始终可见，详细输出可展开。若希望另改默认折叠行为，作为后续UX决定处理。
+
+### 7.3 功能入口与实际接线
+
+| 功能 | 新布局中的位置 | 保留的实际入口 / 状态来源 |
+| --- | --- | --- |
+| 流式正文、Thinking、工具参数/输出/错误/图片 | 助手MessageContent，过程用相邻Trace行，正文保持顺序 | `MessagePrimitive.GroupedParts`与既有Markdown/工具props；不改投影或重新订阅SSE |
+| 工具关联confirm/select/input/editor、取消与超时 | 工具Trace行下方的应答区域，待处理提示在折叠外可见 | 复用ToolFallbackApproval现有提交/请求ID/attempt/焦点逻辑及`respondToApproval`/`resume`，只更换外部展示组合 |
+| Shell实时与历史、压缩/分支摘要 | 聊天数据消息内Trace/CodeBlock；输入区原有运行/通知入口保持 | `RuntimeDataParts`注册、`PiComposerHostUi`与现有Shell/压缩动作；不能仅渲染历史而丢实时卡 |
+| 复制、已有Markdown导出、定位树与历史fork | MessageFooter：主操作按钮+更多Popover；移动端/键盘可达 | `ActionBarPrimitive.Copy/ExportMarkdown`、`LocateTreeEntryButton`、`requestForkThread`；保留已可用导出，不把它等同G1.5全部输出验收 |
+| tree/clone/import与当前会话操作 | 既有上下文栏/面板保持，消息仅补定位和fork入口 | 继续现有bridge与aui会话切换，edit/reload/feedback等按实际capability显示；不让新的通用编辑按钮覆盖Pi历史 |
+| 多行/IME/Enter/Shift+Enter/Ctrl或Cmd+Enter、历史与长输入 | 唯一textarea+工具栏“展开编辑” | `ComposerPrimitive.Input submitMode="none"`，保留`controller.inputRef/onInputChange/onInputSelect/onKeyDown`；不复制官网的Enter requestSubmit逻辑 |
+| 命令目录、`/`/参数/`@`补全、`!`/`!!`、提示 | 工具栏命令/文件引用按钮，补全浮在输入上方，提示位于输入下方 | 现有`ComposerTools`/CompletionMenu/Notice和`usePiComposer`，表单submit必须经过`controller.submit` |
+| 模型与Thinking、范围/认证可用性 | 下方工具栏中部，窄屏允许换行 | 现有`PiModelSelector`的真实目录/Combobox/Thinking RadioGroup，不换成官网静态模型数组 |
+| 图片选择、拖入、粘贴、预览、移除、错误状态 | block-start附件行，添加附件按钮在工具栏左侧 | `Composer.Attachments`、Attachment上下文、`AddAttachment`/Dropzone/Input粘贴；现有适配器与模型预检不变 |
+| 发送、转向/后续、停止、整体取回 | 工具栏右侧保留发送与停止两个独立入口；队列行在输入上方 | `ComposerSendButton`→`controller.submit`；`ComposerQueueMode`/Queue与`Composer.Cancel`；运行中不能因改成单一“发送/停止切换按钮”丢排队入口 |
+| 草稿、首条初始化、Host UI编辑器指令、widgets | 同一个composer，above/below widget槽保留，原Dialog按需显示 | aui composer +现有sessionStorage/history逻辑；不复制新本地draft/files state或重挂Provider |
+| 会话/工作区、设置/认证/MCP、快捷面板 | 原侧栏、顶栏与现有面板 | V1/V2不重排这些区域，完整回归验证目标、草稿、认证接管不受影响 |
+
+### 7.4 aui公开API核对与实现注意事项
+
+核对安装版本`@assistant-ui/react@0.15.28`的公开导出及其声明/实现。阅读安装包dist仅为调研，业务代码仍从包根公开导入，不私有深导入。
+
+| 已核对的API | 可组合依据 | 实施约束 |
+| --- | --- | --- |
+| `MessagePrimitive.Root` | 声明支持`asChild/render`；负责hover与top-anchor注册 | 用官方Message作唯一可见消息根，透传ref/props；不能删掉此根后丢锚点和动作显隐 |
+| `ThreadPrimitive.ViewportFooter` | 声明说明测量footer高度供滚动计算 | 保留在Viewport上下文内，队列/附件/长输入增高后回归；不另装MessageScroller |
+| `ComposerPrimitive.Input` | 声明支持`render/asChild`、`submitMode="none"`、图片粘贴与焦点参数；默认实现使用textarea autosize | 优先保留默认aui Input作为InputGroup中的控制节点，使用官方textarea的展示规则和`data-slot="input-group-control"`。直接render普通InputGroupTextarea将不再走默认autosize，故不是首选；无需为使用组件名而丢行为 |
+| `ComposerPrimitive.Root` | 实现先调用用户onSubmit，未preventDefault才默认send | onSubmit先`preventDefault()`后仅调用一次`controller.submit()`，按钮用`type="button"`。不嵌套form，不让移动端/辅助技术submit绕过内置命令分流 |
+| `GroupedParts` / `groupPartByType` | 已在包根公开导出且当前应用实际使用 | 保留稳定分组和专用渲染优先级，不换deprecated的Unstable_PartsGrouped，不在主线程每token另扫全历史 |
+| `MarkdownTextPrimitive.components` | 声明提供CodeHeader、pre/code与语言渲染定制 | 现有引擎提供代码文本与解析，Header使用CodeBlock展示；代码只出现一套pre/code，不额外解析或加入Shiki插件 |
+
+工具审批实现中的请求切换、submitted/attempt、焦点回执不能随旧ToolFallback整文件删除而丢失。可将该现有业务片段提取到工具展示旁，保留行为测试；不重写审批协议。CodeBlock复制按钮改接现有clipboard hook的错误/降级策略与Lingui，不直接照搬官网吞错误和英文aria-label。
+
+### 7.5 依赖、来源与目录建议
+
+本次选定组合未发现必须新增第三方运行包：`cn`、`class-variance-authority`、Lucide、React与Base UI均已在应用依赖中。Base registry已读取Message/Bubble/Trace/InputGroup/Attachment/CodeBlock/Empty及Collapsible源码；Bubble/Attachment的源码还使用Base UI `useRender/mergeProps`，不能只看registry依赖字段。
+
+CodeBlock registry声明`use-highlighted-code`，该hook声明依赖Shiki，但当前CodeBlock展示文件本身没有导入该hook。采用已核对展示源码、保留现有Markdown引擎，不整套CLI安装registry依赖。Trace的Collapsible用现有Base UI封装或统一的ui/collapsible，核对`--collapsible-panel-height`及动画样式；不新增第二套Collapsible逻辑。官方的`icon-xs`等Button规格需映射到项目现有24/28/32px规格，registry里的shimmer/scroll-fade等自定义utility要核对本地支持并按需实现或省略纯装饰，不能留下无效类名后声称布局完成。
+
+建议将复制的基础展示放入`components/ui/{message,bubble,trace,input-group,attachment,code-block,empty}.tsx`，现有ui已有的基础组件直接复用；绑定aui/Pi的组合放入`components/chat/`。V1/V2只移动被替换的展示，保留仍被侧栏等消费的旧目录文件，不为清除目录名顺手改全应用。最终展示导出改由app使用新Thread；阶段期间旧文件仅保留尚未迁移部分，不提供两个正式聊天视图开关。
+
+上游MIT许可已读取：`Copyright (c) 2023 shadcn`。实施复制时更新应用THIRD-PARTY-NOTICES并记录源路径/获取时间/指纹/本地差异；既有aui移植业务逻辑继续保留其MIT出处。
+
+当日Base-nova展示文件SHA-256（按registry的files[].content原始UTF-8计算；指纹记录来源，不代表安装验证）：
+
+| registry源码路径（`registry/base-nova/ui/`下） | SHA-256 |
+| --- | --- |
+| `message.tsx` | `64e9ae0f9d1e268b0ed7b738a53d374d273fe1e7e2dd7b35ad7417e50a9bbe6c` |
+| `bubble.tsx` | `cef49b9490c90d90451037247adedb8671eae234d388f8c30c7b2eac37356983` |
+| `trace.tsx` | `caf842955e70affef04f8082f54d90e027e1f267d2eb3ba8b69290ed7a6ac924` |
+| `input-group.tsx` | `d6c74e82a2aa02980b337da519fc5b74dfc841e92453e32dd241e6baa1d9d9a6` |
+| `attachment.tsx` | `a9f6d071c1e70bda93ed42d690e52bc1fecbf27d3afcf05e3096dbdc42f08a24` |
+| `code-block.tsx` | `226b3c2e6114a8e1adaf5d594276ce0bcc92da80a6c85dfdc20478eccfbf7657` |
+| `empty.tsx` | `5cac88b6f80f40cf4aa5e4c3d5a6810f43e132a24032d1c55a7aecdae446cf15` |
+
+registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/<name>.json`。临时原始调研文件保存在本机Temp/huan-chat-v0，不是仓库构建依赖；实施时若上游变化，重新核对指纹并说明差异，不能静默使用不同版本。
+
+### 7.6 进入实施时的专项检查
+
+V1首先用合成数据覆盖“正文→Thinking→工具→正文”、并行/嵌套工具、错误、正在应答和长输出，核对新Trace顺序及焦点；再验证真实本地MCP/Host UI。V2覆盖InputGroup的autosize、拖放/粘贴、首条信任等待、IME、三种发送触发、队列与停止并存、附件预览关闭焦点、上下widgets与晚响应草稿保护。
+
+布局验收至少覆盖明暗主题的空白/历史/工具等待/多图片及窄屏；新布局不以旧DOM和截图相似为准。检查没有无效`@/registry`/IconPlaceholder引用、嵌套form/button/pre、主视口横向溢出、丢失disabled/aria/ref或字体tokens。当前结论只是源码与类型层面的可组合性；实际React19构建、事件合并、自动增高、焦点和滚动仍须在V1/V2亲验。
+
+## 8. 调研来源与未验证边界
 
 访问日期2026-11-02。网页/registry内容只证明组件与示例存在；未安装候选包，不代表React19/构建/性能与全部接线已经验证。
 
