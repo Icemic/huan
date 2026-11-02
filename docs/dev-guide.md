@@ -1,6 +1,6 @@
 # 开发与调试指南
 
-**最后更新**：2026-11-01
+**最后更新**：2026-11-02
 **状态**：持续维护文档。动手改代码前先读本文件。
 
 ---
@@ -85,6 +85,8 @@ MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项�
 
 ## 6. 验证方式
 
+当前整体架构整改允许`refactor`中间提交不可用，不要求逐步运行以下完整验证。最终合并前仍须完成；具体约束见[整改子路线图](architecture-remediation-roadmap.md)。只读调研或文档任务不包含运行应用、测试或新增探针的授权。
+
 - 常规验证：`pnpm check`（已包含测试）与 `pnpm build`；默认自动化使用临时用户空间，无需个人认证。
 - 界面验证：`pnpm dev` 后打开 http://localhost:8799/ 。
 - 浏览器回归：首次运行 `pnpm --filter @huan/harness exec playwright install chromium`，随后 `pnpm test:e2e`；交互测试面板为 `pnpm test:e2e:ui`。当前 Chromium 覆盖 69 条流程，单 worker，不并行运行多套实例。
@@ -136,7 +138,7 @@ pnpm dev          # → http://localhost:8799/
 
 G1.1 起可在页面“宿主信息与诊断”查看用户目录、会话存储方式及默认模型字段来源；支持复制安全摘要和重新查询。`GET /api/pi/host` 需通过现有访问校验，health 仍只返回 ok。目录与默认配置在宿主启动时固定，重新查询不等于重载。
 
-会话目录优先级：宿主 `sessionDir` 参数 → `PI_CODING_AGENT_SESSION_DIR` → 启动工作区合并 setting → `<agentDir>/sessions/<编码 cwd>`。显式/env 相对路径按启动进程目录解析，setting 相对路径按启动工作区解析；指定覆盖时不再追加 cwd 分组。无效默认模型不阻止宿主启动，空白会话可选有效模型恢复新建；认证修改仍需重启。
+会话目录优先级：宿主 `sessionDir` 参数 → `PI_CODING_AGENT_SESSION_DIR` → 启动工作区合并 setting → `<agentDir>/sessions/<编码 cwd>`。显式/env 相对路径按启动进程目录解析，setting 相对路径按启动工作区解析；指定覆盖时不再追加 cwd 分组。无效默认模型不阻止宿主启动，空白会话可选有效模型恢复新建；GUI认证修改后会刷新本地目录，不要求为登录/退出重启宿主，启动默认模型仍按前述固定解析。
 
 - 已通过 `pi /login` 完成认证的机器无需额外配置。
 - 自定义 provider（经 Pi 扩展注册，如 `~/.pi/agent/extensions/` 下的 provider 扩展）在宿主与模型选择器中均可用（迭代③起）。

@@ -1,7 +1,7 @@
 # 幻（huan）— 技术架构文档
 
 **最后更新**：2026-11-02
-**状态**：持续维护文档，随技术变更同步更新
+**状态**：持续维护文档，随技术变更同步更新。当前源码仍为 Controller + aui 混合运行时；已确认目标改为前端统一 Zustand 并移除 assistant-ui，尚未实施。整体问题与计划见[整改子路线图](architecture-remediation-roadmap.md)，本文不将目标写成现状。
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
 ---
@@ -20,7 +20,7 @@
 | 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 当前仍承担会话选择、composer、消息上下文与React接线；Controller自研不表示前端已解耦 |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
 | 代码查看/Diff | Monaco Editor（规划选型，尚未接入） | 增强阶段的查看 + diff editor（D-21），不作为 Pi GUI 基础依赖 |
-| 状态管理 | 运行时 Controller + hooks；Zustand 已为依赖 | 当前无应用级单一 store；出现窗口级自主状态需求时再设计（D-24） |
+| 状态管理 | 当前：Controller自建store、aui及应用Context/模块store；目标：前端业务状态统一Zustand | 旧D-24推迟理由已失效；整改中删除平行存储/订阅机制，不复制旧Controller状态 |
 | i18n | Lingui（源语言中文，首期仅中文包） | 编译期宏（D-22/D-25） |
 | 包管理 | pnpm workspaces | monorepo；`@huan/*` 命名空间（D-13） |
 | 测试 | Vitest | 单元与集成 |
@@ -78,14 +78,14 @@ apps/harness
 
 - **Session Host**：以 Pi SDK `createAgentSession` / `AgentSessionRuntime` 为基础，管理会话生命周期（新建、恢复、切换）、事件订阅与清理、模型与 Thinking 配置。
 - **Tool & Extension 装配**：按应用 profile 装配工具集、扩展与 inline 扩展；SDK 不自动加载 CLI 内置扩展（codemode / tool_search / MCP），需显式注入（上游核对结论）。
-- **Host UI 桥**：绑定 `ExtensionUIContext`，路由 `confirm / select / input / editor` 到 UI；应用自定义交互以扩展 `kind` 携带版本化 schema（D-19）。
-- **快照投影**：保留 Pi 原生事件（`rawPiEvent` 透传），同时投影出 GUI 常用状态。
+- **Host UI 桥**：绑定 `ExtensionUIContext`，将 `confirm / select / input / editor` 请求传给 UI。版本化应用自定义 `kind` 是早期拟议能力，当前契约未提供。
+- **快照投影**：将 Pi 事件映射为 GUI 契约，并生成冷热快照；当前不提供此前文档所称的统一 `rawPiEvent` 透传。
 
 ### 3.2 关键语义约束
 
 - Pi `SessionManager` 是已提交消息与分支的权威来源；前端流式状态可乐观显示，以 Pi 完成事件（`message_end` / `agent_settled`）校正。
 - 会话切换后事件订阅必须重新绑定；旧订阅不得污染新会话。
-- 运行结束以 `agent_settled`（Pi 不会再自动继续）为准，不以最后一个 token 或 socket 关闭为准。
+- 运行结束的规范边界为 `agent_settled`，不以最后一个 token 或 socket 关闭为准。当前前端在 `agent_end` 提前空闲的问题已登记AR-11，尚未修复。
 - Prompt 在流式中必须明确 steer 或 followUp（Pi 语义）；输入队列镜像 Pi 的服务端队列，支持整体清空。
 
 ### 3.2.1 多项目工作区（已实现）
@@ -144,15 +144,15 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
 
 **React 订阅边界**：`useHarnessActions()` 按 Controller 生命周期返回稳定动作；状态消费者通过字段选择器订阅。完整 extras 仍可读取，但不用于仅执行动作的组件。游离 Host UI 请求的分组结果只随请求数组变化；长期连接直接依赖 Controller。侧栏从公开 assistant-ui 状态选择必要标题与远端 ID，字段未变时保持投影引用；会话行按自身显示字段比较，工作区动作 Context 与数据 Context 分开。关闭的树面板不订阅输入文字。设计与验证见[刷新性能迭代](iteration/2026-11/2026-11-01-perf-react-subscriptions.md)。
 
-**长期边界**（不随计划变化）：公共层以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
+**既有M2边界**：以纯 reducer/投影与自研 Controller 移除 react-pi 依赖，`usePiRuntime` 不进入公共 API。当时明确保留 aui 类型与接线，不代表完全解耦。新目标由整体整改设计确认，Controller现有存储/订阅机制不作为必须保留的边界。
 
-**当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。当前Controller的发送/投影/repository类型、会话选择、composer与Provider/hook仍绑定`@assistant-ui/react`，Markdown依赖`@assistant-ui/react-markdown`，SSE底层解码直接依赖`assistant-stream/utils`。当前采用assistant-ui状态层，将聊天展示与其状态接线分开；[聊天展示升级方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)优先采用shadcn AI Elements组件与布局，不要求模拟旧布局，保留runtime/composer/会话选择、Markdown和SSE引擎。方案尚未实施，授权、排序与待决策由roadmap §2.5维护，不把目标布局视为当前实现。
+**当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。当前Controller的发送/投影/repository类型、会话选择、composer与Provider/hook仍绑定`@assistant-ui/react`，Markdown依赖`@assistant-ui/react-markdown`，SSE底层解码直接依赖`assistant-stream/utils`。这些依赖将随整改移除。已确认的整体整改将前端业务状态统一Zustand并移除这些运行依赖，同时整理宿主/协议/业务/展示/文档；[旧聊天方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)已失效。总阻塞见roadmap §2.5，细项仅由[子路线图](architecture-remediation-roadmap.md)维护。
 
 **移植来源与许可**：`@huan/react` 的运行时实现移植自 `@assistant-ui/react-pi@0.0.29`（MIT）。相对上游的语义改动与第三方许可声明见 `packages/react/THIRD-PARTY-NOTICES.md` 与迭代文档 `2026-10-18-feat-react-controller.md` §5.1。
 
 **内部子路径依赖已切断**：此前 react-pi 经 `@assistant-ui/core/internal` 等子路径引用上游内部工具（实证脆弱：`RunLeases` 在 core@0.3.21 中不存在，0.3.27 才加入）。`@huan/react` 以 `src/vendor/` 下的本地副本替代（11 个工具）。
 
-react-pi原有能力由公共Controller与应用补齐了树/fork、命令目录与调用。仍保留SDK的整体队列边界、仅图片附件、权威快照恢复（不依赖重放）；完整资源管理随G1.4实施。
+react-pi原有能力由公共Controller与应用补齐了树/fork、命令目录与调用。仍保留SDK的整体队列边界、仅图片附件、权威快照恢复（不依赖重放）；完整资源管理已随G1.4交付，整改保留这些功能要求。
 
 ---
 
@@ -160,11 +160,11 @@ react-pi原有能力由公共Controller与应用补齐了树/fork、命令目录
 
 - Node 宿主与 UI 之间的契约以 Pi 的 `PiClient` 形态为参照（RPC-isomorphic、JSON-safe），**不重新发明**已存在的稳定类型。该契约已落在 `@huan/protocol` 的 `HarnessClient`。
 - 约定：
-  - 命令（request/response）带 `requestId`；长操作用事件汇报状态。
-  - 事件带 `sessionId`、必要时 `runId` / `toolCallId` 与单调序号。
+  - 命令通过类型化方法与HTTP请求/响应对应，当前无统一命令`requestId`；Host UI响应中的`requestId`只关联交互请求。
+  - 会话事件信封为`threadId + seq`，工具事件按需携带`toolCallId/parentToolCallId`；当前无统一`sessionId/runId`事件信封。
   - 重连与首次订阅采用同一机制：订阅入口先交付带 `seq` 的权威快照，再在同一连接上接续实时事件（无「先请求快照再连接」的两步间隙）。有 `seq` 可用于发现缺口，但不依赖事件重放。
-  - 协议显式版本化；未知事件/字段宽容处理。
-  - 自定义 Host UI `kind` 使用版本化 schema 校验（`kind` 命名如 `editor.select-node`）。
+  - 当前协议常量为14；尚未实现版本协商或不匹配拒绝。未知事件/字段宽容处理，版本策略在整改中核定。
+  - 当前Host UI为四种交互及安全投影；版本化应用自定义`kind`尚未实现。
 - 传输可替换：首期 HTTP/SSE（官方样例形态）；Electron 主进程共置、Tauri sidecar 或未来本地 IPC 都实现同一 `PiClient` 契约。
 
 ### 4.1 多订阅者语义（多窗口并发）
@@ -223,25 +223,25 @@ interface CheckpointProvider {
 
 ## 6. UI 架构（@huan/react 与 apps/harness）
 
-### 6.1 分层
+### 6.1 当前分层与已确认目标
 
-```
-apps/harness（页面装配、布局、主题）
-  ├── features：会话列表、代码工作区、审查视图、设置
-  ├── components/assistant-ui：assistant-ui 主题组件（CLI 拷入后自行维护）
-  ├── components/ui：Base UI 基础组件（本地最小封装；不直接依赖 Radix/cmdk）
-  └── @huan/react：浏览器侧运行时（reducer/投影/Controller/hook）+ Thread/Composer 通用组件、Tool Renderer Registry、Host UI 渲染扩展点
+```text
+apps/harness（页面、应用业务接线与布局）
+  ├── components：工作区/会话/配置/认证等面板与业务hook
+  ├── components/assistant-ui：本地维护的aui展示与编排
+  ├── components/ui：Base UI基础组件
+  └── @huan/react：transport、reducer/投影、Controller、aui适配与hooks
 ```
 
-- Tool Renderer Registry：按 `toolName` 或 `rendererId + schemaVersion` 匹配；未命中回退通用卡片（JSON/文本可读）。
-- Tool 输出约定：返回稳定语义数据（对象 ID、摘要、前后值、错误码），不放 React element、不放不受控大体积快照。
-- Host UI 请求渲染：工具关联请求渲染在工具卡片内；独立请求走侧通道组件。
+当前没有此前图示的独立features目录，也没有`@huan/react`公共Thread/Composer组件或`rendererId + schemaVersion`注册接口。工具/data渲染使用aui机制与应用本地回退；未知data的可读回退存在遗漏，见整改AR-14/24。
+
+目标为Zustand状态与业务动作、React绑定、展示单向依赖，公共与应用责任在整改R1明确；不为满足旧架构图新增无消费者的通用Registry。工具输出保持语义数据，工具内与独立Host UI入口继续可用。
 
 ### 6.2 展示组合原则
 
-聊天展示优先采用shadcn AI Elements的组件与布局，ReUI按需补充组合；组件选择与主题token分开。新组件无需复现旧assistant-ui布局或DOM，但必须承接全部已交付功能与必要状态，官方模式缺少的Pi功能在新布局中补充。现有aui无头primitive、hook与动作可以继续接线，避免为改变外观重写状态管理或引入双发送/双滚动控制。主题仍沿用项目Base UI/Geist/紧凑tokens，不自动切换为官网主题。具体设计与验证见[聊天展示方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)，进度仅见roadmap。
+聊天展示优先采用shadcn AI Elements的完整组件组合和布局，ReUI按需补充，主题沿用Base UI/Geist/紧凑tokens。当前整体整改将移除aui状态与展示体系，新界面直接绑定最终Zustand状态/动作，保留全部已交付功能，不模拟旧DOM、不套用旧aui编排。滚动、Markdown、附件、消息/data渲染分别设计，不能因保留旧hook而留下另一套运行时。具体方案见整改R7，旧聊天V0不再指导实施。
 
-### 6.3 代码工作区
+### 6.3 代码工作区（规划，未实现）
 
 - 布局：可拖拽分栏（文件树 / Monaco 查看 / Diff 审查 / 聊天区）。
 - Monaco：`monaco-editor` + 语言支持；diff 使用内置 diff editor；worker 资源在桌面壳下需按打包方式配置（见 `roadmap.md` §7 与 §5.3）。
@@ -267,7 +267,7 @@ apps/harness（页面装配、布局、主题）
 - **测试空间**：默认自动化使用临时用户空间和确定性 provider；`@huan/core/testing` 为显式测试入口，不从生产主入口导出辅助。个人环境兼容验证单独显式运行。
 - **项目与信任**：项目装配先通过公开 ResourceLoader 信任回调，使用所选用户空间 trust.json；未知时仅用户资源、历史只读，GUI 决定后装配项目资源。窗口选中的项目彼此独立，不改变进程 cwd。
 - **宿主诊断**：受保护的 `getHostInfo` 提供只读目录、配置来源及受控诊断代码；不透传任意扩展错误与凭据。无效默认模型不阻断宿主启动或历史读取，可显式选有效模型新建。
-- **react-pi / assistant-ui**：锁定版本；升级前跑 UI 回归；适配层集中封装，避免散落。
+- **react-pi / assistant-ui**：现有依赖和移植来源保留历史事实；目标是删除assistant-ui运行依赖，复用代码继续保留许可。公共层当前存在耦合，不能把“适配集中”作为已实现结论。
 - **协议与历史**：协议显式版本化；应用元数据（快照引用、关联 ID）支持版本迁移；兼容 Pi 原生 JSONL 会话格式，不修改 Pi 内部历史文件作为存储接口。
 - **快照数据**：manifest 带格式版本；对象库可独立重建（孤儿 blob 定期回收）。
 

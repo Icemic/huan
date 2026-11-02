@@ -1,6 +1,6 @@
 # 待办与迭代历史
 
-**最后更新**：2026-11-01
+**最后更新**：2026-11-02
 **状态**：迭代**历史**记录 + **当下**环境/状态快照。
 
 **计划请看 `docs/roadmap.md`**（唯一开发计划权威来源）。本文件只回答两个问题：「已经做过什么」与「现在处于什么状态」。
@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小闭环（迭代②）、M1.5 宿主自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前主线**：Pi 基础能力 GUI 化（G1）；G1.1、G1.2a/b/c、多项目工作区与 Base UI/主题开发完成；G1.2d 开发与主 agent 验收完成；G1.3a/b/c开发与主agent验收完成；输入与运行态刷新性能优化完成
+- **当前状态**：`refactor`分支进行整体架构整改的文档与启动调研；原功能主线已阻塞，代码尚未改造。G1.4历史交付保留；G1.3发现结算、草稿、历史与数据回退遗漏，修复记录统一见[整改台账](architecture-remediation-roadmap.md)。
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -27,7 +27,7 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node 宿主（Pi SDK 运�
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 最新亲验：983 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（构建保留既有大 chunk 警告）；本轮69 条 Chromium 回归通过。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 在架构审查时重跑基线：983 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（既有大 chunk 警告）。完整69条Chromium为G1.4d4历史验证，本轮未重跑全套。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
 
 ---
 
@@ -267,7 +267,8 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 | 限制 | 说明 |
 | --- | --- |
-| `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false） |
+| 已发现的行为遗漏 | 前端在agent_end提前空闲；异步命令可能清空同会话新输入；其他窗口消息进入本窗输入历史；未知data缺可读回退。归整改AR-11～14，不视为已修复 |
+| `settings.json` 修改需重启宿主 | 默认模型在宿主启动时固定解析（`setModel` 的 persist 默认 false）；其他可重载资源按设置面板提示处理 |
 | 附件仅图片 | 无其他文件类型支持 |
 | 资源管理边界 | 资源清单、配置/重载与命令调用已有入口；终端专属扩展组件按能力规范边界处理 |
 | 外部会话并行改写 | 已加载 live 会话由宿主持有，外部 Pi 同时改写同一文件不提供多写者合并 |
