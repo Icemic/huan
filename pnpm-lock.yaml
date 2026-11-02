@@ -144,6 +144,9 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 1.4.0
         version: 1.4.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)(zod@4.6.5)
+      '@huan/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@huan/protocol':
         specifier: workspace:*
         version: link:../protocol

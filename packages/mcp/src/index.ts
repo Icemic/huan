@@ -1,11 +1,11 @@
 /**
  * @huan/mcp：MCP 配置与连接管理的 Node 集成层。
  *
- * G1.4d1 交付配置基础；G1.4d2a 增加每会话独立的连接管理器。配置文件与 Pi
- * 共享（`<agentDir>/mcp.json`、`<cwd>/.pi/mcp.json`）；凭据/日志仍在
- * `<agentDir>/huan/` 下，不读写 Pi 的 mcp-auth.json / mcp.log。连接管理器
- * 构造无 I/O，显式 start 后使用官方 pi-mcp 客户端与 stdio/streamable HTTP
- * transport；不注入 core/harness，也不注册 Pi 工具。
+ * G1.4d1 交付配置基础；G1.4d2a 增加每会话独立的连接管理器；G1.4d2b 增加
+ * Pi 工具/资源桥接与无界面集成绑定。配置文件与 Pi 共享（`<agentDir>/mcp.json`、
+ * `<cwd>/.pi/mcp.json`）；凭据/日志仍在 `<agentDir>/huan/` 下，不读写 Pi 的
+ * mcp-auth.json / mcp.log。连接管理器构造无 I/O，显式 start 后使用官方
+ * pi-mcp 客户端与 stdio/streamable HTTP transport。
  */
 
 export type { McpExposure, McpServerConfig } from '@earendil-works/pi-coding-agent'
@@ -19,6 +19,7 @@ export type {
   McpConfigScope,
   McpServerEntry,
   McpServerOverrides,
+  McpServerScope,
 } from './config.js'
 export {
   configDocumentFromRead,
@@ -76,6 +77,14 @@ export {
   mcpConfigContentIsEncodable,
   mcpConfigRevision,
 } from './file-io.js'
+export type { McpIntegration, McpIntegrationOptions, McpServerListing } from './integration.js'
+export {
+  createMcpIntegration,
+  MAX_SERVER_DESCRIPTION_CHARS,
+  MAX_SERVERS_SECTION_CHARS,
+  MCP_SERVERS_SECTION,
+  renderMcpServersSection,
+} from './integration.js'
 export type {
   McpConnectionManagerOptions,
   McpConnectionManagerSnapshot,
@@ -99,6 +108,14 @@ export {
   MCP_STATE_DIR,
   mcpConfigPaths,
 } from './paths.js'
+export type { McpResourceServer } from './resources.js'
+export {
+  createMcpResourceToolDefinitions,
+  LIST_MCP_RESOURCE_TEMPLATES_TOOL,
+  LIST_MCP_RESOURCES_TOOL,
+  MCP_RESOURCE_TOOL_NAMES,
+  READ_MCP_RESOURCE_TOOL,
+} from './resources.js'
 export type {
   McpConfigFileState,
   McpConfigReadOptions,
@@ -108,3 +125,23 @@ export type {
   McpConfigStoreOptions,
 } from './store.js'
 export { createMcpConfigStore } from './store.js'
+export type {
+  ConvertMcpResultOptions,
+  CreateMcpToolDefinitionOptions,
+  JsonSchema,
+  McpOutputSaver,
+  McpToolCaller,
+  McpToolDefinition,
+  McpToolDetails,
+} from './tools.js'
+export {
+  convertMcpResult,
+  createMcpResultSchema,
+  createMcpToolDefinition,
+  createMcpToolName,
+  limitMcpContent,
+  MCP_OUTPUT_MAX_BYTES,
+  saveToTempFile,
+  toModelContent,
+  toToolExposure,
+} from './tools.js'

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.4.0",
+    "@huan/mcp": "workspace:*",
     "@huan/protocol": "workspace:*",
     "ajv": "8.20.0",
     "ignore": "7.0.8",

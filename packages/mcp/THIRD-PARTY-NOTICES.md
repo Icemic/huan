@@ -1,9 +1,10 @@
 # 第三方代码声明 — @huan/mcp
 
 本包在 G1.4d1 中移植了 `@earendil-works/pi-coding-agent@1.4.0` 的 MCP
-配置相关逻辑，并在 G1.4d2a 选择性移植连接、重试、动态目录与配置值解析规则。
-移植内容按 MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深导入；
-配置类型、`getShellConfig` 与连接客户端均通过公开入口使用。
+配置相关逻辑，在 G1.4d2a 选择性移植连接、重试、动态目录与配置值解析规则，
+并在 G1.4d2b 选择性移植 Pi 工具/资源桥接、结果转换与系统段生成。移植内容按
+MIT 许可保留版权声明。huan 不 fork Pi，也不从私有 dist 内部深导入；配置类型、
+`getShellConfig` 与连接客户端均通过公开入口使用。
 
 ## 上游项目
 
@@ -24,6 +25,10 @@
 | `packages/coding-agent/src/core/mcp-servers.ts` | `0aaad23b26f31f743bdd117754f4c871ea821279bf68f8ba5d71eccbb1602c6a` |
 | `packages/coding-agent/src/extensions/mcp/runtime.ts` | `f2bf62f39179e2d956df3783f1d561667c589afd6f6ee94ebdaeaf6b22de154c` |
 | `packages/coding-agent/src/core/resolve-config-value.ts` | `0f53dad47fe5d5d8837c022b7951ccd3bd5a9b577bd662f0986272110e83bcc7` |
+| `packages/coding-agent/src/extensions/mcp/index.ts` | `65f505cdebdb959b5315fabad611ea34995346bcc3f6228d17b0e1ef749c60db` |
+| `packages/coding-agent/src/extensions/mcp/tools.ts` | `cd3245946deb3cb3df2e7b521a07837525f886d281c5e4600527eb2aed95e2ac` |
+| `packages/coding-agent/src/extensions/mcp/resources.ts` | `0ac0b965b123d22ceeadd64b62b53d9cf81e072898d21ea81888e840b51e02b5` |
+| `packages/coding-agent/src/utils/output-files.ts` | `a7ad819c4087b6f3ac79147d5e052718e181b105efc112be16a779a78a333620` |
 
 另外参考但未直接复制运行时实现的路径：
 
@@ -85,14 +90,35 @@
 10. 临时启停与 exposure 只修改实例状态；持久化、Pi 工具注册、资源工具定义、
     core/harness 注入和 TUI 均留给后续阶段。
 
+### Pi 桥接（G1.4d2b）
+
+1. 新增 `createMcpIntegration(options)` 无界面绑定：工厂只注册 `/mcp` 状态摘要
+   命令与事件；配置仅在 `session_start` 通过公开/既有 `loadMcpConfig` 读取，随后
+   在后台启动唯一 manager。不复制上游 TUI 管理器、登录、OAuth 凭据存储、日志或
+   `updateMcpServerConfig` 等写盘路径。
+2. `/mcp` 仅输出受控状态摘要（名称、状态、工具/资源数量、exposure、scope、
+   受控错误与配置问题），不展示 URL/env/headers/token、原始异常或服务器 stderr；
+   不打开浏览器、不提供登录/管理菜单。
+3. 工具名、结果转换、资源工具与 `mcp_servers` 系统段来自上游同名模块的选择性
+   移植；删除 TUI renderers、私有渲染/截断导入与 `openBrowser`。输出保存改为
+   每次新建临时目录并以 0600 写入文件。
+4. 不导入上游私有 `CODEMODE_TOOL_NAME` / `TOOL_SEARCH_TOOL_NAME`；本地按公开工具
+   名称字符串 `codemode` / `tool_search` 检测 `reachesTools`。仅通过公开 SDK API
+   激活工具、注册工具、读取 `getMcpServers()` 并处理 `mcp_servers_change`。
+5. `mcp_servers` 系统段用前缀和一次线性扫描计算裁剪与描述预算；描述每项最多
+   250 字符、整段最多 4096 字符。上游 `index.ts` 中的 TUI 菜单、OAuth 登录、
+   连接报告与配置保存逻辑未移植。
+6. 资源列表剔除 MCP Apps、icons 与 `_meta`；读取已知 MCP App URI/内容会拒绝；
+   部分服务器列表失败只返回受控中文错误，不回显原始异常。
+
 ## 依赖说明
 
 - `@earendil-works/pi-mcp@1.4.0` 是运行时依赖。G1.4d2a 使用其公开的
   `McpClient`、`StdioTransport`、`StreamableHttpTransport`、协议类型与 testing
   transport；没有私有深导入。npm tarball integrity：
   `sha512-92aZmmGsUpHHknYuKXZHRINQfahntw5hU9If0I0ZM49GojOaFHpkl5/GF3/aatqpt7v7GjZbBfpfSygGKW+pnw==`
-- `@earendil-works/pi-coding-agent@1.4.0` 通过公开根入口使用配置类型与
-  `getShellConfig`。
+- `@earendil-works/pi-coding-agent@1.4.0` 通过公开根入口使用配置类型、
+  `getShellConfig`、扩展/工具类型与 `formatSize`。未新增依赖。
 
 ## MIT 许可原文
 

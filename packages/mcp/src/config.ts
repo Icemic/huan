@@ -20,8 +20,16 @@ import type { McpExposure, McpServerConfig } from '@earendil-works/pi-coding-age
 import { MCP_CONFIG_FILE_MAX_BYTES, type McpConfigRead, readMcpConfigText } from './file-io.js'
 import { mcpConfigPaths } from './paths.js'
 
-/** 配置作用域。 */
+/** 配置磁盘作用域。 */
 export type McpConfigScope = 'user' | 'project'
+
+/**
+ * 服务器条目作用域：除磁盘配置外，还允许扩展在运行时注册。
+ *
+ * 运行时条目只存在于当前 manager 实例，不扩大磁盘配置的 user/project 作用域，
+ * 也不会被配置保存逻辑写回任何文件。
+ */
+export type McpServerScope = McpConfigScope | 'extension'
 
 /** 配置嵌套深度上限；超过时受控拒绝，避免递归扫描爆栈。 */
 export const MCP_CONFIG_MAX_DEPTH = 32
@@ -100,7 +108,7 @@ export interface McpServerEntry {
   name: string
   config: McpServerConfig
   source: string
-  scope: McpConfigScope
+  scope: McpServerScope
   /** 项目 override 文件路径。 */
   override?: string
 }

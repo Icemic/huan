@@ -23,7 +23,7 @@ import type {
   ToolAnnotations,
   ToolExecution,
 } from '@earendil-works/pi-mcp'
-import type { McpConfigScope, McpServerEntry } from './config.js'
+import type { McpServerEntry, McpServerScope } from './config.js'
 import {
   getMcpToolExposure,
   isValidMcpServerName,
@@ -44,7 +44,7 @@ import {
 /** 单服务器管理快照；不含配置原文、URL、env、headers、stderr 或原始异常。 */
 export interface McpServerSnapshot {
   name: string
-  scope: McpConfigScope
+  scope: McpServerScope
   source: string
   override?: string
   enabled: boolean
@@ -113,24 +113,77 @@ export type McpManagerListener = (snapshot: McpConnectionManagerSnapshot) => voi
 
 interface Slot {
   entry: McpServerEntry
+  /** 最近一次对账输入的配置；临时启停/exposure不修改它。 */
+  configuredKey: string
   /** 生命周期代次；禁用/重连等操作会递增，使旧操作失效。 */
   epoch: number
   catalogRevision: number
   connection?: McpServerConnection
   closing?: Promise<void>
   connectPromise?: Promise<void>
+  /** 当前连接尝试的落定 promise；供按服务器就绪等待使用，不建立新连接。 */
+  ready?: Promise<void>
+}
+
+/** 校验并规范化一组输入条目；任何错误都不产生部分变更。 */
+function validateEntries(servers: readonly McpServerEntry[]): McpServerEntry[] {
+  if (!Array.isArray(servers)) {
+    throw inputError('MCP 服务器列表无效。')
+  }
+  const namespaces = new Map<string, string>()
+  const entries: McpServerEntry[] = []
+  for (const raw of servers) {
+    const entry = validateEntry(raw)
+    const namespace = mcpNamespace(entry.name)
+    const existing = namespaces.get(namespace)
+    if (existing !== undefined) {
+      throw new McpManagerInputError(
+        'namespace-collision',
+        `MCP 服务器 "${entry.name}" 与 "${existing}" 的 namespace 冲突。`,
+      )
+    }
+    namespaces.set(namespace, entry.name)
+    entries.push(entry)
+  }
+  return entries
+}
+
+/** 配置指纹只用于同一manager内对账，不进入快照。 */
+function configKey(entry: McpServerEntry): string {
+  return JSON.stringify(entry.config)
 }
 
 function inputError(message: string): McpManagerInputError {
   return new McpManagerInputError('invalid-input', message)
 }
 
-function isScope(value: unknown): value is McpConfigScope {
-  return value === 'user' || value === 'project'
+function isScope(value: unknown): value is McpServerScope {
+  return value === 'user' || value === 'project' || value === 'extension'
 }
 
 function isExposure(value: unknown): value is McpExposure {
   return typeof value === 'string' && MCP_EXPOSURES.includes(value as McpExposure)
+}
+
+/** 取消等待；没有 signal 时返回一个永不落定的 promise，由竞速方清理。 */
+function waitForAbort(signal: AbortSignal | undefined): {
+  promise: Promise<'aborted'>
+  cancel: () => void
+} {
+  if (!signal) return { promise: new Promise<'aborted'>(() => undefined), cancel: () => undefined }
+  if (signal.aborted) return { promise: Promise.resolve('aborted'), cancel: () => undefined }
+  let resolve!: () => void
+  const promise = new Promise<'aborted'>((resolvePromise) => {
+    resolve = () => resolvePromise('aborted')
+  })
+  const onAbort = () => resolve()
+  signal.addEventListener('abort', onAbort, { once: true })
+  return {
+    promise,
+    cancel: () => {
+      signal.removeEventListener('abort', onAbort)
+    },
+  }
 }
 
 function cloneEntry(entry: McpServerEntry): McpServerEntry {
@@ -179,9 +232,13 @@ function validateEntry(raw: unknown): McpServerEntry {
 export class McpConnectionManager {
   readonly cwd: string
   private readonly options: McpConnectionManagerOptions
-  private readonly slots: Slot[]
-  private readonly slotsByName = new Map<string, Slot>()
+  private slots: Slot[]
+  private slotsByName = new Map<string, Slot>()
   private readonly listeners = new Set<McpManagerListener>()
+  /** 等待 manager 变化的唤醒器；用于 waitForServers 在移除/关闭时及时退出。 */
+  private readonly changeWaiters = new Set<() => void>()
+  /** 已撤下但仍在收尾的槽位任务；终态关闭必须等它们完成。 */
+  private readonly retiredTasks = new Set<Promise<void>>()
   private revisionValue = 0
   private startedValue = false
   private closedValue = false
@@ -201,24 +258,15 @@ export class McpConnectionManager {
       ...(options.env ? { env: { ...options.env } } : {}),
     }
     this.cwd = resolve(options.cwd)
-    const namespaces = new Map<string, string>()
-    const slots: Slot[] = []
-    for (const raw of options.servers) {
-      const entry = validateEntry(raw)
-      const namespace = mcpNamespace(entry.name)
-      const existing = namespaces.get(namespace)
-      if (existing !== undefined) {
-        throw new McpManagerInputError(
-          'namespace-collision',
-          `MCP 服务器 "${entry.name}" 与 "${existing}" 的 namespace 冲突。`,
-        )
-      }
-      namespaces.set(namespace, entry.name)
-      const slot: Slot = { entry, epoch: 0, catalogRevision: 0 }
-      slots.push(slot)
-      this.slotsByName.set(entry.name, slot)
-    }
+    const entries = validateEntries(options.servers)
+    const slots: Slot[] = entries.map((entry) => ({
+      entry,
+      configuredKey: configKey(entry),
+      epoch: 0,
+      catalogRevision: 0,
+    }))
     this.slots = slots
+    for (const slot of slots) this.slotsByName.set(slot.entry.name, slot)
   }
 
   /** 显式启动；所有启用服务器的初始连接尝试都落定后返回。 */
@@ -228,8 +276,7 @@ export class McpConnectionManager {
     this.startedValue = true
     const starts = this.slots.map((slot) => {
       if (slot.entry.config.enabled === false) return Promise.resolve()
-      const epoch = ++slot.epoch
-      return this.openSlot(slot, epoch)
+      return this.beginOpen(slot)
     })
     this.startPromise = Promise.allSettled(starts).then(() => {
       if (!this.closedValue) this.publish()
@@ -287,13 +334,156 @@ export class McpConnectionManager {
         if (slot.entry.config.enabled === false) return false
         if ((slot.entry.config.exposure ?? 'codemode') === 'hidden') return false
         const snapshot = slot.connection?.getSnapshot()
-        return snapshot?.state === 'connected' && snapshot.hasResources
+        // 断线保留已确认资源能力，让资源工具能在下次调用时重连。
+        return snapshot?.state !== 'closed' && snapshot?.hasResources === true
       })
       .map((slot) => slot.entry.name)
       .sort((a, b) => a.localeCompare(b))
   }
 
-  /** 显式重连；与启用操作串行，禁用/关闭可立即中止。 */
+  /**
+   * 按名称对账一组条目：未变化项保留原连接与代次，移除项立即撤下并等待关闭，
+   * 新增/替换项在旧连接收尾后连接。用于扩展初始注册与动态注册/替换/移除。
+   *
+   * 同步发布新条目集合，调用方（桥接）可立即撤下被移除服务器的工具；
+   * 返回的 promise 在所有收尾与本次开启尝试落定后完成。
+   */
+  setServers(servers: readonly McpServerEntry[]): Promise<void> {
+    if (this.closedValue) return Promise.reject(new McpOperationError('manager-closed'))
+    let entries: McpServerEntry[]
+    try {
+      entries = validateEntries(servers)
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    const previous = this.slots
+    const previousByName = this.slotsByName
+    const nextSlots: Slot[] = []
+    const reused = new Set<Slot>()
+    const retired = new Set<Slot>()
+    const pendingOpen: Slot[] = []
+    for (const entry of entries) {
+      const existing = previousByName.get(entry.name)
+      if (existing && existing.configuredKey === configKey(entry)) {
+        // 无关注册变化不能重置会话临时启停/exposure，也不重建连接。
+        existing.entry = { ...entry, config: existing.entry.config }
+        reused.add(existing)
+        nextSlots.push(existing)
+        continue
+      }
+      if (existing) retired.add(existing)
+      const slot: Slot = {
+        entry,
+        configuredKey: configKey(entry),
+        epoch: 0,
+        // 强制桥接看到一次目录版本变化，即使新连接尚未建立。
+        catalogRevision: (existing?.catalogRevision ?? 0) + 1,
+      }
+      nextSlots.push(slot)
+      if (this.startedValue && entry.config.enabled !== false) pendingOpen.push(slot)
+    }
+    for (const slot of previous) {
+      if (!reused.has(slot)) retired.add(slot)
+    }
+    // 先同步失效并发布，桥接可在旧连接收尾前撤下已移除项。
+    for (const slot of retired) this.retireSlot(slot)
+    this.slots = nextSlots
+    this.slotsByName = new Map(nextSlots.map((slot) => [slot.entry.name, slot]))
+    const closing = [...this.retiredTasks]
+    const barrier = Promise.allSettled(closing).then(() => undefined)
+    const openings = pendingOpen.map((slot) => {
+      // 普通工具调用也必须等旧transport回收，不能绕过对账的关闭屏障。
+      slot.closing = barrier
+      const opening = barrier.then(() => this.openSlot(slot, slot.epoch))
+      slot.ready = opening.catch(() => undefined)
+      return opening
+    })
+    this.publish()
+    return Promise.allSettled([...closing, ...openings]).then(() => undefined)
+  }
+
+  /**
+   * 等待指定服务器的当前连接尝试落定；不建立新连接、不重试请求。
+   * 管理器变化（移除/替换/关闭）或取消信号会唤醒等待。
+   */
+  async waitForServers(
+    names: readonly string[],
+    options: { signal?: AbortSignal } = {},
+  ): Promise<void> {
+    const signal = options.signal
+    const unique = [...new Set(names)]
+    if (this.closedValue || signal?.aborted) return
+    for (;;) {
+      if (this.closedValue || signal?.aborted) return
+      const attempts: { slot: Slot; ready: Promise<void> }[] = []
+      for (const name of unique) {
+        const slot = this.slotsByName.get(name)
+        if (!slot || !this.startedValue || slot.entry.config.enabled === false) continue
+        if (slot.ready) attempts.push({ slot, ready: slot.ready })
+      }
+      if (attempts.length === 0) return
+      const change = this.waitForChange()
+      const abort = waitForAbort(signal)
+      const outcome = await Promise.race([
+        Promise.all(attempts.map((attempt) => attempt.ready)).then(() => 'ready' as const),
+        change.promise.then(() => 'changed' as const),
+        abort.promise,
+      ])
+      change.cancel()
+      abort.cancel()
+      if (outcome === 'aborted' || signal?.aborted || this.closedValue) return
+      // 落定或变化都必须确认槽位仍是当前尝试；被替换时继续等新连接。
+      const stillCurrent = attempts.every(({ slot, ready }) => {
+        const current = this.slotsByName.get(slot.entry.name)
+        return current === slot && slot.ready === ready
+      })
+      if (outcome === 'ready' && stillCurrent) return
+      if (!stillCurrent) continue
+    }
+  }
+
+  private beginOpen(slot: Slot): Promise<void> {
+    const epoch = ++slot.epoch
+    const opening = this.openSlot(slot, epoch)
+    slot.ready = opening.catch(() => undefined)
+    return opening
+  }
+
+  private waitForChange(): { promise: Promise<void>; cancel: () => void } {
+    let resolve!: () => void
+    const promise = new Promise<void>((resolvePromise) => {
+      resolve = resolvePromise
+    })
+    const waiter = () => resolve()
+    this.changeWaiters.add(waiter)
+    return {
+      promise,
+      cancel: () => {
+        this.changeWaiters.delete(waiter)
+      },
+    }
+  }
+
+  /** 撤下槽位：立即递增代次并让等待者看到条目不再属于当前集合。 */
+  private retireSlot(slot: Slot): void {
+    slot.epoch += 1
+    slot.catalogRevision += 1
+    slot.ready = undefined
+    const closings: Promise<void>[] = []
+    if (slot.connection) {
+      closings.push(this.closeSlotConnection(slot, slot.connection))
+    } else if (slot.closing) {
+      closings.push(slot.closing)
+    }
+    if (slot.connectPromise) closings.push(slot.connectPromise)
+    if (closings.length === 0) return
+    const task = Promise.allSettled(closings).then(() => undefined)
+    this.retiredTasks.add(task)
+    void task.finally(() => {
+      this.retiredTasks.delete(task)
+    })
+  }
+
   reconnect(name: string): Promise<void> {
     const slot = this.getSlot(name)
     if (this.closedValue) return Promise.reject(new McpOperationError('manager-closed'))
@@ -302,7 +492,7 @@ export class McpConnectionManager {
       return Promise.reject(new McpOperationError('server-disabled'))
     }
     const epoch = ++slot.epoch
-    return this.enqueue(async () => {
+    const task = this.enqueue(async () => {
       if (!this.canOpen(slot, epoch)) return
       await slot.closing
       if (!this.canOpen(slot, epoch)) return
@@ -318,6 +508,8 @@ export class McpConnectionManager {
         if (slot.connectPromise === reconnecting) slot.connectPromise = undefined
       }
     })
+    slot.ready = task.catch(() => undefined)
+    return task
   }
 
   /** 临时启用/禁用；禁用立即关闭连接，启用排队等待旧连接收尾。 */
@@ -335,6 +527,7 @@ export class McpConnectionManager {
     this.publish()
 
     if (!enabled) {
+      slot.ready = undefined
       const connection = slot.connection
       if (!connection) return Promise.resolve()
       // 立即失效并关闭；连接会中止进行中的 opening。
@@ -350,12 +543,14 @@ export class McpConnectionManager {
     }
 
     if (!this.startedValue) return Promise.resolve()
-    return this.enqueue(async () => {
+    const task = this.enqueue(async () => {
       if (!this.canOpen(slot, epoch)) return
       await slot.closing
       if (!this.canOpen(slot, epoch)) return
       await this.openSlot(slot, epoch)
     })
+    slot.ready = task.catch(() => undefined)
+    return task
   }
 
   /** 临时修改 exposure；只改实例状态，不重连。 */
@@ -444,12 +639,15 @@ export class McpConnectionManager {
     const connections = this.slots.flatMap((slot) => (slot.connection ? [slot.connection] : []))
     // 立即关闭，不能等管理队列。
     const closing = connections.map((connection) => connection.close())
-    return Promise.allSettled([this.management, ...closing])
+    return Promise.allSettled([this.management, ...closing, ...this.retiredTasks])
       .then(async () => {
         // 兜底：排队操作可能刚创建了连接。
         for (let round = 0; round < 3; round += 1) {
           const remaining = this.slots.flatMap((slot) => (slot.connection ? [slot.connection] : []))
-          await Promise.allSettled(remaining.map((connection) => connection.close()))
+          await Promise.allSettled([
+            ...remaining.map((connection) => connection.close()),
+            ...this.retiredTasks,
+          ])
           if (remaining.length === 0) break
         }
       })
@@ -460,6 +658,8 @@ export class McpConnectionManager {
     return (
       !this.closedValue &&
       this.startedValue &&
+      // 已被替换/移除的旧槽位即使代次未变也不能再建立连接。
+      this.slotsByName.get(slot.entry.name) === slot &&
       slot.epoch === epoch &&
       slot.entry.config.enabled !== false
     )
@@ -485,9 +685,15 @@ export class McpConnectionManager {
   private async ensureConnection(slot: Slot): Promise<McpServerConnection> {
     if (this.closedValue) throw new McpOperationError('manager-closed')
     if (slot.entry.config.enabled === false) throw new McpOperationError('server-disabled')
+    // 被替换/移除的旧槽位不得创建新连接。
+    if (this.slotsByName.get(slot.entry.name) !== slot) {
+      throw new McpOperationError('unknown-server')
+    }
     // closing 优先于可见状态；close 的同步失效可能早于状态通知。
     if (slot.closing) await slot.closing.catch(() => undefined)
-    this.assertCallable(slot.entry.name)
+    if (this.assertCallable(slot.entry.name) !== slot) {
+      throw new McpOperationError('unknown-server')
+    }
     if (slot.connection && slot.connection.getSnapshot().state !== 'closed') {
       return slot.connection
     }
@@ -503,9 +709,11 @@ export class McpConnectionManager {
       ...(this.options.env ? { env: this.options.env } : {}),
       ...(this.options.runCommand ? { runCommand: this.options.runCommand } : {}),
       assertRequestAllowed: (tool) => {
-        this.assertCallable(slot.entry.name)
+        // 按名称解析当前槽位：旧连接收尾期间也必须遵守替换后的 exposure/启停。
+        const current = this.assertCallable(slot.entry.name)
+        if (current !== slot) throw new McpOperationError('unknown-server')
         if (tool === undefined) this.assertResourceServer(slot.entry.name)
-        else if (getMcpToolExposure(slot.entry.config, tool) === 'hidden') {
+        else if (getMcpToolExposure(current.entry.config, tool) === 'hidden') {
           throw new McpOperationError('tool-hidden')
         }
       },
@@ -586,6 +794,15 @@ export class McpConnectionManager {
 
   private publish(): void {
     this.revisionValue += 1
+    // 先唤醒就绪等待者；它们会在下一轮读取最新槽位集合。
+    for (const waiter of [...this.changeWaiters]) {
+      try {
+        waiter()
+      } catch {
+        // 等待者异常不影响发布。
+      }
+    }
+    this.changeWaiters.clear()
     if (this.listeners.size === 0) return
     for (const listener of [...this.listeners]) {
       try {

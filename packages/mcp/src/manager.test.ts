@@ -6,6 +6,7 @@
  * 与秘密不进入快照/错误。真实 stdio/HTTP 在 stdio.test.ts 与 http.test.ts。
  */
 
+import type { McpTransport } from '@earendil-works/pi-mcp'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   createMcpConnectionManager,
@@ -51,6 +52,7 @@ function createMemoryManager(
     context: McpTransportFactoryContext,
     index: number,
   ) => MemoryMcpServerOptions | Promise<MemoryMcpServerOptions>,
+  wrapTransport?: (transport: McpTransport, index: number) => McpTransport,
 ): {
   manager: McpConnectionManager
   servers: MemoryMcpServer[]
@@ -63,7 +65,9 @@ function createMemoryManager(
     const options = serverOptions ? await serverOptions(context, servers.length) : {}
     const server = await createMemoryMcpServer(options)
     servers.push(server)
-    return server.clientTransport
+    return wrapTransport
+      ? wrapTransport(server.clientTransport, servers.length - 1)
+      : server.clientTransport
   }
   const manager = createMcpConnectionManager({
     cwd: process.cwd(),
@@ -787,5 +791,149 @@ describe('生命周期与竞态', () => {
     await manager.start()
     await expect(manager.callTool('demo', 'echo')).rejects.toMatchObject({ code: 'request-failed' })
     expect(firstServer(servers).toolCalls).toHaveLength(1)
+  })
+})
+
+describe('条目对账与就绪等待（d2b）', () => {
+  it('无关对账保留临时禁用/exposure且不重连', async () => {
+    const entry = makeEntry('alpha', { command: 'fixture', exposure: 'direct' })
+    const { manager, servers } = createMemoryManager([entry])
+    await manager.start()
+    manager.setExposure('alpha', 'hidden')
+    await manager.setServers([entry, makeEntry('beta', { command: 'fixture' })])
+    expect(manager.snapshot().servers[0]?.exposure).toBe('hidden')
+    expect(servers).toHaveLength(2)
+    await manager.setEnabled('alpha', false)
+    await manager.setServers([entry, makeEntry('beta', { command: 'fixture' })])
+    expect(manager.snapshot().servers[0]?.enabled).toBe(false)
+    expect(servers).toHaveLength(2)
+  })
+
+  it('普通调用在条目替换时等待旧transport关闭屏障', async () => {
+    const release = deferred<void>()
+    const closing = deferred<void>()
+    const entry = makeEntry('alpha', { command: 'fixture' })
+    const { manager, servers } = createMemoryManager(
+      [entry],
+      () => ({}),
+      (transport, index) => {
+        if (index !== 0) return transport
+        const close = transport.close.bind(transport)
+        transport.close = async () => {
+          closing.resolve()
+          await release.promise
+          await close()
+        }
+        return transport
+      },
+    )
+    await manager.start()
+    const replacing = manager.setServers([makeEntry('alpha', { command: 'other' })])
+    await closing.promise
+    const call = manager.callTool('alpha', 'echo', { text: 'replacement' })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(servers).toHaveLength(1)
+    release.resolve()
+    await replacing
+    await expect(call).resolves.toMatchObject({
+      content: [{ type: 'text', text: 'echo:replacement' }],
+    })
+    expect(servers).toHaveLength(2)
+  })
+
+  it('setServers 保留未变条目的连接，只替换变化项', async () => {
+    const { manager, servers } = createMemoryManager([
+      makeEntry('alpha', { command: 'fixture' }),
+      makeEntry('beta', { command: 'fixture' }),
+    ])
+    await manager.start()
+    await manager.waitForServers(['alpha', 'beta'])
+    const alphaServer = firstServer(servers)
+    expect(alphaServer.initializeCount).toBe(1)
+    const betaServer = servers[1]
+    expect(betaServer?.initializeCount).toBe(1)
+
+    await manager.setServers([
+      makeEntry('alpha', { command: 'fixture' }),
+      makeEntry('beta', { command: 'fixture', timeout: 99 }),
+    ])
+    // alpha 未变：没有新建 transport，仍使用原连接。
+    expect(alphaServer.initializeCount).toBe(1)
+    expect(servers).toHaveLength(3)
+    expect(servers[2]?.initializeCount).toBe(1)
+    await manager.waitForServers(['beta'])
+    const snapshot = manager.snapshot()
+    expect(snapshot.servers.map((server) => server.name)).toEqual(['alpha', 'beta'])
+    expect(snapshot.servers.find((server) => server.name === 'beta')?.state).toBe('connected')
+  })
+
+  it('移除条目立即撤下目录并等待旧连接关闭，未变项不受影响', async () => {
+    const { manager, servers } = createMemoryManager([
+      makeEntry('alpha', { command: 'fixture' }),
+      makeEntry('beta', { command: 'fixture' }),
+    ])
+    await manager.start()
+    await manager.waitForServers(['alpha', 'beta'])
+    const alphaServer = firstServer(servers)
+    await manager.setServers([makeEntry('alpha', { command: 'fixture' })])
+    expect(manager.snapshot().servers.map((server) => server.name)).toEqual(['alpha'])
+    expect(() => manager.getToolCatalog('beta')).toThrow()
+    expect(alphaServer.initializeCount).toBe(1)
+  })
+
+  it('waitForServers 等待当前尝试，并在移除时被唤醒', async () => {
+    const { manager } = createMemoryManager([makeEntry('slow', { command: 'fixture' })], () => ({
+      initializeDelayMs: 500,
+    }))
+    void manager.start()
+    const started = Date.now()
+    const waiting = manager.waitForServers(['slow'])
+    await manager.setServers([])
+    await waiting
+    expect(Date.now() - started).toBeLessThan(500)
+    expect(manager.snapshot().servers).toEqual([])
+  })
+
+  it('waitForServers 可取消，不建立额外连接', async () => {
+    const { manager, servers } = createMemoryManager(
+      [makeEntry('slow', { command: 'fixture' })],
+      () => ({
+        initializeDelayMs: 500,
+      }),
+    )
+    void manager.start()
+    const controller = new AbortController()
+    const waiting = manager.waitForServers(['slow'], { signal: controller.signal })
+    setTimeout(() => controller.abort(), 20)
+    await waiting
+    expect(servers).toHaveLength(1)
+    expect(manager.snapshot().servers[0]?.state).toBe('connecting')
+  })
+
+  it('接受 extension 运行时 scope，并拒绝非原子的碰撞更新', async () => {
+    const { manager } = createMemoryManager([
+      makeEntry('alpha', { command: 'fixture' }, { scope: 'extension' }),
+    ])
+    await manager.start()
+    await manager.waitForServers(['alpha'])
+    expect(manager.snapshot().servers[0]?.scope).toBe('extension')
+    await expect(
+      manager.setServers([
+        makeEntry('a-b', { command: 'fixture' }),
+        makeEntry('a_b', { command: 'fixture' }),
+      ]),
+    ).rejects.toBeInstanceOf(McpManagerInputError)
+    expect(manager.snapshot().servers.map((server) => server.name)).toEqual(['alpha'])
+  })
+
+  it('启动前 setServers 的条目随后由 start 连接', async () => {
+    const { manager } = createMemoryManager([makeEntry('alpha', { command: 'fixture' })])
+    await manager.setServers([
+      makeEntry('alpha', { command: 'fixture' }),
+      makeEntry('beta', { command: 'fixture' }),
+    ])
+    await manager.start()
+    await manager.waitForServers(['alpha', 'beta'])
+    expect(manager.snapshot().servers.every((server) => server.state === 'connected')).toBe(true)
   })
 })

@@ -45,6 +45,7 @@ import {
   type SessionStartEvent,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
+import { createMcpIntegration, type McpIntegration } from '@huan/mcp'
 import type {
   HarnessAgentMessage,
   HarnessAnySessionEntry,
@@ -152,6 +153,7 @@ import {
 import {
   type ProjectTrustResult,
   type ProjectTrustSource,
+  type ProjectTrustState,
   prepareProjectTrust,
 } from './project-trust.js'
 import { createProviderAuthBroker } from './provider-auth.js'
@@ -318,6 +320,8 @@ type PreparedProject = {
   }
   /** loader 的宿主信任检查绑定：重载后就地更新 trust.state。 */
   trustBinding: BoundResourceLoaderTrust
+  /** 本装配的 MCP 集成 binding；随会话创建/查询装配，由宿主统一关闭。 */
+  mcp: McpIntegration
 }
 
 /** 每 cwd 的项目状态缓存与可复用的启动/决定装配。 */
@@ -403,6 +407,8 @@ type ThreadRecord = {
   resourceLoader: ResourceLoader
   /** loader 的信任检查绑定：重载后就地更新，是 live 会话的信任权威。 */
   trustBinding: BoundResourceLoaderTrust
+  /** 本会话的 MCP 集成 binding；删除/销毁时由宿主主动关闭。 */
+  mcp: McpIntegration
   /** 在途发送（含预检阶段），取消/删除需使它们全部失效并等待退出。 */
   inFlight: Set<InFlightSend>
   /** 当前运行的归属与结局候选（agent_start 建立、agent_settled 结算）。 */
@@ -742,12 +748,35 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     if (!diagnostics.includes(message)) diagnostics.push(message)
   }
 
+  /**
+   * 关闭一个 MCP binding 并移出宿主集合。
+   *
+   * binding.close 幂等且同步禁止晚结果；这里吞掉清理异常，避免掩盖真正的
+   * 创建/删除/销毁失败（诊断已由各路径负责）。
+   */
+  const closeMcpBinding = async (mcp: McpIntegration): Promise<void> => {
+    mcpBindings.delete(mcp)
+    try {
+      await mcp.close()
+    } catch {
+      // 清理失败不改变调用方的失败/成功口径。
+    }
+  }
+
   // ---- 装配层：共享 modelRuntime（全宿主一份），其余每会话独立 ----
   const modelRuntime = await createSharedModelRuntime(agentDir)
   const startRefresh = options.refreshCatalogOnStart ?? true
   const refreshTimeoutMs = options.catalogRefreshTimeoutMs ?? 15_000
 
   const records = new Map<string, ThreadRecord>()
+  /**
+   * 宿主创建过的全部 MCP integration binding。
+   *
+   * 查询装配（未消费的 pending）与尚在装配中的会话也会在此登记；宿主 dispose
+   * 必须能在 await 认证等步骤前同步使它们失效，而不能只依赖已发布会话的
+   * `session_shutdown` handler。
+   */
+  const mcpBindings = new Set<McpIntegration>()
   /** 宿主级交互通道：启动期 project_trust/session_start 请求也经它发现与应答。 */
   const interactions = createHostInteractions()
   /**
@@ -1089,81 +1118,104 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     cwd: string,
     override?: boolean,
   ): Promise<PreparedProject> => {
+    if (disposed) throw new Error('Harness host is disposed')
     const guard: { record?: ThreadRecord } = {}
     const workspaceBinding: PreparedProject['workspaceBinding'] = {
       loadedInstructionPaths: [],
     }
-    const trust = await prepareProjectTrust({
-      cwd,
+    // binding 先于信任装配创建：工厂在此轮 loader.reload 中就会注册事件。
+    // 初始尚未取得 trust 时闭包必须返回 false，避免把“未知”当作已信任。
+    let trustState: ProjectTrustState | undefined
+    const mcp = createMcpIntegration({
       agentDir,
-      ...(override !== undefined ? { override } : {}),
-      trustStore,
-      resourceLoaderOptions: {
-        ...toResourceLoaderOptions(resourceLoaderOptions),
-        extensionFactories: [
-          createInputGuardExtension(() => guard.record),
-          // 工作区扩展按会话实例装配。loader 若先用于查询，绑定槽为空；
-          // 被某个 live session 消费时才写入归属，不会按 cwd 复用给另一个工作区。
-          createWorkspaceToolsExtension({
-            getWorkspace: () =>
-              workspaceBinding.workspaceId
-                ? workspaceSnapshotOf(workspaceBinding.workspaceId)
-                : null,
-            getLoadedInstructionPaths: () => workspaceBinding.loadedInstructionPaths,
-            onWorkspaceApplied: (workspace) => workspaceBinding.onApplied?.(workspace),
-          }),
-          // codemode / tool_search 按 CLI 的 named builtin + replaceable 约定装配；
-          // 默认不激活，遵循 extensions 启停/替换与 defaultTools。
-          ...createBuiltinExtensionFactories(),
-        ],
-      },
-      // 项目信任扩展可以获得真实 RPC UI；请求在 record 发布前也可发现/应答。
-      projectTrustContext: projectTrustContextOf(cwd),
+      getProjectTrusted: () =>
+        trustState?.status === 'trusted' &&
+        // 装配后、session_start 前新出现的资源不能沿用 no-resources 授权。
+        (trustState.source !== 'no-resources' || !hasTrustRequiringProjectResources(cwd)),
     })
-    for (const message of [...trust.loadErrors, ...trust.state.extensionErrors]) {
-      diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
-      safeDiagnostics.add('assembly-warning')
+    mcpBindings.add(mcp)
+    try {
+      const trust = await prepareProjectTrust({
+        cwd,
+        agentDir,
+        ...(override !== undefined ? { override } : {}),
+        trustStore,
+        resourceLoaderOptions: {
+          ...toResourceLoaderOptions(resourceLoaderOptions),
+          extensionFactories: [
+            createInputGuardExtension(() => guard.record),
+            // 工作区扩展按会话实例装配。loader 若先用于查询，绑定槽为空；
+            // 被某个 live session 消费时才写入归属，不会按 cwd 复用给另一个工作区。
+            createWorkspaceToolsExtension({
+              getWorkspace: () =>
+                workspaceBinding.workspaceId
+                  ? workspaceSnapshotOf(workspaceBinding.workspaceId)
+                  : null,
+              getLoadedInstructionPaths: () => workspaceBinding.loadedInstructionPaths,
+              onWorkspaceApplied: (workspace) => workspaceBinding.onApplied?.(workspace),
+            }),
+            // codemode / tool_search / mcp 按 CLI 的 named builtin + replaceable
+            // 约定装配；MCP 只注入 huan 的无界面集成工厂，不注入官方实现。
+            ...createBuiltinExtensionFactories(mcp.extension),
+          ],
+        },
+        // 项目信任扩展可以获得真实 RPC UI；请求在 record 发布前也可发现/应答。
+        projectTrustContext: projectTrustContextOf(cwd),
+      })
+      // 本轮 loader 的权威状态对象会在 reload 时被就地更新；session_start 的
+      // getProjectTrusted 每次读取它，因此 no-resources 之后新增受保护资源
+      // 不会沿用旧结论。
+      trustState = trust.state
+      for (const message of [...trust.loadErrors, ...trust.state.extensionErrors]) {
+        diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
+        safeDiagnostics.add('assembly-warning')
+      }
+      const extensions = trust.resourceLoader.getExtensions()
+      // 上游 pi-workspaces 与本宿主的同名工具职责重叠。若用户仍安装该插件，
+      // 明确拒绝装配并给出诊断，避免双重注册/双重权威静默并存。
+      const conflicting = extensions.extensions.find((extension) => {
+        const segments = extension.path.split(/[\\/]/)
+        return segments.some(
+          (segment) => segment === 'pi-workspaces' || segment.startsWith('pi-workspaces.'),
+        )
+      })
+      if (conflicting) {
+        const message =
+          `检测到 pi-workspaces 扩展（${conflicting.path}）；huan 已内置工作区工具，` +
+          '请移除该扩展后重新打开项目，避免同名工具重复注册。'
+        diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
+        safeDiagnostics.add('assembly-warning')
+        throw new Error(message)
+      }
+      registerPreparedProviders(extensions)
+      // 与 SDK 服务装配一致：注册完 provider 后物化本地目录，不触发联网。
+      await modelRuntime.refresh({ allowNetwork: false })
+      workspaceBinding.loadedInstructionPaths = trust.resourceLoader
+        .getAgentsFiles()
+        .agentsFiles.map((file) => file.path)
+      // SDK 的 AgentSession.reload() 调 loader.reload() 时不传信任回调；宿主必须
+      // 保证重载不能绕过信任门控（新出现的项目资源不得沿用 no-resources 结论）。
+      const trustBinding = bindResourceLoaderTrust(trust.resourceLoader, {
+        cwd: trust.state.cwd,
+        settingsManager: trust.settingsManager,
+        trustStore,
+        state: trust.state,
+        explicitDecision: () => explicitTrust.get(pathKey(trust.state.cwd)),
+        projectTrustContext: () => projectTrustContextOf(trust.state.cwd),
+        onExtensionErrors: (errors) => {
+          for (const message of errors) {
+            pushDiagnostic(`重载信任扩展（${trust.state.cwd}）：${message}`)
+            safeDiagnostics.add('assembly-warning')
+          }
+        },
+      })
+      return { trust, guard, workspaceBinding, trustBinding, mcp }
+    } catch (error) {
+      // 装配中途失败（含信任/扩展冲突/模型目录刷新）：本 binding 不会被会话
+      // 消费，立即关闭，避免工厂已注册的晚启动路径留下连接。
+      await closeMcpBinding(mcp)
+      throw error
     }
-    const extensions = trust.resourceLoader.getExtensions()
-    // 上游 pi-workspaces 与本宿主的同名工具职责重叠。若用户仍安装该插件，
-    // 明确拒绝装配并给出诊断，避免双重注册/双重权威静默并存。
-    const conflicting = extensions.extensions.find((extension) => {
-      const segments = extension.path.split(/[\\/]/)
-      return segments.some(
-        (segment) => segment === 'pi-workspaces' || segment.startsWith('pi-workspaces.'),
-      )
-    })
-    if (conflicting) {
-      const message =
-        `检测到 pi-workspaces 扩展（${conflicting.path}）；huan 已内置工作区工具，` +
-        '请移除该扩展后重新打开项目，避免同名工具重复注册。'
-      diagnostics.push(`扩展装配（${trust.state.cwd}）：${message}`)
-      safeDiagnostics.add('assembly-warning')
-      throw new Error(message)
-    }
-    registerPreparedProviders(extensions)
-    // 与 SDK 服务装配一致：注册完 provider 后物化本地目录，不触发联网。
-    await modelRuntime.refresh({ allowNetwork: false })
-    workspaceBinding.loadedInstructionPaths = trust.resourceLoader
-      .getAgentsFiles()
-      .agentsFiles.map((file) => file.path)
-    // SDK 的 AgentSession.reload() 调 loader.reload() 时不传信任回调；宿主必须
-    // 保证重载不能绕过信任门控（新出现的项目资源不得沿用 no-resources 结论）。
-    const trustBinding = bindResourceLoaderTrust(trust.resourceLoader, {
-      cwd: trust.state.cwd,
-      settingsManager: trust.settingsManager,
-      trustStore,
-      state: trust.state,
-      explicitDecision: () => explicitTrust.get(pathKey(trust.state.cwd)),
-      projectTrustContext: () => projectTrustContextOf(trust.state.cwd),
-      onExtensionErrors: (errors) => {
-        for (const message of errors) {
-          pushDiagnostic(`重载信任扩展（${trust.state.cwd}）：${message}`)
-          safeDiagnostics.add('assembly-warning')
-        }
-      },
-    })
-    return { trust, guard, workspaceBinding, trustBinding }
   }
 
   /** 由一次装配结果建立/替换项目缓存。旧 loader 未被消费时直接丢弃。 */
@@ -1184,6 +1236,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         settingsManager: prepared.trust.settingsManager,
       }),
       pending: prepared,
+    }
+    // 替换缓存时旧 pending loader 不会再被消费；其 MCP binding 必须同步收尾，
+    // 不能等宿主 dispose（查询路径可能反复重建项目装配）。
+    const previous = projectRuntimes.get(runtime.cwd)
+    if (previous?.pending && previous.pending !== prepared) {
+      void closeMcpBinding(previous.pending.mcp)
     }
     runtime.lastLoader = {
       loader: prepared.trust.resourceLoader,
@@ -2328,257 +2386,274 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     // 输入守卫在 prepareProjectSession 中已作为合成扩展追加。
     const project = opts.project ?? (await acquireProjectSession(cwd))
     const prepared = project.prepared
-    const projectCwd = project.runtime.cwd
-    // loader 只能服务一个 live session；这里写入本次会话的工作区归属。
-    prepared.workspaceBinding.workspaceId = opts.workspaceId
-    const services: AgentSessionServices = {
-      cwd: projectCwd,
-      agentDir,
-      modelRuntime,
-      settingsManager: prepared.trust.settingsManager,
-      resourceLoader: prepared.trust.resourceLoader,
-      diagnostics: [],
-    }
-    throwIfOpenCancelled(opts.signal, openedGeneration)
-
-    // 查询时缓存的 loader 可能早于用户设置保存；消费前重读设置，资源不重复装配。
-    await prepared.trust.settingsManager.reload()
-    // 新会话：显式模型 > 目标项目默认模型；冷打开不传，由 SDK 从会话记录恢复。
-    const currentDefault = resolveDefaultModel({
-      modelRuntime,
-      cwd: projectCwd,
-      agentDir,
-      ...(options.model ? { model: options.model } : {}),
-      settingsManager: prepared.trust.settingsManager,
-    })
-    const newSessionModel = opts.model ?? currentDefault.model
-    // 新会话/冷打开都读取已保存的用户默认范围（与 CLI 同口径）：
-    // 范围是会话内存状态，不写入 Pi 会话记录；影响模型循环与选择器候选。
-    const savedScopePatterns = prepared.trust.settingsManager.getEnabledModels()
-    const savedScope = savedScopePatterns?.length
-      ? await resolveScopePatterns(savedScopePatterns)
-      : { scopedModels: [], diagnostics: [] }
-    for (const diagnostic of savedScope.diagnostics) {
-      diagnostics.push(`模型范围（${projectCwd}）：${diagnostic.message}`)
-    }
-    const { session, modelFallbackMessage } = await createAgentSessionFromServices({
-      services,
-      sessionManager,
-      ...(opts.isNew && newSessionModel ? { model: newSessionModel } : {}),
-      ...(savedScope.scopedModels.length ? { scopedModels: savedScope.scopedModels } : {}),
-      ...(opts.sessionStartEvent ? { sessionStartEvent: opts.sessionStartEvent } : {}),
-    })
-    // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
-    if (modelFallbackMessage) {
-      diagnostics.push(`模型回退（${projectCwd}）：${modelFallbackMessage}`)
-      safeDiagnostics.add('model-fallback')
-    }
-
-    if (openWasCancelled(opts.signal, openedGeneration)) {
-      session.dispose()
-      throwOpenCancelled()
-    }
-
-    // Thinking 级别在模型应用之后设置（SDK 的 setModel 自身会调整级别）。
-    if (opts.isNew && opts.thinkingLevel) {
-      try {
-        await session.setThinkingLevel(opts.thinkingLevel)
-      } catch (error) {
-        diagnostics.push(`Thinking 级别设置（${projectCwd}）：${String(error)}`)
+    let published = false
+    try {
+      const projectCwd = project.runtime.cwd
+      // loader 只能服务一个 live session；这里写入本次会话的工作区归属。
+      prepared.workspaceBinding.workspaceId = opts.workspaceId
+      const services: AgentSessionServices = {
+        cwd: projectCwd,
+        agentDir,
+        modelRuntime,
+        settingsManager: prepared.trust.settingsManager,
+        resourceLoader: prepared.trust.resourceLoader,
+        diagnostics: [],
       }
       throwIfOpenCancelled(opts.signal, openedGeneration)
-    }
 
-    const threadId = session.sessionId
-    const record: ThreadRecord = {
-      threadId,
-      session,
-      sessionManager,
-      settingsManager: prepared.trust.settingsManager,
-      uiBridge: undefined as unknown as HostUiBridge,
-      hostUi: {
-        statuses: new Map(),
-        widgets: new Map(),
-        notifications: [],
-        notificationCounter: 0,
-        unsupportedReported: new Set(),
-        title: undefined,
-        workingMessage: undefined,
-        workingVisible: undefined,
-        hiddenThinkingLabel: undefined,
-        editorDirective: undefined,
-        commandTarget: undefined,
-      },
-      unsubscribe: () => {},
-      listeners: new Set(),
-      seq: 0,
-      turnIndex: -1,
-      workspacePath: projectCwd,
-      workspaceId: opts.workspaceId,
-      workspaceAppliedRevision:
-        opts.workspaceAppliedRevision ??
-        (opts.workspaceId ? workspaceStore.workspace(opts.workspaceId)?.revision : undefined),
-      workspaceBinding: prepared.workspaceBinding,
-      lastError: undefined,
-      resourceLoader: prepared.trust.resourceLoader,
-      trustBinding: prepared.trustBinding,
-      inFlight: new Set(),
-      currentRun: undefined,
-      bash: undefined,
-      compactionReason: undefined,
-      lastCompactionError: undefined,
-      lastCompactionAborted: false,
-      admission: undefined,
-      admissionWaiters: new Set(),
-      startingSend: undefined,
-      retired: false,
-      sweepUnattendedRun: false,
-      structure: undefined,
-      // 新装配即当前资源版本；成功重载后再递增。
-      resourceRevision: resourceRevisionSeq,
-      reload: undefined,
-    }
+      // 查询时缓存的 loader 可能早于用户设置保存；消费前重读设置，资源不重复装配。
+      await prepared.trust.settingsManager.reload()
+      // 新会话：显式模型 > 目标项目默认模型；冷打开不传，由 SDK 从会话记录恢复。
+      const currentDefault = resolveDefaultModel({
+        modelRuntime,
+        cwd: projectCwd,
+        agentDir,
+        ...(options.model ? { model: options.model } : {}),
+        settingsManager: prepared.trust.settingsManager,
+      })
+      const newSessionModel = opts.model ?? currentDefault.model
+      // 新会话/冷打开都读取已保存的用户默认范围（与 CLI 同口径）：
+      // 范围是会话内存状态，不写入 Pi 会话记录；影响模型循环与选择器候选。
+      const savedScopePatterns = prepared.trust.settingsManager.getEnabledModels()
+      const savedScope = savedScopePatterns?.length
+        ? await resolveScopePatterns(savedScopePatterns)
+        : { scopedModels: [], diagnostics: [] }
+      for (const diagnostic of savedScope.diagnostics) {
+        diagnostics.push(`模型范围（${projectCwd}）：${diagnostic.message}`)
+      }
+      const { session, modelFallbackMessage } = await createAgentSessionFromServices({
+        services,
+        sessionManager,
+        ...(opts.isNew && newSessionModel ? { model: newSessionModel } : {}),
+        ...(savedScope.scopedModels.length ? { scopedModels: savedScope.scopedModels } : {}),
+        ...(opts.sessionStartEvent ? { sessionStartEvent: opts.sessionStartEvent } : {}),
+      })
+      // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
+      if (modelFallbackMessage) {
+        diagnostics.push(`模型回退（${projectCwd}）：${modelFallbackMessage}`)
+        safeDiagnostics.add('model-fallback')
+      }
 
-    /** 装配期请求的宿主作用域：record 发布前也允许另一窗口发现/应答。 */
-    const startupScope: HarnessHostInteractionScope = {
-      kind: 'session',
-      sessionId: threadId,
-      cwd: projectCwd,
-    }
-    const uiBridge = createHostUiBridge({
-      nextRequestId: () => `${threadId}:ui:${record.seq}:${Math.random().toString(36).slice(2, 8)}`,
-      currentToolCallId: () => {
-        const pending = session.state.pendingToolCalls
-        return pending.size === 1 ? [...pending][0] : undefined
-      },
-      emitRequest: (request: HarnessHostUiRequest) => {
-        emit(record, { type: 'extension_ui_request', request })
-      },
-      emitResolved: (requestId: string) => {
-        emit(record, { type: 'extension_ui_resolved', requestId })
-      },
-      onNotify: (message, type) => {
-        notifyHostUi(
-          record,
-          message,
-          type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info',
-        )
-      },
-      onStatus: (key, text) => setHostUiStatus(record, key, text),
-      onWidget: (key, lines, placement) => setHostUiWidget(record, key, lines, placement),
-      onTitle: (title) => setHostUiTitle(record, title),
-      onWorkingMessage: (message) => setHostUiWorkingMessage(record, message),
-      onWorkingVisible: (visible) => setHostUiWorkingVisible(record, visible),
-      onHiddenThinkingLabel: (label) => setHostUiHiddenThinkingLabel(record, label),
-      getEditorText: () => callerDraftOf(threadId),
-      onEditorWrite: (text, mode) => writeHostUiEditor(record, text, mode),
-      onUnsupported: (method) => reportUnsupportedHostUi(record, method),
-      startup: {
-        ask: (request, options) =>
-          interactions.ask(request, startupScope, {
-            ...options,
-            signal:
-              opts.signal && options?.signal
-                ? AbortSignal.any([opts.signal, options.signal])
-                : (opts.signal ?? options?.signal),
-          }),
-        dismissAll: () => interactions.cancelScope(startupScope),
-        notify: (message, type) =>
-          interactions.notify(
-            startupScope,
+      if (openWasCancelled(opts.signal, openedGeneration)) {
+        session.dispose()
+        throwOpenCancelled()
+      }
+
+      // Thinking 级别在模型应用之后设置（SDK 的 setModel 自身会调整级别）。
+      if (opts.isNew && opts.thinkingLevel) {
+        try {
+          await session.setThinkingLevel(opts.thinkingLevel)
+        } catch (error) {
+          diagnostics.push(`Thinking 级别设置（${projectCwd}）：${String(error)}`)
+        }
+        throwIfOpenCancelled(opts.signal, openedGeneration)
+      }
+
+      const threadId = session.sessionId
+      const record: ThreadRecord = {
+        threadId,
+        session,
+        sessionManager,
+        settingsManager: prepared.trust.settingsManager,
+        uiBridge: undefined as unknown as HostUiBridge,
+        hostUi: {
+          statuses: new Map(),
+          widgets: new Map(),
+          notifications: [],
+          notificationCounter: 0,
+          unsupportedReported: new Set(),
+          title: undefined,
+          workingMessage: undefined,
+          workingVisible: undefined,
+          hiddenThinkingLabel: undefined,
+          editorDirective: undefined,
+          commandTarget: undefined,
+        },
+        unsubscribe: () => {},
+        listeners: new Set(),
+        seq: 0,
+        turnIndex: -1,
+        workspacePath: projectCwd,
+        workspaceId: opts.workspaceId,
+        workspaceAppliedRevision:
+          opts.workspaceAppliedRevision ??
+          (opts.workspaceId ? workspaceStore.workspace(opts.workspaceId)?.revision : undefined),
+        workspaceBinding: prepared.workspaceBinding,
+        lastError: undefined,
+        resourceLoader: prepared.trust.resourceLoader,
+        trustBinding: prepared.trustBinding,
+        mcp: prepared.mcp,
+        inFlight: new Set(),
+        currentRun: undefined,
+        bash: undefined,
+        compactionReason: undefined,
+        lastCompactionError: undefined,
+        lastCompactionAborted: false,
+        admission: undefined,
+        admissionWaiters: new Set(),
+        startingSend: undefined,
+        retired: false,
+        sweepUnattendedRun: false,
+        structure: undefined,
+        // 新装配即当前资源版本；成功重载后再递增。
+        resourceRevision: resourceRevisionSeq,
+        reload: undefined,
+      }
+
+      /** 装配期请求的宿主作用域：record 发布前也允许另一窗口发现/应答。 */
+      const startupScope: HarnessHostInteractionScope = {
+        kind: 'session',
+        sessionId: threadId,
+        cwd: projectCwd,
+      }
+      const uiBridge = createHostUiBridge({
+        nextRequestId: () =>
+          `${threadId}:ui:${record.seq}:${Math.random().toString(36).slice(2, 8)}`,
+        currentToolCallId: () => {
+          const pending = session.state.pendingToolCalls
+          return pending.size === 1 ? [...pending][0] : undefined
+        },
+        emitRequest: (request: HarnessHostUiRequest) => {
+          emit(record, { type: 'extension_ui_request', request })
+        },
+        emitResolved: (requestId: string) => {
+          emit(record, { type: 'extension_ui_resolved', requestId })
+        },
+        onNotify: (message, type) => {
+          notifyHostUi(
+            record,
             message,
             type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info',
-          ),
-      },
-    })
-    record.uiBridge = uiBridge
-    // 运行边界回调：before_agent_start 固定本轮 revision，供页面显示实际生效版本。
-    prepared.workspaceBinding.onApplied = (workspace) => {
-      if (record.workspaceAppliedRevision === workspace?.revision) return
-      record.workspaceAppliedRevision = workspace?.revision
-      emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
-    }
-
-    // 装配期：session_start handler 的阻断请求进入宿主交互域（另一通道可应答）。
-    uiBridge.setStartup(true)
-
-    const onOpenAbort = () => uiBridge.dismissAll()
-    opts.signal?.addEventListener('abort', onOpenAbort, { once: true })
-
-    try {
-      await session.bindExtensions({
-        uiContext: uiBridge.ui,
-        // 与 CLI RPC 一致：扩展据此判断非终端环境，不尝试 TUI 专属界面。
-        mode: 'rpc',
-        commandContextActions: commandActionsFor(record),
-        shutdownHandler: () => {
-          throw new UnsupportedHostCommandActionError('shutdown')
+          )
         },
-        onError: (error) => {
-          record.lastError = error.error
-          emit(record, { type: 'error', error: error.error })
+        onStatus: (key, text) => setHostUiStatus(record, key, text),
+        onWidget: (key, lines, placement) => setHostUiWidget(record, key, lines, placement),
+        onTitle: (title) => setHostUiTitle(record, title),
+        onWorkingMessage: (message) => setHostUiWorkingMessage(record, message),
+        onWorkingVisible: (visible) => setHostUiWorkingVisible(record, visible),
+        onHiddenThinkingLabel: (label) => setHostUiHiddenThinkingLabel(record, label),
+        getEditorText: () => callerDraftOf(threadId),
+        onEditorWrite: (text, mode) => writeHostUiEditor(record, text, mode),
+        onUnsupported: (method) => reportUnsupportedHostUi(record, method),
+        startup: {
+          ask: (request, options) =>
+            interactions.ask(request, startupScope, {
+              ...options,
+              signal:
+                opts.signal && options?.signal
+                  ? AbortSignal.any([opts.signal, options.signal])
+                  : (opts.signal ?? options?.signal),
+            }),
+          dismissAll: () => interactions.cancelScope(startupScope),
+          notify: (message, type) =>
+            interactions.notify(
+              startupScope,
+              message,
+              type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'info',
+            ),
         },
       })
-    } catch (error) {
-      uiBridge.dismissAll()
-      session.dispose()
-      throw error
-    } finally {
-      opts.signal?.removeEventListener('abort', onOpenAbort)
-    }
+      record.uiBridge = uiBridge
+      // 运行边界回调：before_agent_start 固定本轮 revision，供页面显示实际生效版本。
+      prepared.workspaceBinding.onApplied = (workspace) => {
+        if (record.workspaceAppliedRevision === workspace?.revision) return
+        record.workspaceAppliedRevision = workspace?.revision
+        emit(record, { type: 'snapshot', snapshot: snapshotOf(record) })
+      }
 
-    if (openWasCancelled(opts.signal, openedGeneration)) {
-      uiBridge.dismissAll()
-      session.dispose()
-      throwOpenCancelled()
-    }
+      // 装配期：session_start handler 的阻断请求进入宿主交互域（另一通道可应答）。
+      uiBridge.setStartup(true)
 
-    try {
-      record.unsubscribe = session.subscribe((event) => onSessionEvent(record, event))
-      // agent 级兜底订阅（直连 `session.agent`，**刻意不提供退订**）：
-      // 它不受 `session.dispose()` 清理影响（那只断开 agent→session 的转发）。
-      // 必要性：SDK 在 `_emitAgentSettled()` 里先 `splice(0)` 把延迟动作取入
-      // **局部数组**再逐个 `await`；若退休发生在「第一个动作运行中」，后续
-      // 动作就留在这个局部数组里，成员数组清空够不到——只有本订阅能在它们
-      // 启动（`agent_start`）时中止（探针实证：不保留则多发出 1 次请求）。
-      // 局部批次链的结束没有可靠信号，故永久保留；record 最终成为只被该
-      // 闭包引用的孤立环，随会话一起被 GC 回收。
-      session.agent.subscribe((event) => {
-        if (event.type !== 'agent_start') return
-        if (record.retired) {
-          // 退休后仍启动的运行：立即中止（不 await，避免与 agent 的监听等待互锁）。
-          session.agent.abort()
-          return
-        }
-        // 取消后由延迟动作启动的无归属运行：按清扫标记中止。
-        const run = record.currentRun
-        if (run && run.owner === undefined && record.sweepUnattendedRun) {
-          run.cancelled = true
-          record.sweepUnattendedRun = false
-          session.agent.abort()
-        }
-      })
-    } catch (error) {
-      try {
+      const onOpenAbort = () => {
+        // 冷打开/创建被取消：立即解除启动期 UI，并永久关闭本装配的 MCP
+        // binding；即使 session_start handler 永不返回，也不能让晚到回调
+        // 在取消后启动连接。
         uiBridge.dismissAll()
-      } catch {
-        // 清理失败不掩盖原始错误。
+        void closeMcpBinding(prepared.mcp)
       }
+      opts.signal?.addEventListener('abort', onOpenAbort, { once: true })
+
       try {
+        await session.bindExtensions({
+          uiContext: uiBridge.ui,
+          // 与 CLI RPC 一致：扩展据此判断非终端环境，不尝试 TUI 专属界面。
+          mode: 'rpc',
+          commandContextActions: commandActionsFor(record),
+          shutdownHandler: () => {
+            throw new UnsupportedHostCommandActionError('shutdown')
+          },
+          onError: (error) => {
+            record.lastError = error.error
+            emit(record, { type: 'error', error: error.error })
+          },
+        })
+      } catch (error) {
+        uiBridge.dismissAll()
         session.dispose()
-      } catch {
-        // 同上。
+        throw error
+      } finally {
+        opts.signal?.removeEventListener('abort', onOpenAbort)
       }
+
+      if (openWasCancelled(opts.signal, openedGeneration)) {
+        uiBridge.dismissAll()
+        session.dispose()
+        throwOpenCancelled()
+      }
+
+      try {
+        record.unsubscribe = session.subscribe((event) => onSessionEvent(record, event))
+        // agent 级兜底订阅（直连 `session.agent`，**刻意不提供退订**）：
+        // 它不受 `session.dispose()` 清理影响（那只断开 agent→session 的转发）。
+        // 必要性：SDK 在 `_emitAgentSettled()` 里先 `splice(0)` 把延迟动作取入
+        // **局部数组**再逐个 `await`；若退休发生在「第一个动作运行中」，后续
+        // 动作就留在这个局部数组里，成员数组清空够不到——只有本订阅能在它们
+        // 启动（`agent_start`）时中止（探针实证：不保留则多发出 1 次请求）。
+        // 局部批次链的结束没有可靠信号，故永久保留；record 最终成为只被该
+        // 闭包引用的孤立环，随会话一起被 GC 回收。
+        session.agent.subscribe((event) => {
+          if (event.type !== 'agent_start') return
+          if (record.retired) {
+            // 退休后仍启动的运行：立即中止（不 await，避免与 agent 的监听等待互锁）。
+            session.agent.abort()
+            return
+          }
+          // 取消后由延迟动作启动的无归属运行：按清扫标记中止。
+          const run = record.currentRun
+          if (run && run.owner === undefined && record.sweepUnattendedRun) {
+            run.cancelled = true
+            record.sweepUnattendedRun = false
+            session.agent.abort()
+          }
+        })
+      } catch (error) {
+        try {
+          uiBridge.dismissAll()
+        } catch {
+          // 清理失败不掩盖原始错误。
+        }
+        try {
+          session.dispose()
+        } catch {
+          // 同上。
+        }
+        throw error
+      }
+
+      records.set(threadId, record)
+      if (session.sessionFile) recordsBySessionFile.set(session.sessionFile, record)
+      // record 已发布：绑定守卫的目标会话，后续阻断请求输送到订阅者。
+      prepared.guard.record = record
+      published = true
+      // 离开装配期：清掉 handler 未 await 的遗留请求，避免线程通道出现重复。
+      uiBridge.setStartup(false)
+      return record
+    } catch (error) {
+      // 任一打开/绑定/发布失败都意味着本装配不会被会话消费：主动关闭 MCP
+      // binding，防止阻塞在 session_start 的晚回调在失败后重新启动连接。
+      if (!published) await closeMcpBinding(prepared.mcp)
       throw error
     }
-
-    records.set(threadId, record)
-    if (session.sessionFile) recordsBySessionFile.set(session.sessionFile, record)
-    // record 已发布：绑定守卫的目标会话，后续阻断请求输送到订阅者。
-    prepared.guard.record = record
-    // 离开装配期：清掉 handler 未 await 的遗留请求，避免线程通道出现重复。
-    uiBridge.setStartup(false)
-    return record
   }
 
   /**
@@ -3558,8 +3633,11 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       }
 
       let childRecord: ThreadRecord | undefined
+      // 已取得但尚未交给 openSession 的项目装配；用于取消/异常时收尾 MCP。
+      let acquired: PreparedProject | undefined
       try {
         const project = await acquireProjectSession(cwd)
+        acquired = project.prepared
         // 删除/关闭可能在本操作 await 期间开始；已退役时不得再创建子文件。
         if (record.retired) throw new ForkSessionCreateError('会话已关闭，未创建分叉')
         const parentModel = record.session.model
@@ -3583,6 +3661,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
               : {}),
           },
         })
+        // openSession 成功即移交 binding 所有权给子 record。
+        acquired = undefined
         if (record.retired) throw new ForkSessionCreateError('会话已关闭，未创建分叉')
         // 子会话继承显式工作区归属；新 ID 没有归档标记，不继承归档。
         if (record.workspaceId) {
@@ -3595,6 +3675,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       } catch (error) {
         const createdFile = childRecord?.session.sessionFile ?? child.sessionFile
         if (childRecord) await abandonRecord(childRecord).catch(() => {})
+        else if (acquired) await closeMcpBinding(acquired.mcp)
         if (createdFile) await unlink(createdFile).catch(() => {})
         invalidateCatalog(cwd)
         return finalize(
@@ -4094,6 +4175,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       await abortForRetire(record.session)
       // 4) 等待在途发送的预检退出（它们不再启动运行）。
       await drainInFlight(record)
+      // MCP 回收必须在其他扩展 shutdown 之前：即使某个 handler 永久阻塞或报错，
+      // 连接也不能依赖它清理（binding.close 同步禁止晚结果）。
+      await closeMcpBinding(record.mcp)
       // 5) 收尾：先补发 shutdown（扩展可能在 handler 里再次提交延迟动作），
       //    随后**同步链内**再次清空延迟数组并 dispose，中间不插 await，
       //    否则放行的扩展 hook 会在清空与 dispose 之间启动延迟运行。
@@ -4162,6 +4246,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     record.uiBridge.dismissAll()
     await abortForRetire(record.session)
     await drainInFlight(record)
+    // 归属失败也要主动回收 MCP，不依赖扩展 shutdown handler。
+    await closeMcpBinding(record.mcp)
     await emitShutdown(record, 'quit')
     discardDeferredRuns(record.session)
     record.session.dispose()
@@ -5176,6 +5262,17 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       } catch (error) {
         pushDiagnostic(`设置落盘（${workspacePath}）：${errorText(error)}`)
       }
+      // 3) 先关闭本会话当前的 MCP 连接代次（只关当前 manager，不关闭 binding）：
+      // 旧进程必须在其他扩展的 session_shutdown handler 可能阻塞之前回收；
+      // session.reload 之后由新 factory 的 session_start 启动新代次。
+      const mcpManager = record.mcp.getManager()
+      if (mcpManager) {
+        try {
+          await mcpManager.close()
+        } catch (error) {
+          pushDiagnostic(`MCP 连接回收（${workspacePath}）：${errorText(error)}`)
+        }
+      }
       await record.session.reload({
         beforeSessionStart: async () => {
           if (record.retired || disposed) throw new Error('会话正在关闭')
@@ -5569,41 +5666,49 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 统一信任入口：只按起始 cwd 装配项目资源；其他成员不装配扩展/MCP。
       const project = await acquireProjectSession(startProject.path)
       const cwd = project.runtime.cwd
-      // 显式模型：按 registry 校验并解析为模型对象（找不到时报错，不静默回退）。
-      let explicitModel: HarnessDefaultModel | undefined
-      if (input?.model) {
-        const resolved = modelRuntime.getModel(input.model.provider, input.model.modelId)
-        if (!resolved) {
-          throw new Error(
-            `${input.model.provider}/${input.model.modelId} is not in Pi's model registry`,
-          )
+      let record: ThreadRecord
+      try {
+        // 显式模型：按 registry 校验并解析为模型对象（找不到时报错，不静默回退）。
+        let explicitModel: HarnessDefaultModel | undefined
+        if (input?.model) {
+          const resolved = modelRuntime.getModel(input.model.provider, input.model.modelId)
+          if (!resolved) {
+            throw new Error(
+              `${input.model.provider}/${input.model.modelId} is not in Pi's model registry`,
+            )
+          }
+          explicitModel = resolved
         }
-        explicitModel = resolved
-      }
-      if (
-        !input?.model &&
-        project.runtime.defaultModel.info.readiness.state === 'unavailable-model'
-      ) {
-        throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
-      }
-      // 首条消息的图片能力在创建会话前检查，避免先产生空会话再拒绝。
-      if (input?.initialMessage?.attachments?.some((item) => item.type === 'image')) {
-        const initialModel = explicitModel ?? project.runtime.defaultModel.model
-        if (!initialModel?.input?.includes('image')) {
-          throw new ImageInputUnsupportedError(initialModel?.provider, initialModel?.id)
+        if (
+          !input?.model &&
+          project.runtime.defaultModel.info.readiness.state === 'unavailable-model'
+        ) {
+          throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
         }
+        // 首条消息的图片能力在创建会话前检查，避免先产生空会话再拒绝。
+        if (input?.initialMessage?.attachments?.some((item) => item.type === 'image')) {
+          const initialModel = explicitModel ?? project.runtime.defaultModel.model
+          if (!initialModel?.input?.includes('image')) {
+            throw new ImageInputUnsupportedError(initialModel?.provider, initialModel?.id)
+          }
+        }
+        const sessionDir = resolveSessionDirFor(cwd).dir
+        // 尚未生成文件名，先检查目录中的探针路径；父目录链接也不得越过默认空间。
+        assertSessionFileInScope(join(sessionDir, '.huan-scope-check'), cwd)
+        const sessionManager = SessionManager.create(cwd, sessionDir)
+        record = await openSession(sessionManager, cwd, {
+          isNew: true,
+          project,
+          workspaceId,
+          ...(explicitModel ? { model: explicitModel } : {}),
+          ...(input?.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+        })
+      } catch (error) {
+        // 项目装配已被本次创建消费但尚未发布会话（模型校验/打开失败等）：
+        // 主动关闭其 MCP binding，避免 pending 连接或晚启动残留。
+        await closeMcpBinding(project.prepared.mcp)
+        throw error
       }
-      const sessionDir = resolveSessionDirFor(cwd).dir
-      // 尚未生成文件名，先检查目录中的探针路径；父目录链接也不得越过默认空间。
-      assertSessionFileInScope(join(sessionDir, '.huan-scope-check'), cwd)
-      const sessionManager = SessionManager.create(cwd, sessionDir)
-      const record = await openSession(sessionManager, cwd, {
-        isNew: true,
-        project,
-        workspaceId,
-        ...(explicitModel ? { model: explicitModel } : {}),
-        ...(input?.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      })
       // 先保存归属再返回成功；失败时保留 Pi 文件作为未归属会话，不删除。
       try {
         await workspaceStore.assignSession({
@@ -6201,11 +6306,18 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       if (disposed) return
       disposed = true
       generation += 1
+      // 先同步使全部 MCP binding 失效并启动管理器关闭，再 await 认证等收尾：
+      // 创建进行中、尚未发布 record 的装配也必须被回收，不能只等 session_shutdown。
+      const closingMcp = [...mcpBindings].map((mcp) => {
+        mcpBindings.delete(mcp)
+        return mcp.close().catch(() => undefined)
+      })
       // 先结算所有宿主级启动请求与认证流程，解除 project/session 装配等待。
       interactions.dispose()
       await providerAuth.dispose()
       for (const pending of pendingOpens.values()) pending.controller.abort()
       pendingOpens.clear()
+      await Promise.allSettled(closingMcp)
       for (const record of [...records.values()]) {
         // 进入收尾：不再接受新运行；唤醒等待闸门的发送（随后被取消并排空）。
         record.retired = true
@@ -6222,6 +6334,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
         await abortForRetire(record.session)
         // 等待在途发送退出（有上限）。
         await drainInFlight(record)
+        // 集合中已统一关闭；这里再幂等等一次，保持“先 MCP 后其他 shutdown”顺序。
+        await closeMcpBinding(record.mcp)
         // 收尾：先补发 shutdown（扩展可能在 handler 里再次提交延迟动作），随后
         // 同步链内清空延迟数组并 dispose（中间不插 await，否则放行的扩展 hook
         // 会在清空与 dispose 之间启动延迟运行）。清空够不到 SDK 已取走的

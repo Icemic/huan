@@ -68,7 +68,7 @@ apps/harness
 - 公共包不得 import 应用内部模块；应用之间无直接代码依赖。
 - 宿主特殊接口（Electron、Tauri、未来的原生桥）只出现在应用的 `bridge/` 或独立 adapter 包中。
 
-**MCP 集成包边界**：`packages/mcp`（`@huan/mcp`）作为 Node 集成层，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。当前包交付配置基础与无界面连接管理器（官方stdio/HTTP、目录变更、临时管理、工具/资源请求与终态关闭），core 尚未消费，Pi 工具桥接与 GUI 尚未接入；用户/可信项目分别读取 `<agentDir>/mcp.json` / `<cwd>/.pi/mcp.json`，与 Pi TUI 共用服务器配置；凭据/日志仍在 huan 子目录，不共享 Pi 的认证/日志文件，huan 专属设置独立。配置有界读取、逐项校验、revision 防覆盖与单进程串行原子保存；跨进程同时编辑不承诺 CAS，未信任项目不读原文。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；详见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)与[独立集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)。
+**MCP 集成包边界**：`packages/mcp`（`@huan/mcp`）作为 Node 集成层，依赖官方 `@earendil-works/pi-mcp` 与 Pi SDK 公开 API。它与 Pi 内置 MCP 集成同层，负责管理与 Pi 工具桥接，不替代底层协议库，不依赖 core、React 或应用模块。HTTP/窗口交互归 core/应用，浏览器传输契约归 protocol。当前 core 按 loader/会话持有无界面 integration binding，注入 huan 的 named builtin:mcp；session_start读取共享配置后后台启动唯一manager，Pi工具/资源/权限与codemode/tool_search接入同一组连接。公开扩展MCP注册动态对账，未变化项保留连接；关闭资格同步失效，core在取消/失败/删除/dispose主动回收，重载关闭旧manager后用新上下文启动。GUI管理、OAuth存储/登录与日志仍未接入；用户/可信项目分别读取 `<agentDir>/mcp.json` / `<cwd>/.pi/mcp.json`，与 Pi TUI 共用服务器配置；凭据/日志仍在 huan 子目录，不共享 Pi 的认证/日志文件，huan 专属设置独立。配置有界读取、逐项校验、revision 防覆盖与单进程串行原子保存；跨进程同时编辑不承诺 CAS，未信任项目不读原文。未来可独立演进或替换为完善后的官方集成，不预建多后端框架；详见[共享配置修订](iteration/2026-11/2026-11-02-feat-mcp-shared-config.md)与[独立集成设计](iteration/2026-11/2026-11-02-feat-mcp-integration.md)。
 
 ---
 
@@ -132,7 +132,7 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 `reloadResources` 在现有会话结构闸门内调用公开 `AgentSession.reload`，消息、分支与订阅保持不替换。旧交互与指令结算，重载启动期请求经宿主通道应答；完成状态和资源版本广播使多窗命令目录失效。loader 的公开 reload 包装与首次装配共用信任解析，仅允许本次 bootstrap 用户扩展裁决，不使用旧项目处理器。空白页只重建目标 cwd 的待消费装配，新增受保护资源重新检查信任，不影响同 cwd 的 live 会话。失败可能已关闭旧扩展，明确报告并允许修复后重试。
 
-codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，遵循 extensions 启停与 defaultTools；默认不激活，嵌套工具事件保留 parentToolCallId。MCP 工厂与凭据/管理生命周期一并接入，当前仍未注入。详见[重载迭代](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)。
+codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，遵循 extensions 启停与 defaultTools；无MCP需求时默认不激活，嵌套工具事件保留 parentToolCallId。huan MCP工厂按相同约定装配，按配置exposure激活发现工具（尊重autoEnableCodemode），经SDK动态注册工具与资源；不注入官方MCP工厂。详见[Pi桥接](iteration/2026-11/2026-11-02-feat-mcp-pi-bridge.md)与[重载迭代](iteration/2026-11/2026-11-01-feat-resource-reload-builtins.md)。
 
 ### 3.2.9 Provider 认证
 
