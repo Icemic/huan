@@ -25,6 +25,11 @@ export interface CreateHarnessResourcesOptions {
   client: HarnessClient
   serviceStore: StoreApi<HarnessServiceState>
   scheduleFrame?: HarnessFrameScheduler
+  /**
+   * 根订阅真正停止（微任务确认后）时通知组合根；StrictMode 同轮重挂不触发。
+   * 用于失效尚未派发的本地准备/提交，不发送远端停止。
+   */
+  onRootStopped?: () => void
 }
 
 /** 浏览器实例资源接口。 */
@@ -103,6 +108,7 @@ export const createHarnessResources = (
 ): HarnessBrowserResources => {
   const { client, serviceStore } = options
   const scheduleFrame = options.scheduleFrame ?? defaultScheduleFrame
+  const onRootStopped = options.onRootStopped
   const liveThreads = new Map<string, LiveThreadState>()
 
   let disposed = false
@@ -313,6 +319,11 @@ export const createHarnessResources = (
         if (disposed || rootCount > 0) return
         logCleanupErrors(stopRoot())
         clearMcpTimer()
+        try {
+          onRootStopped?.()
+        } catch (error) {
+          console.error('[huan-react] 根释放回调失败', error)
+        }
       })
     }
   }

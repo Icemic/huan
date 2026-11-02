@@ -148,7 +148,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | R1 所有权与目标架构 | 状态/资源所有权表、包与模块依赖图、store作用域、业务动作接口、旧→新删除/迁移清单 | R0初稿 | [详细设计已交付](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，含双端所有权、时序与逐项范围核对；用户已确认，未实施 |
 | R2 协议与行为规范 | 运行结算、提交结果/身份、队列边界、错误、JSON-safe、版本策略与校验归属；统一规范 | R0/R1 | [全范围复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)已回写；用户已确认精简方案，R2设计完成，实施随R3～R7进行 |
 | R3 Zustand与浏览器运行时 | 替换Controller/aui/分散store，建立目录/会话/窗口状态与连接资源所有权 | R1/R2 | [基础与应用接入已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-browser.md)，WIP；提交/面板/展示与最终验收继续R4～R8 |
-| R4 创建、提交与分支业务 | 首条/普通发送、命令/Shell、附件/草稿/历史/队列、树/fork/import/定向编辑器动作 | R1/R2/R3 | 未启动 |
+| R4 创建、提交与分支业务 | 首条/普通发送、命令/Shell、附件/草稿/历史/队列、树/fork/import/定向编辑器动作 | R1/R2/R3 | [动作已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-actions.md)，最终界面与完整验证继续R6～R8 |
 | R5 Node服务职责与生命周期 | 分解大闭包，统一准入/结算/关闭顺序，复核装配/目录/结构/配置/认证/MCP边界 | R1/R2；与R3/R4按协议协调 | 未启动 |
 | R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | 未启动 |
 | R7 展示接入与依赖清理 | 官方shadcn组合接最终状态，消息/工具/data回退、Markdown/SSE替代、滚动/焦点/键盘/i18n、移除aui依赖 | R3/R4/R6；布局设计可在R1后进行 | 未启动 |

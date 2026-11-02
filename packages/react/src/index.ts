@@ -37,6 +37,14 @@ export type {
 } from './browser/service-store.js'
 export { modelCatalogKeyOf, selectHarnessModelCatalog } from './browser/service-store.js'
 export type {
+  HarnessLocalQueueRecovery,
+  HarnessSessionActions,
+  HarnessSessionQueueRecovery,
+  HarnessSessionStopOutcome,
+  HarnessSessionSubmitInput,
+  HarnessSessionSubmitOutcome,
+} from './browser/session-actions.js'
+export type {
   HarnessAttachment,
   HarnessAttachmentStatus,
   HarnessBrowserStorage,

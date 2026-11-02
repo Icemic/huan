@@ -61,6 +61,12 @@ export interface HarnessSubmission {
   thinkingLevel?: HarnessThinkingLevel
   mode: HarnessSubmissionMode
   status: HarnessSubmissionStatus
+  /** 已调用服务端变更请求；未知派发的内容不能被队列取回冒认。 */
+  dispatched: boolean
+  /** 新建流程取得的会话 ID；创建成功后填写。 */
+  threadId?: string
+  /** 本窗提示（准备/发送失败的受控文案）。 */
+  message?: string
   createdAt: number
 }
 
@@ -116,6 +122,8 @@ export interface HarnessWindowState {
   selectTarget: (target: HarnessDraftTarget) => void
   /** 修改草稿文字；推进 draftRevision 并持久化文字。 */
   editDraftText: (draftId: string, text: string) => void
+  /** 仅当草稿仍是调用方读到的版本时替换文字；用于迟到结果保护。 */
+  setDraftTextIfRevision: (draftId: string, revision: number, text: string) => boolean
   setDraftModel: (draftId: string, model: { provider: string; modelId: string } | undefined) => void
   setDraftThinkingLevel: (draftId: string, level: HarnessThinkingLevel | undefined) => void
   /** 添加附件引用并推进草稿版本；返回附件 ID。 */
@@ -139,7 +147,23 @@ export interface HarnessWindowState {
     panelId?: string
     panelEpoch?: number
   }) => HarnessSubmission | undefined
-  setSubmissionStatus: (submissionId: string, status: HarnessSubmissionStatus) => void
+  setSubmissionStatus: (
+    submissionId: string,
+    status: HarnessSubmissionStatus,
+    message?: string,
+  ) => void
+  /** 标记已进入服务端变更请求；此后的内容不能按“未派发”取回。 */
+  markSubmissionDispatched: (submissionId: string) => void
+  /** 记录新建流程取得的会话 ID。 */
+  setSubmissionThread: (submissionId: string, threadId: string) => void
+  /**
+   * 首条创建成功后把草稿迁移到会话目标：目标草稿未被编辑时才写入。
+   * 来源版本未变时提交改指向目标草稿；来源已有新输入时只迁移最新内容，
+   * 不把提交的清理范围扩大到新输入。
+   */
+  transferSubmissionDraft: (submissionId: string, threadId: string) => boolean
+  /** 仅当草稿仍等于捕获版本时清空文字并移除本次提交的附件引用。 */
+  clearSubmissionDraft: (submissionId: string) => boolean
   /** 移除提交记录，并释放不再被草稿/提交引用的附件。 */
   removeSubmission: (submissionId: string) => void
   /**
@@ -380,6 +404,23 @@ export const createHarnessWindowStore = (
         writeStored(storage, draftKey(state.storageScope, draftId), text)
       },
 
+      setDraftTextIfRevision: (draftId, revision, text) => {
+        const state = get()
+        if (state.disposed) return false
+        const draft = state.draftsById[draftId]
+        if (!draft || draft.revision !== revision) return false
+        if (draft.text !== text) {
+          const next = patchDraft(state, draftId, (current) => ({
+            ...current,
+            text,
+            revision: current.revision + 1,
+          }))
+          set(next)
+          writeStored(storage, draftKey(state.storageScope, draftId), text)
+        }
+        return true
+      },
+
       setDraftModel: (draftId, model) => {
         const state = get()
         if (state.disposed) return
@@ -498,6 +539,7 @@ export const createHarnessWindowStore = (
           ...(draft.thinkingLevel ? { thinkingLevel: draft.thinkingLevel } : {}),
           mode: input.mode,
           status: 'pending',
+          dispatched: false,
           createdAt: Date.now(),
         }
         set({
@@ -506,17 +548,138 @@ export const createHarnessWindowStore = (
         return submission
       },
 
-      setSubmissionStatus: (submissionId, status) => {
+      setSubmissionStatus: (submissionId, status, message) => {
         const state = get()
         if (state.disposed) return
         const submission = state.submissionsById[submissionId]
-        if (!submission || submission.status === status) return
+        if (!submission) return
+        if (submission.status === status && submission.message === message) return
         set({
           submissionsById: {
             ...state.submissionsById,
-            [submissionId]: { ...submission, status },
+            [submissionId]: {
+              ...submission,
+              status,
+              ...(message ? { message } : { message: undefined }),
+            },
           },
         })
+      },
+
+      markSubmissionDispatched: (submissionId) => {
+        const state = get()
+        if (state.disposed) return
+        const submission = state.submissionsById[submissionId]
+        if (!submission || submission.dispatched) return
+        set({
+          submissionsById: {
+            ...state.submissionsById,
+            [submissionId]: { ...submission, dispatched: true },
+          },
+        })
+      },
+
+      setSubmissionThread: (submissionId, threadId) => {
+        const state = get()
+        if (state.disposed) return
+        const submission = state.submissionsById[submissionId]
+        if (!submission || submission.threadId === threadId) return
+        set({
+          submissionsById: {
+            ...state.submissionsById,
+            [submissionId]: { ...submission, threadId },
+          },
+        })
+      },
+
+      transferSubmissionDraft: (submissionId, threadId) => {
+        const state = get()
+        if (state.disposed) return false
+        const submission = state.submissionsById[submissionId]
+        if (!submission) return false
+        const source = state.draftsById[submission.draft.draftId]
+        if (!source) return false
+        const destinationTarget: HarnessDraftTarget = { kind: 'thread', threadId }
+        const destinationId = draftIdOf(destinationTarget)
+        const destination = state.draftsById[destinationId]
+        // 目标草稿已有内容/版本时视为用户后来的编辑，绝不覆盖。
+        if (
+          destination &&
+          (destination.revision !== 0 ||
+            destination.text !== '' ||
+            destination.attachmentIds.length > 0)
+        ) {
+          return false
+        }
+        if (source.id === destinationId) return false
+
+        const sourceUnchanged = source.revision === submission.draft.revision
+        const migratedText = sourceUnchanged ? submission.content : source.text
+        const migratedAttachments = sourceUnchanged
+          ? submission.attachmentIds
+          : source.attachmentIds
+        const migratedModel = sourceUnchanged ? submission.model : source.model
+        const migratedThinking = sourceUnchanged ? submission.thinkingLevel : source.thinkingLevel
+        const destinationRevision = (destination?.revision ?? 0) + 1
+        const moved: HarnessDraft = {
+          id: destinationId,
+          target: destinationTarget,
+          text: migratedText,
+          revision: destinationRevision,
+          ...(migratedModel ? { model: migratedModel } : {}),
+          ...(migratedThinking ? { thinkingLevel: migratedThinking } : {}),
+          attachmentIds: [...migratedAttachments],
+        }
+        const clearedSource: HarnessDraft = {
+          ...source,
+          text: '',
+          attachmentIds: [],
+          revision: source.revision + 1,
+        }
+        const draftsById = {
+          ...state.draftsById,
+          [destinationId]: moved,
+          [source.id]: clearedSource,
+        }
+        // 来源版本未变时，提交的清理目标是迁移后的草稿；否则保留原引用，
+        // 让接受结果不会误清新输入。
+        const nextSubmission = sourceUnchanged
+          ? {
+              ...submission,
+              threadId,
+              draft: { draftId: destinationId, revision: destinationRevision },
+            }
+          : { ...submission, threadId }
+        set({
+          ...state,
+          draftsById,
+          submissionsById: {
+            ...state.submissionsById,
+            [submissionId]: nextSubmission,
+          },
+        })
+        writeStored(storage, draftKey(state.storageScope, source.id), '')
+        writeStored(storage, draftKey(state.storageScope, destinationId), migratedText)
+        return true
+      },
+
+      clearSubmissionDraft: (submissionId) => {
+        const state = get()
+        if (state.disposed) return false
+        const submission = state.submissionsById[submissionId]
+        if (!submission) return false
+        const draft = state.draftsById[submission.draft.draftId]
+        if (!draft || draft.revision !== submission.draft.revision) return false
+        const submitted = new Set(submission.attachmentIds)
+        const next = patchDraft(state, draft.id, (current) => ({
+          ...current,
+          text: '',
+          attachmentIds: current.attachmentIds.filter((id) => !submitted.has(id)),
+          revision: current.revision + 1,
+        }))
+        set(next)
+        writeStored(storage, draftKey(state.storageScope, draft.id), '')
+        return true
       },
 
       removeSubmission: (submissionId) => {

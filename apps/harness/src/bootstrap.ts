@@ -9,6 +9,8 @@ import { createHarnessBrowser, type HarnessBrowser, type HarnessBrowserStorage }
 import { createHarnessHttpClient } from '@huan/react/client'
 import type { StoreApi } from 'zustand/vanilla'
 import { applyThemeToDocument, type ThemeStorage } from './lib/theme'
+import { type ComposerFeatureState, createComposerFeatureStore } from './state/composer-store'
+import { createSessionsFeatureStore, type SessionsFeatureState } from './state/sessions-store'
 import { createThemeStore, type ThemeStoreState } from './state/theme-store'
 import { createWorkspaceFeatureStore, type WorkspaceFeatureState } from './state/workspace-store'
 
@@ -16,6 +18,8 @@ import { createWorkspaceFeatureStore, type WorkspaceFeatureState } from './state
 export interface HarnessApp {
   browser: HarnessBrowser
   workspaceStore: StoreApi<WorkspaceFeatureState>
+  sessionsStore: StoreApi<SessionsFeatureState>
+  composerStore: StoreApi<ComposerFeatureState>
   themeStore: StoreApi<ThemeStoreState>
   dispose(): void
 }
@@ -78,6 +82,16 @@ export const createHarnessApp = (): HarnessApp => {
     browser,
     ...(storage ? { storage } : { storage: null }),
   })
+  const sessionsStore = createSessionsFeatureStore({ browser })
+  const composerStore = createComposerFeatureStore({
+    browser,
+    workspaceStore,
+    sessionsStore,
+  })
+  composerStore
+    .getState()
+    .refreshCatalog()
+    .catch(() => {})
 
   // 主题业务状态在 Zustand；matchMedia 与文档 class 写入由 bootstrap 持有。
   const media =
@@ -110,6 +124,7 @@ export const createHarnessApp = (): HarnessApp => {
     if (state.selection !== previousSelection) {
       previousSelection = state.selection
       workspaceStore.getState().syncSelection()
+      composerStore.getState().onSelectionChanged()
     }
   })
 
@@ -129,6 +144,8 @@ export const createHarnessApp = (): HarnessApp => {
   return {
     browser,
     workspaceStore,
+    sessionsStore,
+    composerStore,
     themeStore,
     dispose: () => {
       if (disposed) return
@@ -141,6 +158,16 @@ export const createHarnessApp = (): HarnessApp => {
       media?.removeEventListener('change', onSystemThemeChange)
       try {
         unsubscribeWindow()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        composerStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        sessionsStore.getState().dispose()
       } catch (error) {
         errors.push(error)
       }

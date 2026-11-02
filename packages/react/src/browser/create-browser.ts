@@ -9,6 +9,7 @@ import type { HarnessClient } from '@huan/protocol'
 import type { StoreApi } from 'zustand/vanilla'
 import { createHarnessResources, type HarnessFrameScheduler } from './resources.js'
 import { createHarnessServiceStore, type HarnessServiceState } from './service-store.js'
+import { createHarnessSessionActions, type HarnessSessionActions } from './session-actions.js'
 import {
   createHarnessWindowStore,
   type HarnessBrowserStorage,
@@ -36,6 +37,8 @@ export interface HarnessBrowser {
   readonly windowStore: StoreApi<HarnessWindowState>
   readonly connectionKey: string
   readonly windowId: string
+  /** 公共会话动作：提交、停止、队列取回与固定模型选择。 */
+  readonly sessionActions: HarnessSessionActions
   /** React 根挂载取得根订阅；StrictMode 同轮重挂不中断。 */
   acquireRoot(): () => void
   /** 打开会话 live 视图时取得租约；归零后释放完整缓存。 */
@@ -77,11 +80,20 @@ export const createHarnessBrowser = (options: CreateHarnessBrowserOptions): Harn
         .setStorageScope(storageScopeOf(connectionKey, host.agentDir, host.sessionStorage.root))
     },
   })
+  let sessionActions: HarnessSessionActions | undefined
   const resources = createHarnessResources({
     client,
     serviceStore,
     ...(options.scheduleFrame ? { scheduleFrame: options.scheduleFrame } : {}),
+    onRootStopped: () => sessionActions?.cancelUnmounted(),
   })
+  sessionActions = createHarnessSessionActions({
+    client,
+    serviceStore,
+    windowStore,
+    reconnectThread: (threadId) => resources.reconnectThread(threadId),
+  })
+  const actions = sessionActions
 
   let disposed = false
 
@@ -91,6 +103,7 @@ export const createHarnessBrowser = (options: CreateHarnessBrowserOptions): Harn
     windowStore,
     connectionKey,
     windowId,
+    sessionActions: actions,
     acquireRoot: () => resources.acquireRoot(),
     acquireThreadLease: (threadId) => resources.acquireThreadLease(threadId),
     reconnectThread: (threadId) => resources.reconnectThread(threadId),
@@ -100,6 +113,12 @@ export const createHarnessBrowser = (options: CreateHarnessBrowserOptions): Harn
       if (disposed) return
       disposed = true
       const errors: unknown[] = []
+      try {
+        // 先失效未派发动作，再释放连接与状态；已派发 HTTP 不在此撤销。
+        actions.dispose()
+      } catch (error) {
+        errors.push(error)
+      }
       try {
         resources.dispose()
       } catch (error) {

@@ -8,6 +8,8 @@
 import { createContext, type ReactNode, useContext } from 'react'
 import { useStore } from 'zustand'
 import type { HarnessApp } from '../bootstrap'
+import type { ComposerFeatureState } from './composer-store'
+import type { SessionsFeatureState } from './sessions-store'
 import type { ThemeStoreState } from './theme-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
@@ -34,6 +36,14 @@ export const useHarnessApp = (): HarnessAppInstance => {
 /** 订阅工作区 feature 状态。 */
 export const useWorkspaceStore = <T,>(selector: (state: WorkspaceFeatureState) => T): T =>
   useStore(useHarnessApp().workspaceStore, selector)
+
+/** 订阅会话 feature 状态。 */
+export const useSessionsStore = <T,>(selector: (state: SessionsFeatureState) => T): T =>
+  useStore(useHarnessApp().sessionsStore, selector)
+
+/** 订阅 composer feature 状态。 */
+export const useComposerStore = <T,>(selector: (state: ComposerFeatureState) => T): T =>
+  useStore(useHarnessApp().composerStore, selector)
 
 /** 订阅主题状态。 */
 export const useThemeStore = <T,>(selector: (state: ThemeStoreState) => T): T =>

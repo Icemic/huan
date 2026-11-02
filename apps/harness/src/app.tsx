@@ -1,4 +1,9 @@
-import { HarnessBrowserProvider, useServiceStore, useWindowStore } from '@huan/react'
+import {
+  HarnessBrowserProvider,
+  useServiceStore,
+  useThreadLease,
+  useWindowStore,
+} from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { useEffect } from 'react'
@@ -120,6 +125,11 @@ function AppShell() {
   const initialize = useWorkspaceStore((state) => state.initialize)
   const hostLoading = useServiceStore((state) => state.hostLoading)
   const host = useServiceStore((state) => state.host)
+  const workspaceState = useServiceStore((state) => state.workspaceState)
+  const selection = useWindowStore((state) => state.selection)
+  // 元数据损坏或尚未确认健康时只允许冷读；不为保持实时订阅装配项目扩展。
+  const readOnly = workspaceState !== 'ok'
+  useThreadLease(!readOnly && selection?.kind === 'thread' ? selection.threadId : undefined)
 
   useEffect(() => {
     void initialize()
