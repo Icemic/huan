@@ -2,9 +2,9 @@ import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react'
 import { MonitorIcon, MoonIcon, PaletteIcon, SunDimIcon, SunIcon } from 'lucide-react'
-import { useSyncExternalStore } from 'react'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
-import { type AppTheme, getTheme, setTheme, subscribeTheme } from '@/lib/theme'
+import type { AppTheme } from '@/lib/theme'
+import { useThemeStore } from '@/state/app-context'
 
 const THEME_OPTIONS = [
   { value: 'system', label: msg`跟随系统`, icon: MonitorIcon },
@@ -18,11 +18,12 @@ const THEME_OPTIONS = [
   icon: typeof MonitorIcon
 }[]
 
-/** 顶栏主题选择：只影响当前浏览器的本地显示。 */
+/** 顶栏主题选择：只影响当前浏览器的本地显示，DOM 资源由 bootstrap 持有。 */
 export function ThemeSelector() {
   const { i18n } = useLingui()
   const themeLabel = i18n._(msg`主题`)
-  const theme = useSyncExternalStore(subscribeTheme, getTheme, getTheme)
+  const theme = useThemeStore((state) => state.theme)
+  const setTheme = useThemeStore((state) => state.setTheme)
   const current = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[0]
   const CurrentIcon = current.icon
 

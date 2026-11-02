@@ -32,4 +32,9 @@ worker实际模型为local/deepseek-v4.1-flash、reasoning=max。新增browser s
 
 旧Controller中发送/图片准备/停止/整体取回/树与模型动作的有效断言尚待R4/R8迁移，来源固定为`9bcf157:packages/react/src/runtime/thread-controller.test.ts`；旧runtime绑定测试按R0迁移分类处理，不将删旧文件当功能通过。应用仍导入旧hooks及reducer形状，全量typecheck在apps/harness失败，符合WIP约定；无兼容导出或测试排除。
 
-主agent亲验公共包类型通过、针对性测试通过；全量typecheck确认protocol/mcp/core/history/react通过，应用出现预期旧API断点。未运行全量业务/build/e2e。R3b继续应用bootstrap/目录/选择及分散store接入，R3尚未完成。
+主agent亲验公共包类型通过、针对性测试通过；全量typecheck确认protocol/mcp/core/history/react通过，应用出现预期旧API断点。未运行全量业务/build/e2e。
+### R3b：应用实例与目录接入
+
+worker实际local/deepseek-v4.1-flash/max。bootstrap实际挂到main/App，目录/工作区定义来自公共serviceStore，窗口选择来自windowStore，工作区feature持列表/表单，主题迁Zustand。删除旧runtime provider/live订阅组件、HTTP业务包装、模型/认证单例与bridge，旧面板暂时断开。
+
+主agent阅读bootstrap、workspace业务/侧栏及公共查询，亲自纠正保存迟到关闭新表单、冲突用权威值覆盖草稿两处问题，并加正式回归。公共包类型通过；公共包和应用state针对性测试通过。应用旧composer/管理/消息组件仍有已知旧API断点，不以vite单独打包成功当最终构建通过。R3基础接入完成，功能与AR最终关闭留R4～R8。

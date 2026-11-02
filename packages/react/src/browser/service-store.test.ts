@@ -1,12 +1,18 @@
 import type {
   HarnessClient,
   HarnessHostInfo,
+  HarnessModelInfo,
   HarnessProviderAuthSnapshot,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessWorkspaceCatalog,
 } from '@huan/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { createHarnessServiceStore } from './service-store.js'
+import {
+  createHarnessServiceStore,
+  modelCatalogKeyOf,
+  selectHarnessModelCatalog,
+} from './service-store.js'
 
 const hostInfo: HarnessHostInfo = {
   workspacePath: '/workspace',
@@ -51,11 +57,34 @@ const providerAuth = (seq: number): HarnessProviderAuthSnapshot => ({
   operations: [],
 })
 
+const workspaceCatalog = (): HarnessWorkspaceCatalog => ({
+  state: 'ok',
+  startupWorkspaceId: 'w1',
+  workspaces: [
+    {
+      id: 'w1',
+      name: '工作区一',
+      revision: 2,
+      projects: [{ alias: 'main', path: '/workspace', available: true }],
+    },
+    {
+      id: 'w2',
+      name: '工作区二',
+      revision: 1,
+      projects: [{ alias: 'other', path: '/other', available: true }],
+    },
+  ],
+})
+
+const model = (provider: string, modelId: string): HarnessModelInfo => ({ provider, modelId })
+
 const createClient = (overrides: Partial<HarnessClient> = {}): HarnessClient =>
   ({
     getHostInfo: vi.fn(async () => hostInfo),
     listThreads: vi.fn(async () => []),
     getThread: vi.fn(async () => snapshot()),
+    listWorkspaces: vi.fn(async () => workspaceCatalog()),
+    getAvailableModels: vi.fn(async () => [model('provider', 'model')]),
     getProviderAuth: vi.fn(async () => providerAuth(1)),
     getMcpAuth: vi.fn(async () => ({ seq: 1, authRevision: 1, operations: [] })),
     subscribeProviderAuth: vi.fn(() => () => {}),
@@ -114,7 +143,9 @@ describe('service-store：唯一元数据与运行数据', () => {
   it('驱逐完整缓存后目录刷新采用新的运行状态', async () => {
     const client = createClient()
     const store = createHarnessServiceStore({ client })
-    store.getState().applyThreadEvent('t1', { type: 'agent_start', threadId: 't1', seq: 1 } as never)
+    store
+      .getState()
+      .applyThreadEvent('t1', { type: 'agent_start', threadId: 't1', seq: 1 } as never)
     store.getState().evictThreadSession('t1')
     vi.mocked(client.listThreads).mockResolvedValue([metadata({ status: 'idle' })])
     await store.getState().refreshThreads()
@@ -403,5 +434,286 @@ describe('service-store：唯一元数据与运行数据', () => {
       loading: false,
       error: 'catalog failed',
     })
+  })
+})
+
+describe('service-store：工作区目录唯一来源', () => {
+  it('刷新替换工作区实体与顺序，并以权威健康状态覆盖', async () => {
+    const client = createClient()
+    const store = createHarnessServiceStore({ client })
+    await store.getState().refreshWorkspaces()
+
+    expect(store.getState().workspaceIds).toEqual(['w1', 'w2'])
+    expect(store.getState().workspacesById.w1).toMatchObject({
+      name: '工作区一',
+      revision: 2,
+    })
+    expect(store.getState().workspaceState).toBe('ok')
+    expect(store.getState().startupWorkspaceId).toBe('w1')
+
+    vi.mocked(client.listWorkspaces).mockResolvedValue({
+      state: 'corrupted',
+      workspaces: [
+        {
+          id: 'w2',
+          name: '工作区二（新）',
+          revision: 3,
+          projects: [],
+        },
+      ],
+    })
+    await store.getState().refreshWorkspaces()
+
+    expect(store.getState().workspaceIds).toEqual(['w2'])
+    expect(store.getState().workspacesById.w1).toBeUndefined()
+    expect(store.getState().workspacesById.w2?.revision).toBe(3)
+    expect(store.getState().workspaceState).toBe('corrupted')
+    expect(store.getState().startupWorkspaceId).toBeUndefined()
+  })
+
+  it('业务动作返回的权威定义更新同一实体且不重复 ID', async () => {
+    const store = createHarnessServiceStore({ client: createClient() })
+    await store.getState().refreshWorkspaces()
+    store.getState().applyWorkspace({
+      id: 'w1',
+      name: '已更新',
+      revision: 4,
+      projects: [],
+    })
+    store.getState().applyWorkspace({
+      id: 'w3',
+      name: '新工作区',
+      revision: 1,
+      projects: [],
+    })
+
+    expect(store.getState().workspaceIds).toEqual(['w1', 'w2', 'w3'])
+    expect(store.getState().workspacesById.w1).toMatchObject({ name: '已更新', revision: 4 })
+  })
+
+  it('刷新失败保留上一次成功定义并记录受控错误', async () => {
+    const client = createClient()
+    vi.mocked(client.listWorkspaces).mockRejectedValue(new Error('workspace failed'))
+    const store = createHarnessServiceStore({ client })
+    await expect(store.getState().refreshWorkspaces()).rejects.toThrow('workspace failed')
+
+    expect(store.getState().workspaceIds).toEqual([])
+    expect(store.getState().workspaceLoading).toBe(false)
+    expect(store.getState().workspaceError).toBe('workspace failed')
+  })
+})
+
+describe('service-store：模型目录按目标与版本唯一', () => {
+  it('换目标立即使用新目标空目录，前目标结果不参与', async () => {
+    const client = createClient()
+    const pending = deferred<HarnessModelInfo[]>()
+    vi.mocked(client.getAvailableModels).mockImplementation(async ({ workspacePath } = {}) => {
+      if (workspacePath === '/beta') return pending.promise
+      return [model('alpha', 'm1')]
+    })
+    const store = createHarnessServiceStore({ client })
+    store.getState().applyProviderAuth(providerAuth(2))
+
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha' })
+    const alpha = selectHarnessModelCatalog(store.getState(), { workspacePath: '/alpha' })
+    expect(alpha?.models).toEqual([model('alpha', 'm1')])
+
+    const betaLoad = store.getState().loadModelCatalog({ workspacePath: '/beta' })
+    const betaLoading = selectHarnessModelCatalog(store.getState(), { workspacePath: '/beta' })
+    expect(betaLoading).toMatchObject({ loading: true, models: [] })
+    // 前目标结果仍只属于前目标，不被新目标读取。
+    expect(
+      selectHarnessModelCatalog(store.getState(), { workspacePath: '/alpha' })?.models,
+    ).toEqual([model('alpha', 'm1')])
+
+    pending.resolve([model('beta', 'm2')])
+    await betaLoad
+    expect(selectHarnessModelCatalog(store.getState(), { workspacePath: '/beta' })?.models).toEqual(
+      [model('beta', 'm2')],
+    )
+  })
+
+  it('查询失败记录错误并保持空目录，不回退前目标模型', async () => {
+    const client = createClient()
+    vi.mocked(client.getAvailableModels).mockImplementation(async ({ workspacePath } = {}) => {
+      if (workspacePath === '/beta') throw new Error('models failed')
+      return [model('alpha', 'm1')]
+    })
+    const store = createHarnessServiceStore({ client })
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha' })
+    await store.getState().loadModelCatalog({ workspacePath: '/beta' })
+
+    expect(selectHarnessModelCatalog(store.getState(), { workspacePath: '/beta' })).toMatchObject({
+      loading: false,
+      error: 'models failed',
+      models: [],
+    })
+  })
+
+  it('同目标版本推进后只保留当前版本，旧结果不再被选择', async () => {
+    const client = createClient()
+    vi.mocked(client.getAvailableModels)
+      .mockResolvedValueOnce([model('provider', 'old')])
+      .mockResolvedValueOnce([model('provider', 'new')])
+    const store = createHarnessServiceStore({ client })
+    store.getState().applyProviderAuth(providerAuth(1))
+
+    await store.getState().loadModelCatalog({
+      workspacePath: '/alpha',
+      resourceRevision: 1,
+    })
+    const oldKey = modelCatalogKeyOf({
+      workspacePath: '/alpha',
+      resourceRevision: 1,
+      authRevision: 1,
+    })
+    expect(store.getState().modelCatalogByKey[oldKey]).toBeDefined()
+
+    await store.getState().loadModelCatalog({
+      workspacePath: '/alpha',
+      resourceRevision: 2,
+    })
+
+    const current = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      resourceRevision: 2,
+    })
+    expect(current?.resourceRevision).toBe(2)
+    expect(current?.models).toEqual([model('provider', 'new')])
+    expect(store.getState().modelCatalogByKey[oldKey]).toBeUndefined()
+  })
+
+  it('会话目标由当前元数据补齐 resource/modelCatalog 版本并随认证版本失效', async () => {
+    const client = createClient()
+    const store = createHarnessServiceStore({ client })
+    store.getState().applyThreadEvent('t1', {
+      type: 'snapshot',
+      threadId: 't1',
+      seq: 1,
+      snapshot: snapshot({
+        metadata: metadata({
+          id: 't1',
+          resourceRevision: 3,
+          modelCatalogRevision: 5,
+        }),
+      }),
+    } as never)
+    store.getState().applyProviderAuth(providerAuth(7))
+
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha', threadId: 't1' })
+    expect(
+      selectHarnessModelCatalog(store.getState(), { workspacePath: '/alpha', threadId: 't1' }),
+    ).toMatchObject({
+      threadId: 't1',
+      resourceRevision: 3,
+      authRevision: 7,
+      modelCatalogRevision: 5,
+    })
+
+    const previous = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      threadId: 't1',
+    })
+    store.getState().applyProviderAuth(providerAuth(8))
+    const next = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      threadId: 't1',
+    })
+    expect(next).toBeUndefined()
+    expect(previous).toBeDefined()
+  })
+
+  it('同键并发查询复用在途请求', async () => {
+    const client = createClient()
+    const pending = deferred<HarnessModelInfo[]>()
+    vi.mocked(client.getAvailableModels).mockReturnValue(pending.promise)
+    const store = createHarnessServiceStore({ client })
+
+    const first = store.getState().loadModelCatalog({ workspacePath: '/alpha' })
+    const second = store.getState().loadModelCatalog({ workspacePath: '/alpha' })
+    pending.resolve([model('provider', 'model')])
+    await Promise.all([first, second])
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('service-store：工作区扫描代次', () => {
+  it('旧扫描不覆盖新扫描结果', async () => {
+    const client = createClient()
+    const first = deferred<HarnessWorkspaceCatalog>()
+    const second = deferred<HarnessWorkspaceCatalog>()
+    vi.mocked(client.listWorkspaces)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    const store = createHarnessServiceStore({ client })
+
+    const scanA = store.getState().refreshWorkspaces()
+    const scanB = store.getState().refreshWorkspaces()
+    second.resolve({
+      state: 'ok',
+      startupWorkspaceId: 'w2',
+      workspaces: [{ ...workspaceCatalog().workspaces[1]!, name: '新扫描' }],
+    })
+    await scanB
+    first.resolve(workspaceCatalog())
+    await scanA
+
+    expect(store.getState().workspaceIds).toEqual(['w2'])
+    expect(store.getState().workspacesById.w2?.name).toBe('新扫描')
+    expect(store.getState().workspacesById.w1).toBeUndefined()
+  })
+
+  it('业务修改使在途扫描失效且不保留加载态', async () => {
+    const client = createClient()
+    const pending = deferred<HarnessWorkspaceCatalog>()
+    vi.mocked(client.listWorkspaces).mockReturnValue(pending.promise)
+    const store = createHarnessServiceStore({ client })
+
+    const scan = store.getState().refreshWorkspaces()
+    store.getState().applyWorkspace({
+      id: 'w9',
+      name: '新定义',
+      revision: 1,
+      projects: [],
+    })
+    pending.resolve(workspaceCatalog())
+    await scan
+
+    expect(store.getState().workspaceIds).toEqual(['w9'])
+    expect(store.getState().workspacesById.w9?.name).toBe('新定义')
+    expect(store.getState().workspaceLoading).toBe(false)
+  })
+})
+
+describe('service-store：模型目录迟到响应', () => {
+  it('版本推进后旧请求完成不重新写回被释放的条目', async () => {
+    const client = createClient()
+    const old = deferred<HarnessModelInfo[]>()
+    vi.mocked(client.getAvailableModels)
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce([model('provider', 'new')])
+    const store = createHarnessServiceStore({ client })
+
+    const oldLoad = store.getState().loadModelCatalog({
+      workspacePath: '/alpha',
+      resourceRevision: 1,
+    })
+    await store.getState().loadModelCatalog({
+      workspacePath: '/alpha',
+      resourceRevision: 2,
+    })
+    old.resolve([model('provider', 'old')])
+    await oldLoad
+
+    const current = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      resourceRevision: 2,
+    })
+    expect(current?.models).toEqual([model('provider', 'new')])
+    expect(
+      Object.values(store.getState().modelCatalogByKey).filter(
+        (entry) => entry.workspacePath === '/alpha',
+      ),
+    ).toHaveLength(1)
   })
 })

@@ -1,8 +1,11 @@
 /**
- * 服务作用域 Zustand 状态：一个 client/存储作用域的目录、会话数据与安全认证快照。
+ * 服务作用域 Zustand 状态：一个 client/存储作用域的目录、会话数据、工作区定义、
+ * 模型目录查询与安全认证快照。
  *
  * 设计（见 R1 §3）：
  * - `threadsById` 是会话元数据的唯一实体；目录扫描与实时事件只更新它。
+ * - `workspacesById` + `workspaceIds` 是工作区定义的唯一实体与顺序。
+ * - `modelCatalogByKey` 按目标与 resource/auth/modelCatalog 版本保存目录查询。
  * - `sessionDataById` 只保存消息、工具执行、Host UI、Shell、readiness 等运行数据，
  *   不复制 status/队列/contextUsage/重试/压缩活动标志等元数据字段。
  * - 目录扫描带开始版本：扫描期间被事件更新的实体不会被旧列表覆盖。
@@ -17,9 +20,12 @@ import type {
   HarnessHostInteractionEvent,
   HarnessHostInteractionSnapshot,
   HarnessMcpAuthSnapshot,
+  HarnessModelInfo,
   HarnessProviderAuthSnapshot,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessWorkspace,
+  HarnessWorkspaceState,
 } from '@huan/protocol'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { errorText } from '../error-text.js'
@@ -37,7 +43,45 @@ export interface HarnessThreadQuery {
   workspaceId?: string
   unassigned?: boolean
   includeArchived?: boolean
+  /** 显式重扫宿主作用域目录（外部 Pi 改动可见）。 */
+  refresh?: boolean
 }
+
+/** 模型目录目标：固定起始目录，会话目标另带 threadId 区分同路径的不同会话。 */
+export interface HarnessModelCatalogTarget {
+  workspacePath: string
+  threadId?: string
+}
+
+/** 模型目录依赖版本；缺省时由服务状态中的认证/会话元数据补齐。 */
+export interface HarnessModelCatalogVersions {
+  resourceRevision?: number
+  authRevision?: number
+  modelCatalogRevision?: number
+}
+
+/** 模型目录查询：目标与实际使用的依赖版本。 */
+export interface HarnessModelCatalogQuery
+  extends HarnessModelCatalogTarget,
+    HarnessModelCatalogVersions {}
+
+/** 按目标与版本唯一的模型目录条目。 */
+export interface HarnessModelCatalogEntry extends HarnessModelCatalogQuery {
+  key: string
+  loading: boolean
+  error: string | undefined
+  models: readonly HarnessModelInfo[]
+}
+
+/** 模型目录缓存键：目标、路径和三个失效版本共同决定。 */
+export const modelCatalogKeyOf = (query: HarnessModelCatalogQuery): string =>
+  JSON.stringify([
+    query.threadId ?? null,
+    query.workspacePath,
+    query.resourceRevision ?? null,
+    query.authRevision ?? null,
+    query.modelCatalogRevision ?? null,
+  ])
 
 /** 目录查询状态；结果只保存 ID，标题/运行状态始终从实体读取。 */
 export interface HarnessCatalogState {
@@ -54,6 +98,15 @@ export interface HarnessServiceState {
   hostError: string | undefined
   threadsById: Readonly<Record<string, HarnessThreadMetadata>>
   sessionDataById: Readonly<Record<string, HarnessThreadSession>>
+  /** 工作区定义唯一实体；顺序由 workspaceIds 表达。 */
+  workspacesById: Readonly<Record<string, HarnessWorkspace>>
+  workspaceIds: readonly string[]
+  workspaceState: HarnessWorkspaceState | undefined
+  startupWorkspaceId: string | undefined
+  workspaceLoading: boolean
+  workspaceError: string | undefined
+  /** 按目标和版本唯一的模型目录查询状态。 */
+  modelCatalogByKey: Readonly<Record<string, HarnessModelCatalogEntry>>
   /**
    * 元数据实体版本：目录扫描用它判断实体是否在扫描期间被事件更新。
    * 仅用于合并保护，不参与展示。
@@ -70,6 +123,14 @@ export interface HarnessServiceState {
   loadHostInfo: () => Promise<HarnessHostInfo | undefined>
   /** 刷新会话目录；带扫描代次，旧结果不覆盖新扫描。 */
   refreshThreads: (query?: HarnessThreadQuery) => Promise<void>
+  /** 刷新工作区目录；失败保留上一次成功定义并记录受控错误。 */
+  refreshWorkspaces: () => Promise<void>
+  /** 应用业务动作返回的权威工作区定义（创建/修改结果）。 */
+  applyWorkspace: (workspace: HarnessWorkspace) => void
+  /** 按目标和当前版本读取/刷新模型目录；换目标立即使用新目标状态。 */
+  loadModelCatalog: (
+    query: HarnessModelCatalogTarget & HarnessModelCatalogVersions,
+  ) => Promise<readonly HarnessModelInfo[] | undefined>
   /** 冷读会话（只读快照）；同会话并发请求复用，迟到响应按 epoch 与序号水位丢弃。 */
   loadThread: (threadId: string, options?: { force?: boolean }) => Promise<void>
   /** 应用单个实时/权威事件。 */
@@ -104,6 +165,9 @@ const createInitialState = (): Omit<
   HarnessServiceState,
   | 'loadHostInfo'
   | 'refreshThreads'
+  | 'refreshWorkspaces'
+  | 'applyWorkspace'
+  | 'loadModelCatalog'
   | 'loadThread'
   | 'applyThreadEvent'
   | 'applyThreadEvents'
@@ -121,6 +185,13 @@ const createInitialState = (): Omit<
   hostError: undefined,
   threadsById: {},
   sessionDataById: {},
+  workspacesById: {},
+  workspaceIds: [],
+  workspaceState: undefined,
+  startupWorkspaceId: undefined,
+  workspaceLoading: false,
+  workspaceError: undefined,
+  modelCatalogByKey: {},
   threadRevisions: {},
   catalog: { query: {}, loading: false, error: undefined, ids: [] },
   providerAuth: undefined,
@@ -168,17 +239,60 @@ const withSession = (
   sessionDataById: { ...state.sessionDataById, [threadId]: session },
 })
 
+/** 用当前服务状态补齐模型目录查询的依赖版本。 */
+const resolveModelCatalogQuery = (
+  state: HarnessServiceState,
+  query: HarnessModelCatalogTarget & HarnessModelCatalogVersions,
+): HarnessModelCatalogQuery => {
+  const metadata = query.threadId ? state.threadsById[query.threadId] : undefined
+  const resourceRevision = query.resourceRevision ?? metadata?.resourceRevision
+  const authRevision = query.authRevision ?? state.providerAuth?.authRevision
+  const modelCatalogRevision = query.modelCatalogRevision ?? metadata?.modelCatalogRevision
+  return {
+    workspacePath: query.workspacePath,
+    ...(query.threadId ? { threadId: query.threadId } : {}),
+    ...(resourceRevision !== undefined ? { resourceRevision } : {}),
+    ...(authRevision !== undefined ? { authRevision } : {}),
+    ...(modelCatalogRevision !== undefined ? { modelCatalogRevision } : {}),
+  }
+}
+
+/** 选择当前目标和版本对应的模型目录条目；换目标不会回退到前目标结果。 */
+export const selectHarnessModelCatalog = (
+  state: HarnessServiceState,
+  query: HarnessModelCatalogTarget & HarnessModelCatalogVersions,
+): HarnessModelCatalogEntry | undefined =>
+  state.modelCatalogByKey[modelCatalogKeyOf(resolveModelCatalogQuery(state, query))]
+
+/** 同一目标只保留最新版本条目；不同目标各自保留当前版本。 */
+const pruneModelCatalogTarget = (
+  entries: Readonly<Record<string, HarnessModelCatalogEntry>>,
+  next: HarnessModelCatalogEntry,
+): Record<string, HarnessModelCatalogEntry> => {
+  const result: Record<string, HarnessModelCatalogEntry> = {}
+  for (const [key, entry] of Object.entries(entries)) {
+    if (key === next.key) continue
+    if (entry.threadId === next.threadId && entry.workspacePath === next.workspacePath) continue
+    result[key] = entry
+  }
+  result[next.key] = next
+  return result
+}
+
 export const createHarnessServiceStore = (
   options: CreateHarnessServiceStoreOptions,
 ): StoreApi<HarnessServiceState> => {
   const { client, onHostInfo } = options
   let hostEpoch = 0
   let catalogEpoch = 0
+  let workspaceEpoch = 0
   let providerAuthSeq = -1
   let hostInteractionSeq = -1
   let mcpAuthSeq = -1
   const loadEpochByThread = new Map<string, number>()
   const loadPromiseByThread = new Map<string, Promise<void>>()
+  const modelEpochByKey = new Map<string, number>()
+  const modelPromiseByKey = new Map<string, Promise<readonly HarnessModelInfo[] | undefined>>()
 
   return createStore<HarnessServiceState>()((set, get) => {
     const applyEvents = (
@@ -277,9 +391,10 @@ export const createHarnessServiceStore = (
               if (existing && threadRevisions[metadata.id] !== versionsAtStart[metadata.id]) {
                 continue
               }
-              threadsById[metadata.id] = existing && state.sessionDataById[metadata.id]
-                ? mergeCatalogMetadata(existing, metadata)
-                : metadata
+              threadsById[metadata.id] =
+                existing && state.sessionDataById[metadata.id]
+                  ? mergeCatalogMetadata(existing, metadata)
+                  : metadata
               threadRevisions[metadata.id] = (threadRevisions[metadata.id] ?? 0) + 1
             }
             return {
@@ -302,6 +417,136 @@ export const createHarnessServiceStore = (
           }))
           throw error
         }
+      },
+
+      refreshWorkspaces: async () => {
+        if (get().disposed) return
+        const epoch = ++workspaceEpoch
+        set({ workspaceLoading: true, workspaceError: undefined })
+        try {
+          const catalog = await client.listWorkspaces()
+          if (get().disposed || epoch !== workspaceEpoch) return
+          const workspacesById: Record<string, HarnessWorkspace> = {}
+          const workspaceIds: string[] = []
+          for (const workspace of catalog.workspaces) {
+            if (workspacesById[workspace.id]) continue
+            workspacesById[workspace.id] = workspace
+            workspaceIds.push(workspace.id)
+          }
+          set({
+            workspacesById,
+            workspaceIds,
+            workspaceState: catalog.state,
+            startupWorkspaceId: catalog.startupWorkspaceId,
+            workspaceLoading: false,
+            workspaceError: undefined,
+          })
+        } catch (error) {
+          if (get().disposed || epoch !== workspaceEpoch) return
+          set({ workspaceLoading: false, workspaceError: errorText(error) })
+          throw error
+        }
+      },
+
+      applyWorkspace: (workspace) => {
+        if (get().disposed) return
+        // 修改结果取代正在进行的旧目录扫描，防止晚到的列表覆盖新定义。
+        workspaceEpoch += 1
+        set((state) => {
+          const workspaceIds = state.workspacesById[workspace.id]
+            ? state.workspaceIds
+            : [...state.workspaceIds, workspace.id]
+          return {
+            ...state,
+            workspacesById: { ...state.workspacesById, [workspace.id]: workspace },
+            workspaceIds,
+            workspaceLoading: false,
+            workspaceError: undefined,
+          }
+        })
+      },
+
+      loadModelCatalog: async (query) => {
+        if (get().disposed) return undefined
+        const resolved = resolveModelCatalogQuery(get(), query)
+        const key = modelCatalogKeyOf(resolved)
+        const existing = modelPromiseByKey.get(key)
+        if (existing && get().modelCatalogByKey[key]?.loading) return existing
+
+        const epoch = (modelEpochByKey.get(key) ?? 0) + 1
+        modelEpochByKey.set(key, epoch)
+        const currentEntries = get().modelCatalogByKey
+        const nextEntries = pruneModelCatalogTarget(currentEntries, {
+          key,
+          ...resolved,
+          loading: true,
+          error: undefined,
+          models: [],
+        })
+        // 旧版本条目的代次与在途句柄一并释放，晚到响应不得重新写入。
+        for (const oldKey of Object.keys(currentEntries)) {
+          if (oldKey in nextEntries) continue
+          modelEpochByKey.delete(oldKey)
+          modelPromiseByKey.delete(oldKey)
+        }
+        set((state) => ({ ...state, modelCatalogByKey: nextEntries }))
+
+        const request = (async (): Promise<readonly HarnessModelInfo[] | undefined> => {
+          try {
+            const models = await client.getAvailableModels({
+              workspacePath: resolved.workspacePath,
+            })
+            if (
+              get().disposed ||
+              modelEpochByKey.get(key) !== epoch ||
+              get().modelCatalogByKey[key] === undefined
+            ) {
+              return undefined
+            }
+            set((state) => {
+              const entry = state.modelCatalogByKey[key]
+              if (!entry) return state
+              return {
+                ...state,
+                modelCatalogByKey: {
+                  ...state.modelCatalogByKey,
+                  [key]: { ...entry, loading: false, error: undefined, models },
+                },
+              }
+            })
+            return models
+          } catch (error) {
+            if (
+              get().disposed ||
+              modelEpochByKey.get(key) !== epoch ||
+              get().modelCatalogByKey[key] === undefined
+            ) {
+              return undefined
+            }
+            set((state) => {
+              const entry = state.modelCatalogByKey[key]
+              if (!entry) return state
+              return {
+                ...state,
+                modelCatalogByKey: {
+                  ...state.modelCatalogByKey,
+                  [key]: {
+                    ...entry,
+                    loading: false,
+                    error: errorText(error),
+                    models: [],
+                  },
+                },
+              }
+            })
+            return undefined
+          }
+        })()
+        modelPromiseByKey.set(key, request)
+        void request.finally(() => {
+          if (modelPromiseByKey.get(key) === request) modelPromiseByKey.delete(key)
+        })
+        return request
       },
 
       loadThread: async (threadId, loadOptions) => {
@@ -432,8 +677,11 @@ export const createHarnessServiceStore = (
         if (get().disposed) return
         hostEpoch += 1
         catalogEpoch += 1
+        workspaceEpoch += 1
         loadEpochByThread.clear()
         loadPromiseByThread.clear()
+        modelEpochByKey.clear()
+        modelPromiseByKey.clear()
         providerAuthSeq = -1
         hostInteractionSeq = -1
         mcpAuthSeq = -1

@@ -1,38 +1,29 @@
 /**
  * 左侧两级会话列表：工作区一级、会话二级。
  *
- * 数据来自宿主工作区目录与整存储作用域的会话列表；展开状态属于窗口。
- * 切换会话/工作区只改变本窗口视图，不停止宿主运行。
+ * 数据来源（R3 迁移）：
+ * - 会话元数据与目录 ID 只来自公共 serviceStore（`threadsById` + `catalog.ids`）；
+ * - 当前会话只来自公共 windowStore 的显式选择；
+ * - 搜索/排序/范围/展开/提示只来自应用工作区 feature store。
  *
- * 列表控制（G1.2b）：
- * - 搜索只匹配显式名称与首条用户消息（不是全文），范围可选全部工作区或当前工作区；
- * - 排序支持最近活动、创建时间、名称，同值以 ID 稳定排序；
- * - 「仅命名」只显示有显式名称的会话；「已归档会话」切换归档视图；
- * - 「继续最近」始终按活动时间从未归档会话中选取，不受搜索、排序与过滤影响。
+ * 本组件不再持有第二份目录、aiu 运行时列表或 localId/remoteId 合并。
  */
 
-import { type AssistantState, useAui, useAuiState } from '@assistant-ui/react'
 import type { HarnessThreadMetadata, HarnessWorkspace } from '@huan/protocol'
+import { useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import {
-  ArchiveIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  FolderPlusIcon,
-  InfoIcon,
   Loader2Icon,
-  MoreHorizontalIcon,
-  PencilIcon,
   PlayIcon,
   PlusIcon,
   RefreshCwIcon,
   Settings2Icon,
-  TrashIcon,
 } from 'lucide-react'
-import { type ComponentProps, memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -41,25 +32,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import { ImportThreadButton } from './import-thread-dialog'
-import { clearPiIntent, usePiIntent } from './pi-command-intents'
-import { harnessHttpClient } from './pi-http-client'
-import { DeleteThreadDialog, ThreadDetailsDialog } from './session-dialogs'
-import { useWorkspace, useWorkspaceActions } from './workspace-context'
-import {
-  AssignWorkspaceDialog,
-  NewSessionDialog,
-  WorkspaceManagerDialog,
-} from './workspace-manager'
+import { useWorkspaceStore } from '@/state/app-context'
+import type { WorkspaceThreadScope, WorkspaceThreadSort } from '@/state/workspace-store'
+import { NewSessionDialog, WorkspaceManagerDialog } from './workspace-manager'
 
-/** 列表排序模式。 */
-type ThreadSort = 'recent' | 'created' | 'name'
-
-/** 列表范围：全部工作区（含未归属）或当前工作区。 */
-type ThreadScope = 'all' | 'workspace'
-
-const titleOf = (thread: HarnessThreadMetadata, remoteTitle?: string): string =>
-  thread.title ?? remoteTitle ?? '新会话'
+const titleOf = (thread: HarnessThreadMetadata): string => thread.title ?? '新会话'
 
 /** 活动时间（排序键）：最近活动优先，缺失时回退创建时间。 */
 const activityOf = (thread: HarnessThreadMetadata): string =>
@@ -72,7 +49,7 @@ const compareRecent = (left: HarnessThreadMetadata, right: HarnessThreadMetadata
 }
 
 const compareThreads =
-  (sort: ThreadSort) =>
+  (sort: WorkspaceThreadSort) =>
   (left: HarnessThreadMetadata, right: HarnessThreadMetadata): number => {
     if (sort === 'name') {
       const diff = titleOf(left).localeCompare(titleOf(right), 'zh-Hans-CN')
@@ -85,7 +62,7 @@ const compareThreads =
     return diff !== 0 ? diff : left.id.localeCompare(right.id)
   }
 
-const sortThreads = (threads: readonly HarnessThreadMetadata[], sort: ThreadSort) =>
+const sortThreads = (threads: readonly HarnessThreadMetadata[], sort: WorkspaceThreadSort) =>
   [...threads].sort(compareThreads(sort))
 
 /** 副行路径：只取末尾两段，完整路径放在悬浮提示里。 */
@@ -103,94 +80,17 @@ const formatActivity = (value: string | undefined): string | undefined => {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-/** 侧栏从运行时列表需要的字段：远端标题与当前主线程的宿主 ID。 */
-type RemoteThreadProjection = {
-  titles: ReadonlyMap<string, string | undefined>
-  activeThreadId: string | undefined
-}
-
-const sameRemoteThreadProjection = (
-  previous: RemoteThreadProjection,
-  titles: ReadonlyMap<string, string | undefined>,
-  activeThreadId: string | undefined,
-): boolean => {
-  if (previous.activeThreadId !== activeThreadId) return false
-  if (previous.titles.size !== titles.size) return false
-  for (const [id, title] of titles) {
-    if (!previous.titles.has(id) || previous.titles.get(id) !== title) return false
-  }
-  return true
-}
-
-/**
- * 选择侧栏真正需要的会话列表字段。
- *
- * assistant-ui 在输入文字时会重建 `threadItems` 数组；这里逐项比较条目 ID、
- * 标题与远端 ID，字段未变时复用上一次投影，使数组容器变化不再触发侧栏渲染。
- * 不序列化整条会话：只比较 UI 实际读取的字段。
- */
-const useRemoteThreadProjection = (): RemoteThreadProjection => {
-  const cached = useRef<RemoteThreadProjection | undefined>(undefined)
-  const select = useMemo(
-    () =>
-      (current: AssistantState): RemoteThreadProjection => {
-        const items = current.threads.threadItems
-        const mainId = current.threads.mainThreadId
-        const titles = new Map<string, string | undefined>()
-        let mainRemoteId: string | undefined
-        for (const item of items) {
-          titles.set(item.id, item.title)
-          // 本地映射 ID 与宿主 ID 并存时，两个键都可用于查找标题。
-          if (item.remoteId && item.remoteId !== item.id) titles.set(item.remoteId, item.title)
-          if (mainId && item.id === mainId) mainRemoteId = item.remoteId
-        }
-        // 经 initialize() 创建的远端会话保留本地映射 ID（__LOCALID_*），
-        // 活动会话用 remoteId 回退为原 ID；与侧栏宿主会话 ID 比较。
-        const activeThreadId = mainId ? (mainRemoteId ?? mainId) : undefined
-        const previous = cached.current
-        if (previous && sameRemoteThreadProjection(previous, titles, activeThreadId)) {
-          return previous
-        }
-        const next = { titles, activeThreadId }
-        cached.current = next
-        return next
-      },
-    [],
-  )
-  return useAuiState(select)
-}
-
-/**
- * 单条会话行。
- *
- * 只接收自身需要的稳定字段：父级列表刷新（搜索、展开、选中）不应导致无关行
- * 重新执行；内部持久操作弹层按需挂载，关闭时不分配组件与 hook。
- */
 function SessionRowComponent({
   thread,
-  remoteTitle,
   unassigned = false,
   active,
-  actionsDisabled,
 }: {
   thread: HarnessThreadMetadata
-  remoteTitle?: string
   unassigned?: boolean
-  /** 当前窗口的活动会话；由父级比较后传入，避免每行持有最新 ID。 */
   active: boolean
-  /** 工作区元数据不可用时禁用写操作。 */
-  actionsDisabled: boolean
 }) {
-  const aui = useAui()
-  const { refresh, showError, showNotice, selectWorkspace } = useWorkspaceActions()
-  const [renaming, setRenaming] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [assignOpen, setAssignOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
-  const title = titleOf(thread, remoteTitle)
+  const selectThread = useWorkspaceStore((state) => state.selectThread)
+  const title = titleOf(thread)
   const subtitle = [
     thread.workspacePath ? shortPath(thread.workspacePath) : undefined,
     formatActivity(thread.updatedAt),
@@ -198,26 +98,6 @@ function SessionRowComponent({
     .filter(Boolean)
     .join(' · ')
   const tooltip = [title, thread.workspacePath, thread.updatedAt].filter(Boolean).join('\n')
-
-  const run = async (action: () => Promise<void>, success: string) => {
-    setBusy(true)
-    try {
-      await action()
-      await refresh()
-      showNotice(success)
-    } catch {
-      showError('load-failed')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const commitRename = () => {
-    const next = draft.trim()
-    setRenaming(false)
-    if (next === (thread.name ?? '')) return
-    void run(() => harnessHttpClient.renameThread(thread.id, next), '会话已改名。')
-  }
 
   return (
     <div
@@ -227,196 +107,72 @@ function SessionRowComponent({
         active ? 'bg-muted' : 'hover:bg-muted/70',
       )}
     >
-      {renaming ? (
-        <Input
-          autoFocus
-          aria-label="重命名会话"
-          className="h-7 flex-1 text-sm"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commitRename}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              commitRename()
-            } else if (event.key === 'Escape') {
-              event.preventDefault()
-              setRenaming(false)
-            }
-          }}
-        />
-      ) : (
-        <button
-          type="button"
-          data-slot="huan-session-trigger"
-          title={tooltip}
-          className={cn(
-            'flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 py-1 text-start text-sm',
-            unassigned ? 'pe-8 group-hover:pe-16' : 'pe-8 group-hover:pe-9',
-            'group-has-data-[popup-open]:pe-16',
-          )}
-          onClick={() => {
-            if (thread.workspaceId) selectWorkspace(thread.workspaceId)
-            void aui.threads.switchToThread(thread.id)
-          }}
-        >
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="flex items-center gap-1.5">
-              {thread.status === 'running' && (
-                <Loader2Icon
-                  aria-hidden
-                  className="text-muted-foreground size-3.5 shrink-0 animate-spin"
-                />
-              )}
-              <span className="min-w-0 truncate">{title}</span>
-            </span>
-            <span className="text-muted-foreground truncate text-[10px] leading-3">{subtitle}</span>
-          </span>
-          {thread.status === 'running' && <span className="sr-only">Running</span>}
-        </button>
-      )}
-      <div className="absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 group-has-data-[popup-open]:opacity-100">
-        {unassigned && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="加入工作区"
-            disabled={actionsDisabled || busy}
-            onClick={() => setAssignOpen(true)}
-          >
-            <FolderPlusIcon aria-hidden className="size-3.5" />
-          </Button>
+      <button
+        type="button"
+        data-slot="huan-session-trigger"
+        title={tooltip}
+        className={cn(
+          'flex h-full min-w-0 flex-1 items-center rounded-md px-2.5 py-1 text-start text-sm',
+          unassigned ? 'pe-8' : 'pe-2.5',
         )}
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6 data-popup-open:bg-accent"
-                aria-label="会话操作"
+        onClick={() => selectThread(thread.id)}
+      >
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1.5">
+            {thread.status === 'running' && (
+              <Loader2Icon
+                aria-hidden
+                className="text-muted-foreground size-3.5 shrink-0 animate-spin"
               />
-            }
-          >
-            <MoreHorizontalIcon aria-hidden className="size-3.5" />
-          </PopoverTrigger>
-          <PopoverContent side="right" align="start" className="w-40 p-1">
-            <button
-              type="button"
-              className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
-              onClick={() => {
-                setMenuOpen(false)
-                setDetailsOpen(true)
-              }}
-            >
-              <InfoIcon aria-hidden className="size-4" />
-              <Trans>详情</Trans>
-            </button>
-            <button
-              type="button"
-              className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
-              onClick={() => {
-                setMenuOpen(false)
-                setDraft(title)
-                setRenaming(true)
-              }}
-            >
-              <PencilIcon aria-hidden className="size-4" />
-              <Trans>重命名</Trans>
-            </button>
-            <button
-              type="button"
-              className="hover:bg-accent flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
-              disabled={busy}
-              onClick={() => {
-                setMenuOpen(false)
-                void run(
-                  async () => {
-                    if (thread.archived) await harnessHttpClient.unarchiveThread(thread.id)
-                    else await harnessHttpClient.archiveThread(thread.id)
-                    if (active) await aui.threads.switchToNewThread()
-                  },
-                  thread.archived ? '会话已恢复。' : '会话已归档。',
-                )
-              }}
-            >
-              <ArchiveIcon aria-hidden className="size-4" />
-              {thread.archived ? <Trans>恢复</Trans> : <Trans>归档</Trans>}
-            </button>
-            <button
-              type="button"
-              className="text-destructive hover:bg-destructive/10 flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm"
-              disabled={busy}
-              onClick={() => {
-                setMenuOpen(false)
-                setDeleteOpen(true)
-              }}
-            >
-              <TrashIcon aria-hidden className="size-4" />
-              <Trans>删除</Trans>
-            </button>
-          </PopoverContent>
-        </Popover>
-      </div>
-      {assignOpen && <AssignWorkspaceDialog open onOpenChange={setAssignOpen} thread={thread} />}
-      {detailsOpen && <ThreadDetailsDialog open onOpenChange={setDetailsOpen} thread={thread} />}
-      {deleteOpen && (
-        <DeleteThreadDialog open onOpenChange={setDeleteOpen} thread={thread} active={active} />
-      )}
+            )}
+            <span className="min-w-0 truncate">{title}</span>
+          </span>
+          <span className="text-muted-foreground truncate text-[10px] leading-3">{subtitle}</span>
+        </span>
+        {thread.status === 'running' && <span className="sr-only">Running</span>}
+      </button>
     </div>
   )
 }
 
-function sameSessionRowProps(
-  previous: ComponentProps<typeof SessionRowComponent>,
-  next: ComponentProps<typeof SessionRowComponent>,
-) {
-  // 目录重查会产生新元数据对象；只比较本行及其按需弹层实际使用的字段。
+const SessionRow = memo(SessionRowComponent, (previous, next) => {
   const before = previous.thread
   const after = next.thread
   return (
     previous.active === next.active &&
-    previous.actionsDisabled === next.actionsDisabled &&
     previous.unassigned === next.unassigned &&
-    previous.remoteTitle === next.remoteTitle &&
     before.id === after.id &&
     before.title === after.title &&
-    before.name === after.name &&
     before.workspacePath === after.workspacePath &&
-    before.workspaceId === after.workspaceId &&
     before.status === after.status &&
-    before.updatedAt === after.updatedAt &&
-    before.archived === after.archived &&
-    before.sessionFile === after.sessionFile
+    before.updatedAt === after.updatedAt
   )
-}
-
-const SessionRow = memo(SessionRowComponent, sameSessionRowProps)
+})
 
 function WorkspaceGroup({
   workspace,
   threads,
   recentThread,
-  remoteTitles,
   activeThreadId,
-  onManage,
-  onNewSession,
 }: {
   workspace: HarnessWorkspace
   threads: readonly HarnessThreadMetadata[]
   recentThread: HarnessThreadMetadata | undefined
-  remoteTitles: ReadonlyMap<string, string | undefined>
   activeThreadId?: string
-  onManage: (workspace: HarnessWorkspace) => void
-  onNewSession: (workspace: HarnessWorkspace) => void
 }) {
-  const aui = useAui()
-  const { beginNewSession, startProjectFor } = useWorkspace()
-  const { expanded, toggleWorkspace, selectWorkspace, activeWorkspaceId, state } = useWorkspace()
+  const expanded = useWorkspaceStore((state) => state.expandedWorkspaceIds)
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId)
+  const workspaceState = useServiceStore((state) => state.workspaceState)
+  const selectWorkspace = useWorkspaceStore((state) => state.selectWorkspace)
+  const toggleWorkspace = useWorkspaceStore((state) => state.toggleWorkspace)
+  const selectThread = useWorkspaceStore((state) => state.selectThread)
+  const startProjectFor = useWorkspaceStore((state) => state.startProjectFor)
+  const beginNewSession = useWorkspaceStore((state) => state.beginNewSession)
+  const openNewSession = useWorkspaceStore((state) => state.openNewSession)
+  const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
   const isExpanded = expanded.has(workspace.id)
   const isActive = activeWorkspaceId === workspace.id
+  const disabled = workspaceState !== undefined && workspaceState !== 'ok'
 
   return (
     <div data-slot="huan-workspace-group" className="flex flex-col gap-0.5">
@@ -442,10 +198,7 @@ function WorkspaceGroup({
         <button
           type="button"
           className="min-w-0 flex-1 truncate text-start text-sm font-medium"
-          onClick={() => {
-            selectWorkspace(workspace.id)
-            if (!isExpanded) toggleWorkspace(workspace.id)
-          }}
+          onClick={() => selectWorkspace(workspace.id)}
         >
           {workspace.name}
           <span className="text-muted-foreground ms-1 text-xs">({threads.length})</span>
@@ -455,17 +208,17 @@ function WorkspaceGroup({
           size="icon"
           className="size-6"
           aria-label="继续最近"
-          disabled={state !== 'ok'}
+          disabled={disabled}
           onClick={() => {
             selectWorkspace(workspace.id)
             // 继续最近只看活动时间与归档标记，不受当前搜索/排序/命名过滤影响。
             if (recentThread) {
-              void aui.threads.switchToThread(recentThread.id)
+              selectThread(recentThread.id)
               return
             }
-            const startPath = startProjectFor(workspace)
+            const startPath = startProjectFor(workspace.id)
             if (startPath) beginNewSession(workspace.id, startPath)
-            void aui.threads.switchToNewThread()
+            else openNewSession(workspace.id)
           }}
         >
           <PlayIcon aria-hidden className="size-3.5" />
@@ -475,8 +228,8 @@ function WorkspaceGroup({
           size="icon"
           className="size-6"
           aria-label="新建会话"
-          disabled={state !== 'ok'}
-          onClick={() => onNewSession(workspace)}
+          disabled={disabled}
+          onClick={() => openNewSession(workspace.id)}
         >
           <PlusIcon aria-hidden className="size-4" />
         </Button>
@@ -485,8 +238,8 @@ function WorkspaceGroup({
           size="icon"
           className="size-6"
           aria-label="管理工作区"
-          disabled={state !== 'ok'}
-          onClick={() => onManage(workspace)}
+          disabled={disabled}
+          onClick={() => openWorkspaceForm(workspace.id)}
         >
           <Settings2Icon aria-hidden className="size-4" />
         </Button>
@@ -499,13 +252,7 @@ function WorkspaceGroup({
             </p>
           ) : (
             threads.map((thread) => (
-              <SessionRow
-                key={thread.id}
-                thread={thread}
-                remoteTitle={remoteTitles.get(thread.id)}
-                active={activeThreadId === thread.id}
-                actionsDisabled={state !== 'ok'}
-              />
+              <SessionRow key={thread.id} thread={thread} active={activeThreadId === thread.id} />
             ))
           )}
         </div>
@@ -516,50 +263,43 @@ function WorkspaceGroup({
 
 /** 工作区侧栏。 */
 export function WorkspaceSidebar() {
-  const {
-    workspaces,
-    threads,
-    expanded,
-    state,
-    refresh,
-    selectWorkspace,
-    toggleWorkspace,
-    activeWorkspaceId,
-  } = useWorkspace()
-  const [search, setSearch] = useState('')
-  const [scope, setScope] = useState<ThreadScope>('all')
-  const [sort, setSort] = useState<ThreadSort>('recent')
-  const [namedOnly, setNamedOnly] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
-  const [manager, setManager] = useState<{ open: boolean; workspace?: HarnessWorkspace }>({
-    open: false,
-  })
-  const [newSession, setNewSession] = useState<HarnessWorkspace>()
-  const intent = usePiIntent()
-  // /new 打开现有“新建会话”弹层，由用户在弹层里确认起始项目。
-  useEffect(() => {
-    if (intent?.kind !== 'new-session') return
-    const target =
-      workspaces.find((workspace) => workspace.id === intent.payload?.workspaceId) ??
-      workspaces.find((workspace) => workspace.id === activeWorkspaceId)
-    if (target) setNewSession(target)
-    clearPiIntent(intent.id)
-  }, [activeWorkspaceId, intent, workspaces])
-  const remote = useRemoteThreadProjection()
-  const remoteTitles = remote.titles
-  const activeThreadId = remote.activeThreadId
-  const syncedThreadRef = useRef<string | undefined>(undefined)
-  // 新会话首次发送后 ID 才落到运行时；此时补一次宿主列表，避免侧栏要刷新页面才出现。
-  useEffect(() => {
-    if (!activeThreadId) return
-    if (threads.some((thread) => thread.id === activeThreadId)) {
-      syncedThreadRef.current = activeThreadId
-      return
-    }
-    if (syncedThreadRef.current === activeThreadId) return
-    syncedThreadRef.current = activeThreadId
-    void refresh()
-  }, [activeThreadId, refresh, threads])
+  const catalogIds = useServiceStore((state) => state.catalog.ids)
+  const threadsById = useServiceStore((state) => state.threadsById)
+  const workspaceIds = useServiceStore((state) => state.workspaceIds)
+  const workspacesById = useServiceStore((state) => state.workspacesById)
+  const selection = useWindowStore((state) => state.selection)
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId)
+  const search = useWorkspaceStore((state) => state.search)
+  const scope = useWorkspaceStore((state) => state.scope)
+  const sort = useWorkspaceStore((state) => state.sort)
+  const namedOnly = useWorkspaceStore((state) => state.namedOnly)
+  const showArchived = useWorkspaceStore((state) => state.showArchived)
+  const busy = useWorkspaceStore((state) => state.busy)
+  const refresh = useWorkspaceStore((state) => state.refresh)
+  const setSearch = useWorkspaceStore((state) => state.setSearch)
+  const setScope = useWorkspaceStore((state) => state.setScope)
+  const setSort = useWorkspaceStore((state) => state.setSort)
+  const setNamedOnly = useWorkspaceStore((state) => state.setNamedOnly)
+  const setShowArchived = useWorkspaceStore((state) => state.setShowArchived)
+  const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
+
+  const threads = useMemo(
+    () =>
+      catalogIds.flatMap((id) => {
+        const thread = threadsById[id]
+        return thread ? [thread] : []
+      }),
+    [catalogIds, threadsById],
+  )
+  const workspaces = useMemo(
+    () =>
+      workspaceIds.flatMap((id) => {
+        const workspace = workspacesById[id]
+        return workspace ? [workspace] : []
+      }),
+    [workspaceIds, workspacesById],
+  )
+  const activeThreadId = selection?.kind === 'thread' ? selection.threadId : undefined
   const query = search.trim().toLowerCase()
 
   /** 继续最近的候选：未归档 + 有归属，按活动时间挑一条（不受视图过滤影响）。 */
@@ -576,7 +316,7 @@ export function WorkspaceSidebar() {
   const grouped = useMemo(() => {
     const byWorkspace = new Map<string, HarnessThreadMetadata[]>()
     const unassigned: HarnessThreadMetadata[] = []
-    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id))
+    const workspaceIdSet = new Set(workspaceIds)
     for (const thread of threads) {
       if (Boolean(thread.archived) !== showArchived) continue
       if (namedOnly && !thread.name) continue
@@ -587,7 +327,7 @@ export function WorkspaceSidebar() {
         const firstMessage = (thread.firstMessageText ?? '').toLowerCase()
         if (!name.includes(query) && !firstMessage.includes(query)) continue
       }
-      if (!thread.workspaceId || !workspaceIds.has(thread.workspaceId)) unassigned.push(thread)
+      if (!thread.workspaceId || !workspaceIdSet.has(thread.workspaceId)) unassigned.push(thread)
       else {
         const list = byWorkspace.get(thread.workspaceId) ?? []
         list.push(thread)
@@ -595,7 +335,7 @@ export function WorkspaceSidebar() {
       }
     }
     return { byWorkspace, unassigned: sortThreads(unassigned, sort) }
-  }, [activeWorkspaceId, namedOnly, query, scope, showArchived, sort, threads, workspaces])
+  }, [activeWorkspaceId, namedOnly, query, scope, showArchived, sort, threads, workspaceIds])
 
   const visibleWorkspaces = useMemo(() => {
     if (scope === 'workspace') {
@@ -627,18 +367,21 @@ export function WorkspaceSidebar() {
             size="icon"
             className="size-8 shrink-0"
             aria-label="刷新工作区"
+            disabled={busy}
             onClick={() => void refresh({ rescan: true })}
           >
-            <RefreshCwIcon aria-hidden className="size-4" />
+            {busy ? (
+              <Loader2Icon aria-hidden className="size-4 animate-spin" />
+            ) : (
+              <RefreshCwIcon aria-hidden className="size-4" />
+            )}
           </Button>
-          <ImportThreadButton />
           <Button
             variant="ghost"
             size="icon"
             className="size-8 shrink-0"
             aria-label="新建工作区"
-            disabled={state !== 'ok'}
-            onClick={() => setManager({ open: true })}
+            onClick={() => openWorkspaceForm()}
           >
             <PlusIcon aria-hidden className="size-4" />
           </Button>
@@ -653,7 +396,7 @@ export function WorkspaceSidebar() {
               all: <Trans>全部工作区（含未归属）</Trans>,
               workspace: <Trans>当前工作区</Trans>,
             }}
-            onValueChange={(value) => setScope((value ?? 'all') as ThreadScope)}
+            onValueChange={(value) => setScope((value ?? 'all') as WorkspaceThreadScope)}
           >
             <SelectTrigger
               size="sm"
@@ -678,7 +421,7 @@ export function WorkspaceSidebar() {
               created: <Trans>创建时间</Trans>,
               name: <Trans>名称</Trans>,
             }}
-            onValueChange={(value) => setSort((value ?? 'recent') as ThreadSort)}
+            onValueChange={(value) => setSort((value ?? 'recent') as WorkspaceThreadSort)}
           >
             <SelectTrigger
               size="sm"
@@ -728,8 +471,8 @@ export function WorkspaceSidebar() {
             <p className="text-muted-foreground">
               {query ? <Trans>没有匹配的会话。</Trans> : <Trans>还没有工作区。</Trans>}
             </p>
-            {!query && state === 'ok' && (
-              <Button variant="outline" size="sm" onClick={() => setManager({ open: true })}>
+            {!query && (
+              <Button variant="outline" size="sm" onClick={() => openWorkspaceForm()}>
                 <PlusIcon aria-hidden className="size-4" />
                 <Trans>新建工作区</Trans>
               </Button>
@@ -743,14 +486,7 @@ export function WorkspaceSidebar() {
                 workspace={workspace}
                 threads={sortThreads(grouped.byWorkspace.get(workspace.id) ?? [], sort)}
                 recentThread={recentByWorkspace.get(workspace.id)}
-                remoteTitles={remoteTitles}
                 activeThreadId={activeThreadId}
-                onManage={(target) => setManager({ open: true, workspace: target })}
-                onNewSession={(target) => {
-                  selectWorkspace(target.id)
-                  if (!expanded.has(target.id)) toggleWorkspace(target.id)
-                  setNewSession(target)
-                }}
               />
             ))}
             {scope === 'all' && grouped.unassigned.length > 0 && (
@@ -764,10 +500,8 @@ export function WorkspaceSidebar() {
                     <SessionRow
                       key={thread.id}
                       thread={thread}
-                      remoteTitle={remoteTitles.get(thread.id)}
                       unassigned
                       active={activeThreadId === thread.id}
-                      actionsDisabled={state !== 'ok'}
                     />
                   ))}
                 </div>
@@ -777,20 +511,8 @@ export function WorkspaceSidebar() {
         )}
       </div>
 
-      <WorkspaceManagerDialog
-        open={manager.open}
-        workspace={manager.workspace}
-        onOpenChange={(open) => setManager((current) => ({ ...current, open }))}
-      />
-      {newSession && (
-        <NewSessionDialog
-          open={Boolean(newSession)}
-          onOpenChange={(open) => {
-            if (!open) setNewSession(undefined)
-          }}
-          workspace={newSession}
-        />
-      )}
+      <WorkspaceManagerDialog />
+      <NewSessionDialog />
     </aside>
   )
 }

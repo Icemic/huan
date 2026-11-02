@@ -28,9 +28,14 @@ export type {
 } from './browser/resources.js'
 export type {
   HarnessCatalogState,
+  HarnessModelCatalogEntry,
+  HarnessModelCatalogQuery,
+  HarnessModelCatalogTarget,
+  HarnessModelCatalogVersions,
   HarnessServiceState,
   HarnessThreadQuery,
 } from './browser/service-store.js'
+export { modelCatalogKeyOf, selectHarnessModelCatalog } from './browser/service-store.js'
 export type {
   HarnessAttachment,
   HarnessAttachmentStatus,

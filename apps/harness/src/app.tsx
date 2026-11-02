@@ -1,42 +1,26 @@
-import { useHarnessThreadState } from '@huan/react'
+import { HarnessBrowserProvider, useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, XIcon } from 'lucide-react'
-import { Thread } from '@/components/assistant-ui/elements/thread.aui'
-import { PiCommandPanels } from '@/components/pi-command-panels'
-import { PiHostInteractions } from '@/components/pi-host-interactions'
-import { PiHostStatus } from '@/components/pi-host-status'
-import { PiLiveSubscription } from '@/components/pi-live-subscription'
-import { McpDialog } from '@/components/pi-mcp-panel'
-import { ProviderAuthDialog } from '@/components/pi-provider-auth'
-import { PiRunStatus } from '@/components/pi-run-status'
-import { PiRuntimeProvider } from '@/components/pi-runtime-provider'
-import { PiHostUiRequests, PiThreadHostUi } from '@/components/pi-thread-host-ui'
-import { RuntimeDataParts } from '@/components/runtime-data-parts'
-import { SessionContextBar } from '@/components/session-context-bar'
-import { SettingsResourcesDialog } from '@/components/settings-resources-dialog'
+import { useEffect } from 'react'
 import { ThemeSelector } from '@/components/theme-selector'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { useWorkspace, WorkspaceProvider } from '@/components/workspace-context'
 import { WorkspaceSidebar } from '@/components/workspace-sidebar'
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : String(error)
-
-/** 就绪度横幅：模型/凭据不可用时给出提示。 */
-function ReadinessBanner() {
-  const readiness = useHarnessThreadState((state) => state.readiness)
-  if (!readiness || readiness.state === 'ready') return null
-  return (
-    <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-      {readiness.message ?? <Trans>Pi 运行时没有可用模型。</Trans>}
-    </div>
-  )
-}
+import {
+  HarnessAppContextProvider,
+  type HarnessAppInstance,
+  useWorkspaceStore,
+} from '@/state/app-context'
 
 /** 工作区加载/持久化错误与普通操作提示。 */
 function WorkspaceStatusBanner() {
-  const { state, error, notice, busy, refresh, clearError, clearNotice } = useWorkspace()
+  const error = useWorkspaceStore((state) => state.error)
+  const notice = useWorkspaceStore((state) => state.notice)
+  const busy = useWorkspaceStore((state) => state.busy)
+  const workspaceState = useServiceStore((state) => state.workspaceState)
+  const refresh = useWorkspaceStore((state) => state.refresh)
+  const clearError = useWorkspaceStore((state) => state.clearError)
+  const clearNotice = useWorkspaceStore((state) => state.clearNotice)
 
   if (error === 'load-failed') {
     return (
@@ -58,7 +42,7 @@ function WorkspaceStatusBanner() {
     )
   }
 
-  if (state !== undefined && state !== 'ok') {
+  if (error === 'state-unavailable' || (workspaceState !== undefined && workspaceState !== 'ok')) {
     return (
       <div
         role="alert"
@@ -66,7 +50,7 @@ function WorkspaceStatusBanner() {
       >
         <span className="flex-1">
           <Trans>
-            工作区元数据不可用（{state}
+            工作区元数据不可用（{workspaceState}
             ）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json
             后重启宿主。
           </Trans>
@@ -90,71 +74,94 @@ function WorkspaceStatusBanner() {
   )
 }
 
-/** 应用主体：工作区两级侧栏 + 当前会话聊天区。 */
-function WorkspaceApp() {
-  const { hostInfo, createThreadInput, showNotice, state } = useWorkspace()
+/** 当前选择摘要；聊天展示由 R7 接通，不在此恢复旧 aui 面板。 */
+function SelectionSummary() {
+  const selection = useWindowStore((state) => state.selection)
+  const thread = useServiceStore((state) =>
+    selection?.kind === 'thread' ? state.threadsById[selection.threadId] : undefined,
+  )
+  const workspacePath =
+    selection?.kind === 'new' ? selection.startProjectPath : (thread?.workspacePath ?? undefined)
 
-  if (!hostInfo) {
+  if (selection?.kind === 'new') {
     return (
-      <div role="status" className="flex h-dvh items-center justify-center gap-2 text-sm">
-        <Loader2Icon aria-hidden className="size-4 animate-spin" />
-        <Trans>正在连接宿主…</Trans>
-        <WorkspaceStatusBanner />
+      <div className="flex flex-col gap-2 p-6 text-sm">
+        <p className="font-medium">
+          <Trans>新会话目标已确定</Trans>
+        </p>
+        <p className="text-muted-foreground break-all">{workspacePath}</p>
+      </div>
+    )
+  }
+
+  if (selection?.kind === 'thread') {
+    return (
+      <div className="flex flex-col gap-2 p-6 text-sm">
+        <p className="font-medium">{thread?.title ?? <Trans>未命名会话</Trans>}</p>
+        {workspacePath && <p className="text-muted-foreground break-all">{workspacePath}</p>}
+        <p className="text-muted-foreground text-xs">
+          <Trans>会话已选中；聊天展示将在展示接入阶段接通。</Trans>
+        </p>
       </div>
     )
   }
 
   return (
-    <PiRuntimeProvider
-      createThreadInput={createThreadInput}
-      readOnly={state !== undefined && state !== 'ok'}
-      onError={(error) => showNotice(`会话操作失败：${errorMessage(error)}`)}
-    >
-      <div className="flex h-dvh flex-col overflow-hidden">
-        <header
-          data-slot="huan-header"
-          className="flex h-10 items-center gap-3 border-b px-3 text-sm"
-        >
-          <span className="font-semibold">幻</span>
-          <span className="text-muted-foreground text-xs">
-            <Trans>多项目工作区</Trans>
-          </span>
-          <div className="ms-auto flex items-center gap-2">
-            <McpDialog />
-            <ProviderAuthDialog />
-            <SettingsResourcesDialog />
-            <ThemeSelector />
-          </div>
-        </header>
-        <PiHostInteractions />
-        <WorkspaceStatusBanner />
-        {state === 'ok' && <PiLiveSubscription />}
-        <RuntimeDataParts />
-        <div className="flex min-h-0 flex-grow">
-          <WorkspaceSidebar />
-          <main className="flex min-h-0 min-w-0 flex-grow flex-col overflow-hidden">
-            <SessionContextBar />
-            <PiCommandPanels />
-            <PiHostStatus />
-            <ReadinessBanner />
-            <PiHostUiRequests />
-            <PiThreadHostUi />
-            <PiRunStatus />
-            <Thread />
-          </main>
-        </div>
-      </div>
-    </PiRuntimeProvider>
+    <div className="flex flex-1 items-center justify-center p-6 text-sm">
+      <p className="text-muted-foreground">
+        <Trans>从左侧选择会话或新建会话。</Trans>
+      </p>
+    </div>
   )
 }
 
-/** 应用入口：窗口状态在最外层，运行时在内层共享同一份 client。 */
-export function App() {
+/** 应用主体：顶栏 + 工作区侧栏；旧聊天/管理面板在后续阶段接入。 */
+function AppShell() {
+  const initialize = useWorkspaceStore((state) => state.initialize)
+  const hostLoading = useServiceStore((state) => state.hostLoading)
+  const host = useServiceStore((state) => state.host)
+
+  useEffect(() => {
+    void initialize()
+  }, [initialize])
+
   return (
-    <WorkspaceProvider>
-      <TooltipProvider>
-        <WorkspaceApp />
-      </TooltipProvider>
-    </WorkspaceProvider>
+    <div className="flex h-dvh flex-col overflow-hidden">
+      <header
+        data-slot="huan-header"
+        className="flex h-10 items-center gap-3 border-b px-3 text-sm"
+      >
+        <span className="font-semibold">幻</span>
+        <span className="text-muted-foreground text-xs">
+          <Trans>多项目工作区</Trans>
+        </span>
+        <div className="ms-auto flex items-center gap-2">
+          {hostLoading && !host ? (
+            <Loader2Icon aria-hidden className="text-muted-foreground size-4 animate-spin" />
+          ) : null}
+          <ThemeSelector />
+        </div>
+      </header>
+      <WorkspaceStatusBanner />
+      <div className="flex min-h-0 flex-grow">
+        <WorkspaceSidebar />
+        <main className="flex min-h-0 min-w-0 flex-grow flex-col overflow-hidden">
+          <SelectionSummary />
+        </main>
+      </div>
+    </div>
+  )
+}
+
+/** 应用入口：Provider 只传 bootstrap 创建的实例。 */
+export function App({ app }: { app: HarnessAppInstance }) {
+  return (
+    <HarnessAppContextProvider app={app}>
+      <HarnessBrowserProvider browser={app.browser}>
+        <TooltipProvider>
+          <AppShell />
+        </TooltipProvider>
+      </HarnessBrowserProvider>
+    </HarnessAppContextProvider>
   )
 }
