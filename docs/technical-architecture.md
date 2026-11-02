@@ -1,6 +1,6 @@
 # 幻（huan）— 技术架构文档
 
-**最后更新**：2026-11-01
+**最后更新**：2026-11-02
 **状态**：持续维护文档，随技术变更同步更新
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
@@ -17,7 +17,7 @@
 | 构建 | Vite（应用，rolldown 内核）；tsc --noEmit（类型检查） | 开发服务器与生产构建；包零构建直引源码（见 §2 与 dev-guide §4.1） |
 | 样式 | Tailwind CSS v4 | Utility-first |
 | 基础组件 | shadcn 模式：组件源码拷入项目 | 按钮、对话框、弹层、选择器、折叠等无头逻辑统一用 Base UI；主题 tokens 与紧凑尺度参考末语工坊 |
-| 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 逻辑层直接依赖；浏览器侧运行时由 `@huan/react` 自研（M2，2026-10-18） |
+| 聊天 UI | `@assistant-ui/react`（主题组件经 CLI 拷入） | 当前仍承担会话选择、composer、消息上下文与React接线；Controller自研不表示前端已解耦 |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
 | 代码查看/Diff | Monaco Editor（规划选型，尚未接入） | 增强阶段的查看 + diff editor（D-21），不作为 Pi GUI 基础依赖 |
 | 状态管理 | 运行时 Controller + hooks；Zustand 已为依赖 | 当前无应用级单一 store；出现窗口级自主状态需求时再设计（D-24） |
@@ -146,7 +146,7 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
 
 **长期边界**（不随计划变化）：公共层以「纯 reducer/投影（浏览器安全入口）+ 自研 Controller」为边界，`usePiRuntime` 不进入公共 API。
 
-**当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。
+**当前状态（M2 已完成，2026-10-18）**：Node 侧由 `@huan/core` 自研；浏览器侧由 `@huan/react` 自研（reducer / 消息投影 / Controller / 公共 hook / HTTP-SSE 客户端）。apps/harness 已不依赖 `@assistant-ui/react-pi`。当前Controller的发送/投影/repository类型、会话选择、composer与Provider/hook仍绑定`@assistant-ui/react`，Markdown依赖`@assistant-ui/react-markdown`，SSE底层解码直接依赖`assistant-stream/utils`。当前采用assistant-ui状态层，将聊天展示与其状态接线分开；[聊天展示升级方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)优先采用shadcn AI Elements组件与布局，不要求模拟旧布局，保留runtime/composer/会话选择、Markdown和SSE引擎。方案尚未实施，授权、排序与待决策由roadmap §2.5维护，不把目标布局视为当前实现。
 
 **移植来源与许可**：`@huan/react` 的运行时实现移植自 `@assistant-ui/react-pi@0.0.29`（MIT）。相对上游的语义改动与第三方许可声明见 `packages/react/THIRD-PARTY-NOTICES.md` 与迭代文档 `2026-10-18-feat-react-controller.md` §5.1。
 
@@ -237,7 +237,11 @@ apps/harness（页面装配、布局、主题）
 - Tool 输出约定：返回稳定语义数据（对象 ID、摘要、前后值、错误码），不放 React element、不放不受控大体积快照。
 - Host UI 请求渲染：工具关联请求渲染在工具卡片内；独立请求走侧通道组件。
 
-### 6.2 代码工作区
+### 6.2 展示组合原则
+
+聊天展示优先采用shadcn AI Elements的组件与布局，ReUI按需补充组合；组件选择与主题token分开。新组件无需复现旧assistant-ui布局或DOM，但必须承接全部已交付功能与必要状态，官方模式缺少的Pi功能在新布局中补充。现有aui无头primitive、hook与动作可以继续接线，避免为改变外观重写状态管理或引入双发送/双滚动控制。主题仍沿用项目Base UI/Geist/紧凑tokens，不自动切换为官网主题。具体设计与验证见[聊天展示方案](iteration/2026-11/2026-11-02-feat-chat-presentation.md)，进度仅见roadmap。
+
+### 6.3 代码工作区
 
 - 布局：可拖拽分栏（文件树 / Monaco 查看 / Diff 审查 / 聊天区）。
 - Monaco：`monaco-editor` + 语言支持；diff 使用内置 diff editor；worker 资源在桌面壳下需按打包方式配置（见 `roadmap.md` §7 与 §5.3）。
