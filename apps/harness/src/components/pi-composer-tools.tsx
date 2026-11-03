@@ -388,12 +388,6 @@ function CommandPaletteDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaEl
           <DialogTitle>
             <Trans>命令面板</Trans>
           </DialogTitle>
-          <DialogDescription>
-            <Trans>
-              内置命令优先；扩展、模板与 Skill
-              由宿主目录提供。未实施的内置命令只显示阶段与原因，不会发送给模型。
-            </Trans>
-          </DialogDescription>
         </DialogHeader>
         <Input
           autoFocus

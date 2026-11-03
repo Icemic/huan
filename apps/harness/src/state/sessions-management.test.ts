@@ -385,7 +385,7 @@ describe('sessions feature：导入文件读取与源重验', () => {
     store.getState().setImportPath('/tmp/session.jsonl')
     await store.getState().previewImport()
     expect(await store.getState().confirmImport()).toBeUndefined()
-    expect(store.getState().importPanel.error).toContain('独立副本')
+    expect(store.getState().importPanel.error).toContain('作为新会话导入')
     expect(fake.importThread).not.toHaveBeenCalled()
 
     fake.importThread.mockResolvedValueOnce({ status: 'imported', threadId: 'imported' })

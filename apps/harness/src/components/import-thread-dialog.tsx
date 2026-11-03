@@ -88,9 +88,7 @@ export function ImportThreadDialog() {
             <Trans>导入 JSONL 会话</Trans>
           </DialogTitle>
           <DialogDescription>
-            <Trans>
-              从宿主路径或浏览器上传导入 Pi 会话。默认保留源会话 ID 与完整树；预览不会装配项目代码。
-            </Trans>
+            <Trans>从 JSONL 文件导入 Pi 会话。</Trans>
           </DialogDescription>
         </DialogHeader>
 
@@ -137,7 +135,7 @@ export function ImportThreadDialog() {
                   checked={panel.mode === 'path'}
                   onChange={() => setMode('path')}
                 />
-                <Trans>宿主路径</Trans>
+                <Trans>服务端文件</Trans>
               </label>
               <label className="flex items-center gap-1.5">
                 <input
@@ -147,7 +145,7 @@ export function ImportThreadDialog() {
                   checked={panel.mode === 'upload'}
                   onChange={() => setMode('upload')}
                 />
-                <Trans>上传 JSONL</Trans>
+                <Trans>上传文件</Trans>
               </label>
             </div>
           </fieldset>
@@ -155,13 +153,13 @@ export function ImportThreadDialog() {
           {panel.mode === 'path' ? (
             <label key="path" htmlFor="huan-import-path" className="flex flex-col gap-1">
               <span className="text-muted-foreground text-xs">
-                <Trans>宿主机器上的 JSONL 绝对路径（不是浏览器本地文件）</Trans>
+                <Trans>服务端 JSONL 绝对路径</Trans>
               </span>
               <div className="flex items-center gap-2">
                 <FolderInputIcon aria-hidden className="text-muted-foreground size-4 shrink-0" />
                 <Input
                   id="huan-import-path"
-                  aria-label="宿主 JSONL 路径"
+                  aria-label="服务端 JSONL 绝对路径"
                   value={panel.path}
                   placeholder="/path/to/session.jsonl"
                   className="h-8 text-sm"
@@ -172,7 +170,7 @@ export function ImportThreadDialog() {
           ) : (
             <label key="upload" htmlFor="huan-import-file" className="flex flex-col gap-1">
               <span className="text-muted-foreground text-xs">
-                <Trans>选择浏览器本地 .jsonl 文件（文本发送给受保护的宿主接口）</Trans>
+                <Trans>选择本地 .jsonl 文件</Trans>
               </span>
               <div className="flex items-center gap-2">
                 <FileUpIcon aria-hidden className="text-muted-foreground size-4 shrink-0" />
@@ -212,7 +210,7 @@ export function ImportThreadDialog() {
 
           <div className="flex flex-col gap-1">
             <span id="huan-import-cwd-label" className="text-muted-foreground text-xs">
-              <Trans>替代起始目录（源 cwd 不可用或不在工作区时必须选择成员）</Trans>
+              <Trans>替代起始目录</Trans>
             </span>
             <Select
               value={panel.cwdOverride || SOURCE_SENTINEL}
@@ -248,10 +246,7 @@ export function ImportThreadDialog() {
           </div>
 
           <p className="text-muted-foreground bg-muted/40 rounded-md border px-2.5 py-2 text-xs">
-            <Trans>
-              导入内容只保存在本机宿主，不会上传到第三方；请确认 JSONL
-              中没有不希望持久化的敏感信息。原文件不会被修改。
-            </Trans>
+            <Trans>会话将保存到服务端，请确认其中没有不希望保留的敏感信息。原文件保持不变。</Trans>
           </p>
 
           {preview?.status === 'ok' && (
@@ -268,7 +263,7 @@ export function ImportThreadDialog() {
                   {preview.source?.name ? ` · ${preview.source.name}` : ''}
                 </span>
                 <span className="text-muted-foreground">
-                  <Trans>源 cwd</Trans>
+                  <Trans>源起始目录</Trans>
                 </span>
                 <span className="break-all">{preview.source?.cwd || <Trans>（空）</Trans>}</span>
                 <span className="text-muted-foreground">
@@ -302,13 +297,13 @@ export function ImportThreadDialog() {
                 <label className="mt-1 flex items-start gap-1.5">
                   <input
                     type="checkbox"
-                    aria-label="作为独立副本导入"
+                    aria-label="作为新会话导入"
                     className="mt-0.5 size-3.5 accent-current"
                     checked={panel.copyConfirmed}
                     onChange={(event) => setCopyConfirmed(event.target.checked)}
                   />
                   <span>
-                    <Trans>作为独立副本导入（新会话 ID，保留完整树与父会话血缘）</Trans>
+                    <Trans>作为新会话导入</Trans>
                   </span>
                 </label>
               )}

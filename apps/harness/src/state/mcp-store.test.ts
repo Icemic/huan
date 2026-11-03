@@ -239,7 +239,7 @@ describe('MCP feature：配置草稿、dirty 与目标保护', () => {
     expect(draft?.baseContent).toContain('"first": true')
     expect(draft?.revision).toBe('rev-2')
     expect(draft?.content).not.toBe(draft?.baseContent)
-    expect(store.getState().notice).toContain('保存不会自动连接或应用')
+    expect(store.getState().notice).toContain('已保存，可应用到当前会话')
     expect(client.reloadResources).not.toHaveBeenCalled()
   })
 
@@ -318,7 +318,66 @@ describe('MCP feature：配置草稿、dirty 与目标保护', () => {
     expect(client.getMcpConfig).not.toHaveBeenCalled()
     await store.getState().applyReload()
     expect(client.reloadResources).toHaveBeenCalledWith({ threadId: 't1', trigger: 'api' })
-    expect(store.getState().notice).toContain('已应用资源重载')
+    expect(store.getState().notice).toBe('已应用到当前会话')
+  })
+
+  it('空白页保存与应用使用项目资源文案', async () => {
+    const { client, store } = createStore()
+    const content = '{\n  "mcpServers": {}\n}\n'
+    vi.mocked(client.saveMcpConfig).mockResolvedValueOnce({
+      status: 'saved',
+      scope: 'user',
+      path: '/agent/mcp.json',
+      revision: 'rev-2',
+      bytes: content.length,
+      snapshot: configSnapshotOf({ workspacePath: '/workspace' }, { user: content }),
+      apply: { persisted: true, reloadRequired: true, message: '已保存 MCP 配置' },
+    })
+    vi.mocked(client.reloadResources).mockResolvedValueOnce({
+      status: 'reloaded',
+      kind: 'workspace',
+      workspacePath: '/workspace',
+      operation: {
+        id: 'reload-1',
+        trigger: 'api',
+        status: 'succeeded',
+        workspacePath: '/workspace',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        finishedAt: '2026-01-01T00:00:01.000Z',
+        fromResourceRevision: 1,
+        resourceRevision: 2,
+      },
+      resourceRevision: 2,
+    })
+    await store.getState().openPanel({ target: { workspacePath: '/workspace' } })
+    await store.getState().loadConfig()
+    store.getState().updateDraft(content)
+    await store.getState().saveConfig()
+    expect(store.getState().notice).toBe('已保存，可刷新项目资源')
+    await store.getState().applyReload()
+    expect(store.getState().notice).toBe('已刷新项目资源')
+  })
+
+  it('草稿与临时操作只提示动作结果', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({ target: { threadId: 't1' } })
+    await store.getState().loadConfig()
+    store.getState().openEditServer('demo')
+    store.getState().applyServerEditor()
+    expect(store.getState().notice).toBe('草稿已更新')
+
+    store.getState().requestDeleteServer('demo')
+    store.getState().confirmDeleteServer()
+    expect(store.getState().notice).toBe('已从草稿删除 demo')
+
+    const row = selectMcpServerRows(store.getState())[0]
+    if (!row) throw new Error('测试缺少 MCP 服务器行')
+    vi.mocked(client.manageMcp).mockResolvedValueOnce({
+      status: 'applied',
+      snapshot: liveSnapshotOf({ threadId: 't1' }),
+    })
+    await store.getState().manage(row, { type: 'reconnect' })
+    expect(store.getState().notice).toBe('已更新 demo')
   })
 
   it('管理操作 stale/busy 只刷新快照，不自动重试写操作', async () => {
@@ -412,6 +471,6 @@ describe('MCP feature：认证短期回填与身份隔离', () => {
       expectedIdentity: 'identity-demo',
     })
     expect(store.getState().tab).toBe('auth')
-    expect(store.getState().notice).toContain('关闭面板不会取消')
+    expect(store.getState().notice).toBe('已开始 MCP 登录。')
   })
 })

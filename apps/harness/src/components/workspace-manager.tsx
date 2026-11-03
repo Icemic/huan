@@ -183,12 +183,6 @@ export function WorkspaceManagerDialog() {
           <DialogTitle>
             {form.mode === 'edit' ? <Trans>管理工作区</Trans> : <Trans>新建工作区</Trans>}
           </DialogTitle>
-          <DialogDescription>
-            <Trans>
-              工作区包含一个或多个项目目录。会话固定使用起始项目作为 cwd；其他成员通过 @别名
-              访问，不会装配它们的扩展。
-            </Trans>
-          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-1 text-sm">
@@ -207,6 +201,9 @@ export function WorkspaceManagerDialog() {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground text-sm">
               <Trans>项目成员</Trans>
+              <span className="ms-2 text-xs">
+                <Trans>可用 @别名 引用项目。</Trans>
+              </span>
             </span>
             <Button variant="outline" size="sm" onClick={addWorkspaceMember}>
               <PlusIcon aria-hidden className="size-4" />
@@ -346,10 +343,7 @@ export function NewSessionDialog() {
             <Trans>新建会话</Trans>
           </DialogTitle>
           <DialogDescription>
-            <Trans>
-              选择起始项目。会话创建后 cwd 固定，可在同一工作区其他项目间通过 @别名
-              读写与执行命令；开始前会检查路径与信任。
-            </Trans>
+            <Trans>选择起始项目。</Trans>
           </DialogDescription>
         </DialogHeader>
 

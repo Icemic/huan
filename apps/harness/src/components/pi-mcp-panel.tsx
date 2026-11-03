@@ -155,7 +155,7 @@ function FileSummary({ file }: { file: HarnessMcpConfigFile }) {
     <div data-slot="huan-mcp-file" className="flex flex-col gap-1 rounded-md border p-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">
-          {file.scope === 'user' ? <Trans>用户 MCP 配置</Trans> : <Trans>项目 MCP 配置</Trans>}
+          {file.scope === 'user' ? <Trans>用户配置</Trans> : <Trans>项目配置</Trans>}
         </span>
         <span className="text-muted-foreground break-all">{file.path}</span>
       </div>
@@ -170,15 +170,20 @@ function FileSummary({ file }: { file: HarnessMcpConfigFile }) {
           )}
         </span>
         <span>{file.bytes} B</span>
-        <span className="font-mono">
-          revision {file.revision ? file.revision.slice(0, 12) : 'null'}
-        </span>
         {file.tooLarge && (
           <span className="text-destructive">
             <Trans>超过读取上限</Trans>
           </span>
         )}
       </div>
+      <details className="text-xs" data-slot="huan-mcp-config-diagnostics">
+        <summary className="text-muted-foreground cursor-pointer">
+          <Trans>诊断详情</Trans>
+        </summary>
+        <span className="text-muted-foreground font-mono">
+          <Trans>配置版本</Trans> {file.revision ? file.revision.slice(0, 12) : 'null'}
+        </span>
+      </details>
       {file.readError && <p className="text-destructive">{file.readError}</p>}
       {file.issues.length > 0 && <IssueList issues={file.issues} />}
     </div>
@@ -278,7 +283,7 @@ function ServerRowView({
         </span>
         <span className="text-muted-foreground text-xs">
           {scopeLabel(row.scope)}
-          {row.override ? ' · 项目 override' : ''}
+          {row.override ? ' · 项目覆盖' : ''}
         </span>
         {row.configPending && (
           <span
@@ -304,7 +309,7 @@ function ServerRowView({
         )}
         {!row.live && (
           <span>
-            <Trans>未连接：保存配置后需显式应用资源重载。</Trans>
+            <Trans>应用配置后连接</Trans>
           </span>
         )}
         {row.scope === 'extension' && (
@@ -373,13 +378,9 @@ function ServerRowView({
           </>
         )}
       </div>
-      {!manageable && (
+      {!manageable && row.live && (
         <p className="text-muted-foreground text-xs">
-          {row.live ? (
-            <Trans>该服务器没有可交互认证信息。</Trans>
-          ) : (
-            <Trans>连接建立前不能执行运行态操作；先应用资源重载。</Trans>
-          )}
+          <Trans>该服务器没有可交互认证信息。</Trans>
         </p>
       )}
     </section>
@@ -401,9 +402,7 @@ function ToolDetails({
     <section data-slot="huan-mcp-details" className="flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <strong>{details.server.name}</strong>
-        <span className="text-muted-foreground text-xs">
-          {stateLabel(details.server.state)} · toolRevision {details.server.toolRevision}
-        </span>
+        <span className="text-muted-foreground text-xs">{stateLabel(details.server.state)}</span>
         <Button
           variant="outline"
           size="xs"
@@ -420,6 +419,14 @@ function ToolDetails({
           <Trans>刷新详情</Trans>
         </Button>
       </div>
+      <details className="text-xs" data-slot="huan-mcp-tool-diagnostics">
+        <summary className="text-muted-foreground cursor-pointer">
+          <Trans>诊断详情</Trans>
+        </summary>
+        <span className="text-muted-foreground font-mono">
+          <Trans>工具版本</Trans> {details.server.toolRevision}
+        </span>
+      </details>
       {details.instructions && (
         <div className="flex flex-col gap-1">
           <span className="text-muted-foreground text-xs">
@@ -669,11 +676,14 @@ function ServerFormFields({
       <div className="flex flex-wrap items-center gap-2">
         <strong className="text-sm">
           {editor.originalName ? <Trans>修改服务器</Trans> : <Trans>新增服务器</Trans>} ·{' '}
-          {form.kind === 'override' ? 'override' : form.kind}
+          {form.kind === 'override' ? '项目覆盖' : form.kind}
         </strong>
         {form.kind === 'override' && (
           <span className="text-muted-foreground text-xs">
-            <Trans>项目 override 只写 enabled / exposure / toolExposure。</Trans>
+            <Trans>
+              项目覆盖只修改启用状态、服务器 exposure 与
+              toolExposure，且仅对用户配置中的同名服务器生效。
+            </Trans>
           </span>
         )}
       </div>
@@ -870,7 +880,7 @@ function ConfigEditor() {
             aria-label="编辑用户 MCP 配置"
             onClick={() => setScope('user')}
           >
-            <Trans>用户</Trans>
+            <Trans>用户配置</Trans>
             {dirtyScopes.user && <DirtyBadge />}
           </Button>
           <Button
@@ -882,20 +892,27 @@ function ConfigEditor() {
             disabled={snapshot !== undefined && !snapshot.projectTrusted}
             onClick={() => setScope('project')}
           >
-            <Trans>项目</Trans>
+            <Trans>项目配置</Trans>
             {dirtyScopes.project && <DirtyBadge />}
           </Button>
         </div>
+        <span className="text-muted-foreground text-xs">
+          {scope === 'user' ? (
+            <Trans>与 Pi 共用，适用于所有项目</Trans>
+          ) : (
+            <Trans>仅用于当前项目</Trans>
+          )}
+        </span>
         <div className="ms-auto flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             variant="outline"
-            aria-label={rereadConfirm ? '确认重新读取 MCP 配置' : '重新读取 MCP 配置'}
+            aria-label={rereadConfirm ? '确认重新读取文件' : '重新读取文件'}
             disabled={busy !== undefined || !snapshot}
             onClick={() => void requestReread()}
           >
             <RefreshCwIcon aria-hidden />
-            {rereadConfirm ? <Trans>确认重新读取</Trans> : <Trans>重新读取</Trans>}
+            {rereadConfirm ? <Trans>确认重新读取文件</Trans> : <Trans>重新读取文件</Trans>}
           </Button>
           <Button
             size="sm"
@@ -908,14 +925,14 @@ function ConfigEditor() {
           </Button>
           <Button
             size="sm"
-            aria-label="保存 MCP 配置"
+            aria-label="保存"
             disabled={
               !dirty || busy !== undefined || !draft || !file || file.tooLarge || !!file.readError
             }
             onClick={() => void saveConfig()}
           >
             {busy === 'save' && <Loader2Icon aria-hidden className="animate-spin" />}
-            <Trans>保存 MCP 配置</Trans>
+            <Trans>保存</Trans>
           </Button>
         </div>
       </div>
@@ -929,24 +946,10 @@ function ConfigEditor() {
         </p>
       )}
 
-      <p className="text-muted-foreground text-xs">
-        {scope === 'user' ? (
-          <Trans>
-            用户配置位于当前 agentDir 的 mcp.json，与 Pi 及其他项目共用；保存会影响所有使用该
-            agentDir 的会话。这里只能检测已发生的外部修改，避免同时在 Pi 与 huan 编辑同一文件。
-          </Trans>
-        ) : (
-          <Trans>
-            项目配置只对该项目生效；项目 override 只写 enabled、exposure、toolExposure，且需要
-            与用户服务器同名。扩展临时注册不会写入任何配置文件。
-          </Trans>
-        )}
-      </p>
-
       {snapshot && (
         <details className="text-xs" data-slot="huan-mcp-effective">
           <summary className="cursor-pointer">
-            <Trans>磁盘合并后的有效服务器（未应用到 live 会话）</Trans>
+            <Trans>配置预览</Trans>
           </summary>
           <ul className="mt-1 flex flex-col gap-1">
             {snapshot.effective.servers.map((server) => (
@@ -956,7 +959,7 @@ function ConfigEditor() {
                 data-server-name={server.name}
               >
                 <span className="font-mono">{server.name}</span> · {scopeLabel(server.scope)}
-                {server.override ? ' · override' : ''} · {server.enabled ? '启用' : '停用'} ·{' '}
+                {server.override ? ' · 项目覆盖' : ''} · {server.enabled ? '启用' : '停用'} ·{' '}
                 {server.exposure}
               </li>
             ))}
@@ -1018,12 +1021,6 @@ function ConfigEditor() {
                 disabled={!canEdit}
                 onChange={(event) => updateDraft(event.target.value)}
               />
-              <p className="text-muted-foreground text-xs">
-                <Trans>
-                  这里编辑完整文件内容；常用表单、新增和删除也只改这份草稿。未知字段保留，
-                  保存会整体替换该文件；保存成功后仍需显式应用资源重载。
-                </Trans>
-              </p>
             </div>
           ) : (
             <div className="flex flex-col gap-2" data-slot="huan-mcp-common">
@@ -1050,11 +1047,11 @@ function ConfigEditor() {
                   <Button
                     size="sm"
                     variant="outline"
-                    aria-label="新增项目 override"
+                    aria-label="新增项目覆盖"
                     disabled={!canEdit || !root}
                     onClick={() => openAddServer('override')}
                   >
-                    <Trans>新增 override</Trans>
+                    <Trans>新增项目覆盖</Trans>
                   </Button>
                 )}
               </div>
@@ -1081,7 +1078,7 @@ function ConfigEditor() {
                   >
                     <span className="font-mono font-medium">{server.name}</span>
                     <span className="text-muted-foreground">
-                      {server.override ? '项目 override' : serverKindOf(server.raw)}
+                      {server.override ? '项目覆盖' : serverKindOf(server.raw)}
                     </span>
                     <span className="text-muted-foreground">
                       {typeof server.raw.command === 'string'
@@ -1262,11 +1259,7 @@ export function McpDialog() {
               <Trans>MCP 服务器</Trans>
             </DialogTitle>
             <DialogDescription>
-              <Trans>
-                配置与 Pi 共用 `mcp.json`；保存只写磁盘，显式应用资源重载后当前会话才会连接。
-                避免同时在 Pi 与 huan 编辑同一文件：revision 只能检测已发生的外部修改。
-                临时启停/exposure 只影响本会话。OAuth 回填只提交给宿主内存，关闭面板不会取消登录。
-              </Trans>
+              <Trans>管理 MCP 服务器、配置和登录。</Trans>
             </DialogDescription>
           </DialogHeader>
 
@@ -1281,17 +1274,10 @@ export function McpDialog() {
               <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
                 <span className="font-mono break-all">{workspacePath}</span>
                 <span>
-                  {target.threadId ? (
-                    <Trans>当前会话固定 cwd</Trans>
-                  ) : (
-                    <Trans>空白页起始目录</Trans>
-                  )}
+                  {target.threadId ? <Trans>当前会话目录</Trans> : <Trans>起始目录</Trans>}
                 </span>
                 {snapshot && (
-                  <span>
-                    {live ? <Trans>live 会话</Trans> : <Trans>仅配置</Trans>}
-                    {snapshot.runtime ? ` · runtime ${snapshot.runtime.revision}` : ''}
-                  </span>
+                  <span>{live ? <Trans>当前会话</Trans> : <Trans>尚未应用</Trans>}</span>
                 )}
                 {configSnapshot && (
                   <span>
@@ -1303,6 +1289,21 @@ export function McpDialog() {
                   </span>
                 )}
               </div>
+
+              {snapshot && (
+                <details className="text-xs" data-slot="huan-mcp-runtime-diagnostics">
+                  <summary className="text-muted-foreground cursor-pointer">
+                    <Trans>诊断详情</Trans>
+                  </summary>
+                  <span className="text-muted-foreground font-mono">
+                    {snapshot.runtime ? (
+                      <Trans>运行版本 {snapshot.runtime.revision}</Trans>
+                    ) : (
+                      <Trans>尚无运行实例</Trans>
+                    )}
+                  </span>
+                </details>
+              )}
 
               {notice && <Notice>{notice}</Notice>}
               {error && (
@@ -1318,6 +1319,11 @@ export function McpDialog() {
               {mcpAuthError && (
                 <p role="status" className="text-destructive text-xs">
                   {mcpAuthError}
+                </p>
+              )}
+              {activeAuthCount > 0 && (
+                <p data-slot="huan-mcp-auth-policy" className="text-muted-foreground text-xs">
+                  <Trans>关闭面板后登录继续；要终止请取消认证。</Trans>
                 </p>
               )}
 
@@ -1362,7 +1368,7 @@ export function McpDialog() {
                 <div className="ms-auto flex items-center gap-2">
                   <Button
                     size="sm"
-                    aria-label="应用 MCP 资源重载"
+                    aria-label={target.threadId ? '应用到当前会话' : '刷新项目资源'}
                     disabled={busy !== undefined}
                     onClick={() => void applyReload()}
                   >
@@ -1371,7 +1377,7 @@ export function McpDialog() {
                     ) : (
                       <RotateCwIcon aria-hidden />
                     )}
-                    <Trans>应用资源重载</Trans>
+                    {target.threadId ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
                   </Button>
                 </div>
               </div>
@@ -1441,11 +1447,6 @@ export function McpDialog() {
                       <AuthOperationCard key={operation.id} operation={operation} />
                     ))
                   )}
-                  <p className="text-muted-foreground text-xs">
-                    <Trans>
-                      认证操作由宿主统一管理，可跨窗口接管；关闭面板不会取消，回填值不会进入快照或日志。
-                    </Trans>
-                  </p>
                 </div>
               )}
             </div>

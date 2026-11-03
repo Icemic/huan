@@ -160,12 +160,9 @@ export function SessionContextBar() {
         className="text-muted-foreground flex flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs"
       >
         <span className="font-medium text-foreground">
-          <Trans>新会话目标</Trans>
+          <Trans>新会话</Trans>
         </span>
         <span className="max-w-80 truncate">{selection.startProjectPath}</span>
-        <span>
-          <Trans>发送首条消息时创建；管理面板可按该起始目录打开。</Trans>
-        </span>
         <div className="ms-auto flex items-center gap-2">
           <SessionActionsMenu triggerRef={menuTriggerRef} actions={newSessionActions} />
         </div>
@@ -273,7 +270,7 @@ export function SessionContextBar() {
     >
       {!metadata.workspaceId ? (
         <span className="text-muted-foreground">
-          <Trans>未归属会话；可明确加入工作区。</Trans>
+          <Trans>未归属会话</Trans>
         </span>
       ) : (
         <>

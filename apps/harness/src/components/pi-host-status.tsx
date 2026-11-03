@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -139,12 +138,6 @@ export function PiHostStatus() {
             <DialogTitle>
               <Trans>宿主状态</Trans>
             </DialogTitle>
-            <DialogDescription>
-              <Trans>
-                这里只展示宿主受控诊断。登录/退出后会自动重新读取
-                readiness；启动配置（用户空间、会话目录）修改后需要重启宿主。
-              </Trans>
-            </DialogDescription>
           </DialogHeader>
 
           <div className="flex min-h-0 flex-col gap-3 overflow-auto text-sm">
@@ -176,10 +169,7 @@ export function PiHostStatus() {
               >
                 <span className="min-w-0 flex-1">
                   {readiness.state === 'missing-credentials' ? (
-                    <Trans>
-                      默认模型缺少凭据。可先登录
-                      provider，或选择其他已配置模型；登录后此处会自动刷新。
-                    </Trans>
+                    <Trans>默认模型缺少凭据，请登录或选择其他模型</Trans>
                   ) : readiness.state === 'unavailable-model' ? (
                     <Trans>默认模型不可用：{readiness.message}</Trans>
                   ) : (
@@ -195,7 +185,7 @@ export function PiHostStatus() {
                   }}
                 >
                   <KeyRoundIcon aria-hidden />
-                  <Trans>登录 provider</Trans>
+                  <Trans>登录服务商</Trans>
                 </Button>
               </div>
             )}
@@ -212,12 +202,24 @@ export function PiHostStatus() {
                   </dt>
                   <dd className="break-all">
                     {host.agentDir} ({sourceLabel(host.agentDirSource)})
+                    <span
+                      className="text-muted-foreground block text-xs"
+                      data-slot="huan-host-restart-note"
+                    >
+                      <Trans>启动时读取，修改后需重启服务</Trans>
+                    </span>
                   </dd>
                   <dt>
                     <Trans>会话目录</Trans>
                   </dt>
                   <dd className="break-all">
                     {host.sessionStorage.directory} ({sourceLabel(host.sessionStorage.source)})
+                    <span
+                      className="text-muted-foreground block text-xs"
+                      data-slot="huan-host-restart-note"
+                    >
+                      <Trans>启动时读取，修改后需重启服务</Trans>
+                    </span>
                   </dd>
                   <dt>
                     <Trans>存储方式</Trans>
@@ -234,6 +236,12 @@ export function PiHostStatus() {
                   </dt>
                   <dd className="break-all">
                     {host.defaultModel.provider ?? '—'} / {host.defaultModel.modelId ?? '—'}
+                    <span
+                      className="text-muted-foreground block text-xs"
+                      data-slot="huan-host-restart-note"
+                    >
+                      <Trans>启动时读取，修改后需重启服务</Trans>
+                    </span>
                   </dd>
                   <dt>
                     <Trans>Provider 来源</Trans>

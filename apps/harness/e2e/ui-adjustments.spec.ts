@@ -487,7 +487,11 @@ test('会话操作收进单一菜单：模型只在输入区，操作/确认/焦
   await startNewSession(page, workspaceName)
 
   const context = page.locator('[data-slot="huan-session-context"]')
-  await expect(context).toContainText('新会话目标')
+  // C01：标题只写“新会话”，延迟创建与面板取目标的说明不再出现。
+  await expect(context).toContainText('新会话')
+  await expect(context).not.toContainText('新会话目标')
+  await expect(context).not.toContainText('发送首条消息时创建')
+  await expect(page.locator('[data-slot="huan-chat-view"]')).not.toContainText('发送首条消息')
   await expect(context.getByRole('combobox')).toHaveCount(0)
   const composer = page.locator('[data-slot="huan-composer"]')
   await expect(composer.getByRole('combobox')).toHaveCount(1)

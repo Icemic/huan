@@ -395,7 +395,7 @@ export class SessionImportService {
         return {
           status: 'conflict',
           preview,
-          message: '同一会话 ID 的内容不同；如确需导入，请选择“作为独立副本导入”',
+          message: '同一会话 ID 的内容不同；如确需导入，请选择“作为新会话导入”',
         }
       }
 

@@ -99,6 +99,8 @@ describe('auth feature：登录/退出与面板关闭', () => {
       method: 'api_key',
     })
     expect(store.getState().notice).toContain('已开始')
+    // 关闭面板规则只在活跃操作卡片显示，不常驻在提示里。
+    expect(store.getState().notice).not.toContain('关闭面板')
     expect(store.getState().providerBusy).toEqual({})
 
     store.getState().setAnswer('op-a', 'p1', 'secret-value')

@@ -288,7 +288,7 @@ export function applyServerForm(
     if (form.exposure !== 'unset') next.exposure = form.exposure
     if (Object.keys(toolExposure.value).length > 0) next.toolExposure = toolExposure.value
     if (Object.keys(next).length === 0) {
-      return { error: '项目 override 至少需要设置 enabled、exposure 或 toolExposure 之一。' }
+      return { error: '项目覆盖至少需要设置启用状态或工具可见性。' }
     }
   } else {
     // 编辑完整条目时保留既有未知字段；新增时从空对象开始。

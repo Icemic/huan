@@ -124,7 +124,7 @@ async function openImportedSession(
   const dialog = page.getByRole('dialog', { name: '导入 JSONL 会话' })
   await dialog.getByRole('combobox', { name: '目标工作区' }).click()
   await page.getByRole('option', { name: workspaceName, exact: true }).click()
-  await dialog.getByLabel('宿主 JSONL 路径').fill(sourcePath)
+  await dialog.getByLabel('服务端 JSONL 绝对路径').fill(sourcePath)
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible({
     timeout: 20_000,

@@ -533,6 +533,7 @@ export function SettingsResourcesDialog() {
   const error = useSettingsStore((state) => state.error)
   const resourceError = useSettingsStore((state) => state.resourceError)
   const drafts = useSettingsStore((state) => state.drafts)
+  const reloadConfirm = useSettingsStore((state) => state.reloadConfirm)
   const setTab = useSettingsStore((state) => state.setTab)
   const setScope = useSettingsStore((state) => state.setScope)
   const close = useSettingsStore((state) => state.close)
@@ -619,11 +620,7 @@ export function SettingsResourcesDialog() {
             <Trans>设置与资源</Trans>
           </DialogTitle>
           <DialogDescription>
-            <Trans>
-              编辑用户/项目 settings.json（完整文件语义），并查看实际加载的资源清单。
-              保存只写磁盘；点“应用资源重载”会让当前会话使用新设置与资源，
-              “重新加载”只重读磁盘原文（会丢弃该作用域的未保存改动）。
-            </Trans>
+            <Trans>管理用户和项目设置，查看已加载的资源。</Trans>
           </DialogDescription>
         </DialogHeader>
 
@@ -655,9 +652,9 @@ export function SettingsResourcesDialog() {
                 <span className="font-mono break-all">{snapshot.target.workspacePath}</span>
                 <span>
                   {snapshot.target.kind === 'session' ? (
-                    <Trans>当前会话固定 cwd</Trans>
+                    <Trans>当前会话目录</Trans>
                   ) : (
-                    <Trans>空白页起始目录</Trans>
+                    <Trans>起始目录</Trans>
                   )}
                 </span>
                 <span>
@@ -718,7 +715,6 @@ export function SettingsResourcesDialog() {
                 <Button
                   size="sm"
                   variant="outline"
-                  aria-label="重新加载设置与资源"
                   disabled={!ready || saving || reloading}
                   onClick={() => void reloadFromDisk()}
                 >
@@ -727,11 +723,10 @@ export function SettingsResourcesDialog() {
                   ) : (
                     <RefreshCwIcon aria-hidden className="size-3.5" />
                   )}
-                  <Trans>重新加载</Trans>
+                  {reloadConfirm ? <Trans>确认重新读取文件</Trans> : <Trans>重新读取文件</Trans>}
                 </Button>
                 <Button
                   size="sm"
-                  aria-label="应用资源重载"
                   disabled={!ready || saving || reloading || reloadRunning}
                   onClick={() => void applyResourceReload()}
                 >
@@ -740,7 +735,7 @@ export function SettingsResourcesDialog() {
                   ) : (
                     <RotateCwIcon aria-hidden className="size-3.5" />
                   )}
-                  <Trans>应用资源重载</Trans>
+                  {target?.threadId ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
                 </Button>
               </div>
             </div>
@@ -754,10 +749,7 @@ export function SettingsResourcesDialog() {
             )}
             {dirty && (
               <p role="status" data-slot="huan-settings-unsaved" className="text-xs">
-                <Trans>
-                  当前作用域有未保存改动；切换到另一作用域会保留草稿，
-                  “重新加载”会丢弃该作用域的未保存改动，“应用资源重载”不会。
-                </Trans>
+                <Trans>有未保存的改动</Trans>
               </p>
             )}
 
@@ -840,12 +832,6 @@ export function SettingsResourcesDialog() {
                       disabled={!ready || scopeBlocked || saving}
                       onChange={(event) => updateDraft(event.target.value)}
                     />
-                    <p className="text-muted-foreground text-xs">
-                      <Trans>
-                        这是完整文件内容：保存会整体替换该文件。未知字段会原样保留；
-                        宿主保存时按随包 settings schema 校验已知字段。
-                      </Trans>
-                    </p>
                   </div>
                 )}
               </div>
@@ -877,7 +863,7 @@ export function SettingsResourcesDialog() {
             {snapshot && (
               <details data-slot="huan-settings-effective" className="text-xs">
                 <summary className="cursor-pointer">
-                  <Trans>磁盘合并预览（未应用到当前会话）</Trans>
+                  <Trans>文件配置预览</Trans>
                 </summary>
                 <div className="text-muted-foreground mt-1 flex flex-col gap-1">
                   <span>
@@ -890,10 +876,9 @@ export function SettingsResourcesDialog() {
                   <pre className="max-h-48 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
                     {JSON.stringify(snapshot.effective.values, null, 2).slice(0, 20_000)}
                   </pre>
-                  {snapshot.live && (
+                  {snapshot.live && snapshot.reloadRequired && (
                     <span>
-                      <Trans>当前会话已加载值来自会话装配；磁盘变化需重载才会被使用。</Trans>
-                      {snapshot.reloadRequired ? '（检测到磁盘值与会话值不同）' : ''}
+                      <Trans>与当前会话使用的设置不同</Trans>
                     </span>
                   )}
                 </div>
@@ -915,7 +900,6 @@ export function SettingsResourcesDialog() {
           )}
           {tab !== 'resources' && (
             <Button
-              aria-label="保存设置"
               disabled={
                 !ready ||
                 !draft ||
@@ -929,7 +913,7 @@ export function SettingsResourcesDialog() {
               onClick={() => void save()}
             >
               {saving ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}
-              <Trans>保存设置</Trans>
+              <Trans>保存</Trans>
             </Button>
           )}
           <Button variant="ghost" onClick={close}>

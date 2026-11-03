@@ -256,7 +256,7 @@ export function PiThreadHostUi() {
           className="mt-1 flex flex-wrap items-center gap-2"
         >
           <span className="text-muted-foreground">
-            <Trans>命令目标已领取；当前窗口已切换，需要时显式打开。</Trans>
+            <Trans>有待打开的会话。</Trans>
           </span>
           <Button
             size="sm"
@@ -265,7 +265,7 @@ export function PiThreadHostUi() {
               if (applyPendingCommandTarget()) return
             }}
           >
-            <Trans>打开待应用目标</Trans>
+            <Trans>打开会话</Trans>
           </Button>
         </div>
       ) : null}
@@ -275,7 +275,7 @@ export function PiThreadHostUi() {
           className="mt-1 flex flex-wrap items-center gap-2"
         >
           <span className="text-muted-foreground">
-            <Trans>编辑器指令已领取；回到来源会话后可显式应用。</Trans>
+            <Trans>有待填入的内容。</Trans>
           </span>
           <Button
             size="sm"
@@ -284,7 +284,7 @@ export function PiThreadHostUi() {
               if (applyPendingEditorDirective()) return
             }}
           >
-            <Trans>应用编辑器指令</Trans>
+            <Trans>填入输入框</Trans>
           </Button>
         </div>
       ) : null}
@@ -364,7 +364,7 @@ export function PiComposerHostUi({
         data-slot="huan-editor-directive-recovery"
         className="text-muted-foreground mx-2 mt-1 flex items-center gap-2 text-xs"
       >
-        <Trans>已应用到输入框，原内容保留在窗口内。</Trans>
+        <Trans>已填入输入框。</Trans>
         <button
           type="button"
           className="underline"

@@ -85,7 +85,7 @@ test('会话内 /reload 重载资源、刷新命令目录且不新增消息', as
   await messageInput(page).fill('/reload')
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
-  await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
+  await expect(composerNotice(page)).toContainText('已应用到当前会话')
   // 命令自身不进入会话历史：仍只有首条用户消息。
   await expect(userMessages(page)).toHaveCount(1)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
@@ -112,23 +112,23 @@ test('设置保存后可应用资源重载，保留未保存草稿', async ({ pa
   const next = original.replace('"keepRecentTokens": 40', '"keepRecentTokens": 50')
   expect(next).not.toBe(original)
   await editor.fill(next)
-  await dialog.getByRole('button', { name: '保存设置' }).click()
+  await dialog.getByRole('button', { name: '保存' }).click()
   await expect(settingsNotice(page)).toContainText('已保存')
-  await expect(settingsNotice(page)).toContainText('应用资源重载')
+  await expect(settingsNotice(page)).toContainText('可应用到当前会话')
   // 磁盘值与会话值不同：面板如实提示需要重载。
   await dialog.getByRole('tab', { name: '常用项' }).click()
-  await expect(dialog).toContainText('检测到磁盘值与会话值不同')
+  await expect(dialog).toContainText('与当前会话使用的设置不同')
 
   // 制造未保存草稿：应用资源重载不得覆盖它。
   await dialog.getByRole('tab', { name: 'JSON 原文' }).click()
   const draft = `${next.trimEnd()}\n// 草稿标记\n`
   await editor.fill(draft.replace('// 草稿标记', '"draftMarker": 1,'))
   const unsaved = await editor.inputValue()
-  await dialog.getByRole('button', { name: '应用资源重载' }).click()
-  await expect(settingsNotice(page)).toContainText('已重载并应用')
+  await dialog.getByRole('button', { name: '应用到当前会话' }).click()
+  await expect(settingsNotice(page)).toContainText('已应用到当前会话')
   await expect(editor).toHaveValue(unsaved)
   await dialog.getByRole('tab', { name: '常用项' }).click()
-  await expect(dialog).not.toContainText('检测到磁盘值与会话值不同')
+  await expect(dialog).not.toContainText('与当前会话使用的设置不同')
 })
 
 test('双窗口共享资源版本：另一窗口重载后本窗口命令目录更新', async ({ page, request }) => {
@@ -149,7 +149,7 @@ test('双窗口共享资源版本：另一窗口重载后本窗口命令目录�
 
   await messageInput(page).fill('/reload')
   await messageInput(page).press('Enter')
-  await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
+  await expect(composerNotice(page)).toContainText('已应用到当前会话')
 
   // 资源版本经快照/事件传播：另一窗口的资源面板与命令目录按需重读。
   await expect(secondDialog).toContainText('reload-shared.js')
@@ -173,7 +173,7 @@ test('重载期间 session_start 确认可页面应答，结束后恢复', async
     // 重载处于启动期：回答后同一请求结算并完成重载。
     await card.getByRole('button', { name: '允许' }).click()
     await expect(card).toHaveCount(0)
-    await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
+    await expect(composerNotice(page)).toContainText('已应用到当前会话')
     await expect(userMessages(page)).toHaveCount(1)
   } finally {
     await removeTestFile(request, 'workspace', '.pi/ask-startup')
@@ -186,7 +186,7 @@ test('空白页 /reload 只提示起始目录装配，不创建会话', async ({
   await messageInput(page).fill('/reload')
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
-  await expect(composerNotice(page)).toContainText('起始目录的待消费装配')
+  await expect(composerNotice(page)).toContainText('已刷新项目资源')
   await expect(userMessages(page)).toHaveCount(0)
   await page.getByRole('button', { name: '打开命令面板' }).click()
   const palette = page.getByRole('dialog', { name: '命令面板' })

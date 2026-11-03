@@ -357,7 +357,7 @@ export class ConfigurationService {
         scope: input.scope,
         path,
         revision: current.revision,
-        message: '设置文件已被其他窗口或进程修改；请重新加载原文后再保存。',
+        message: '设置文件已被其他窗口或进程修改；请重新读取文件后再保存。',
       }
     }
     const parsed = parseSettingsContent(input.content)

@@ -4,9 +4,9 @@
  *
  * 业务边界（见 R1 §5.4）：
  * - 目标在打开面板时固定（会话或空白页起始目录），迟到读取/保存不串到新目标；
- * - 用户/项目作用域各保留一份原文草稿；关闭面板不丢 dirty 草稿，显式“重新加载”
- *   才丢弃当前作用域；保存失败/冲突保留草稿，保存回执不覆盖后来的编辑；
- * - 保存只写磁盘，不自动应用到 live 会话；“应用资源重载”是独立动作，
+ * - 用户/项目作用域各保留一份原文草稿；关闭面板不丢 dirty 草稿，显式“重新读取文件”
+ *   才丢弃当前作用域（dirty 时先确认）；保存失败/冲突保留草稿，保存回执不覆盖后来的编辑；
+ * - 保存只写磁盘，不自动应用到 live 会话；“应用到当前会话/刷新项目资源”是独立动作，
  *   未保存草稿不受影响；
  * - 资源正文只在显式请求时读取，隐藏即清除正文，不持久化。
  */
@@ -66,6 +66,8 @@ export interface SettingsFeatureState {
   error: string | undefined
   resourceError: string | undefined
   drafts: Readonly<Record<string, SettingsDraftState>>
+  /** 当前作用域 dirty 时是否已要求确认重新读取；编辑/切换/关闭后清除。 */
+  reloadConfirm: boolean
   /** 目标会话最近确认的资源版本；变化时只重读，不重置草稿。 */
   observedResourceRevision: number | undefined
   disposed: boolean
@@ -80,7 +82,7 @@ export interface SettingsFeatureState {
   loadSettings: (options?: { resetScope?: HarnessSettingsScope }) => Promise<void>
   /** 读取资源清单；`withText` 显式请求正文。 */
   loadResources: (withText: boolean) => Promise<void>
-  /** 重新读取磁盘设置（丢弃当前作用域未保存草稿）并刷新资源。 */
+  /** 重新读取磁盘设置并刷新资源；当前作用域 dirty 时首次只要求确认。 */
   reloadFromDisk: () => Promise<void>
   updateDraft: (content: string) => void
   /** 常用项表单写入：只改指定键，重新序列化完整原文。 */
@@ -157,7 +159,7 @@ const httpCodeOf = (error: unknown): string | undefined =>
 const saveErrorText = (error: unknown): string => {
   const code = httpCodeOf(error)
   if (code === 'settings-conflict') {
-    return '保存冲突：设置文件已在其他窗口或进程被修改。请先“重新加载”再合并改动。'
+    return '保存冲突：设置文件已在其他窗口或进程被修改。请先“重新读取文件”再合并改动。'
   }
   if (code === 'settings-untrusted') return '项目未信任，不能保存项目设置。'
   if (code === 'settings-too-large') return '设置文件超过大小上限，无法保存。'
@@ -165,22 +167,51 @@ const saveErrorText = (error: unknown): string => {
   return errorText(error)
 }
 
-const saveResultMessage = (result: HarnessSettingsSaveResult): string => {
-  switch (result.status) {
-    case 'saved':
-      return `${result.apply.message}${
-        result.apply.reloadRequired
-          ? '（已保存，待重载；点“应用资源重载”即可让当前会话使用新设置）'
-          : ''
-      }`
-    case 'invalid':
-      return result.message
-    case 'conflict':
-    case 'untrusted':
-    case 'too-large':
-    case 'failed':
-      return result.message
+/** 顶层键差异；任一侧不是合法 JSON 对象时返回 undefined（按可应用保守处理）。 */
+const topLevelChangedKeys = (before: string, after: string): string[] | undefined => {
+  try {
+    const left = JSON.parse(before) as unknown
+    const right = JSON.parse(after) as unknown
+    if (left === null || typeof left !== 'object' || Array.isArray(left)) return undefined
+    if (right === null || typeof right !== 'object' || Array.isArray(right)) return undefined
+    const keys = new Set([
+      ...Object.keys(left as Record<string, unknown>),
+      ...Object.keys(right as Record<string, unknown>),
+    ])
+    return [...keys].filter(
+      (key) =>
+        JSON.stringify((left as Record<string, unknown>)[key]) !==
+        JSON.stringify((right as Record<string, unknown>)[key]),
+    )
+  } catch {
+    return undefined
   }
+}
+
+/**
+ * 保存结果文案只依据结构化 apply 字段：
+ * 重启字段不算“可应用”；同次还有其他变化时仍保留应用提示。
+ */
+const saveResultMessage = (
+  result: Extract<HarnessSettingsSaveResult, { status: 'saved' }>,
+  context: { session: boolean; baseContent: string; content: string },
+): string => {
+  const restartKeys = result.apply.restartRequiredKeys
+  const changed = topLevelChangedKeys(context.baseContent, context.content)
+  const applicable =
+    result.apply.reloadRequired &&
+    (restartKeys.length === 0 ||
+      changed === undefined ||
+      changed.some((key) => !restartKeys.includes(key)))
+  const lines = [
+    applicable
+      ? context.session
+        ? '已保存，可应用到当前会话'
+        : '已保存，可刷新项目资源'
+      : '已保存',
+  ]
+  if (restartKeys.length > 0) lines.push(`以下设置需重启服务：${restartKeys.join('、')}`)
+  return lines.join('\n')
 }
 
 const reloadFailureText = (result: Extract<HarnessReloadResult, { status: 'failed' }>): string => {
@@ -215,19 +246,17 @@ export const createSettingsFeatureStore = (
     const withDraftsFromSnapshot = (
       snapshot: HarnessSettingsSnapshot,
       resetScope: HarnessSettingsScope | undefined,
+      resetRevision: number | undefined,
     ): Record<string, SettingsDraftState> => {
       const state = get()
       const drafts: Record<string, SettingsDraftState> = { ...state.drafts }
       for (const scope of ['user', 'project'] as const) {
         const key = draftKeyOf(state.targetKey, scope)
         const file = draftFileOf(snapshot, scope)
-        if (resetScope === scope) delete drafts[key]
-        if (!file.readable || file.tooLarge || file.readError) {
-          if (resetScope === scope) delete drafts[key]
-          continue
-        }
+        // 读取失败/不可读时保留既有草稿，不能让一次失败的重新读取吞掉改动。
+        if (!file.readable || file.tooLarge || file.readError) continue
         const existing = drafts[key]
-        if (!existing) {
+        if (!existing || (resetScope === scope && existing.draftRevision === resetRevision)) {
           drafts[key] = draftFromFile(file)
           continue
         }
@@ -263,10 +292,7 @@ export const createSettingsFeatureStore = (
         return {
           status: 'reloaded',
           resourceRevision: result.resourceRevision,
-          message:
-            result.kind === 'session'
-              ? `已重载并应用到当前会话（资源版本 ${result.resourceRevision}）；消息、分支与未保存草稿保持不变。`
-              : `已重载该起始目录的待消费装配（资源版本 ${result.resourceRevision}）；不会创建会话，也不影响其他会话。`,
+          message: result.kind === 'session' ? '已应用到当前会话' : '已刷新项目资源',
         }
       } catch (error) {
         return { status: 'failed', message: errorText(error) }
@@ -291,6 +317,7 @@ export const createSettingsFeatureStore = (
       error: undefined,
       resourceError: undefined,
       drafts: {},
+      reloadConfirm: false,
       observedResourceRevision: undefined,
       disposed: false,
 
@@ -319,6 +346,7 @@ export const createSettingsFeatureStore = (
           notice: undefined,
           error: target ? undefined : '当前没有可用的会话或起始目录；请先选择工作区/项目。',
           resourceError: undefined,
+          reloadConfirm: false,
           observedResourceRevision:
             target?.threadId !== undefined
               ? browser.serviceStore.getState().threadsById[target.threadId]?.resourceRevision
@@ -346,6 +374,7 @@ export const createSettingsFeatureStore = (
           notice: undefined,
           error: undefined,
           resourceError: undefined,
+          reloadConfirm: false,
         })
       },
 
@@ -358,7 +387,7 @@ export const createSettingsFeatureStore = (
         const state = get()
         if (state.disposed || state.scope === scope) return
         if (scope === 'project' && state.snapshot && !state.snapshot.projectTrusted) return
-        set({ scope, notice: undefined, error: undefined })
+        set({ scope, notice: undefined, error: undefined, reloadConfirm: false })
       },
 
       loadSettings: async (loadOptions) => {
@@ -368,6 +397,9 @@ export const createSettingsFeatureStore = (
         const epoch = ++loadRequest
         const panel = state.targetEpoch
         const targetKey = state.targetKey
+        const resetRevision = loadOptions?.resetScope
+          ? state.drafts[draftKeyOf(targetKey, loadOptions.resetScope)]?.draftRevision
+          : undefined
         set({ loading: true, error: undefined })
         try {
           const snapshot = await browser.client.getSettings(targetInputOf(target))
@@ -381,7 +413,7 @@ export const createSettingsFeatureStore = (
           ) {
             return
           }
-          const drafts = withDraftsFromSnapshot(snapshot, loadOptions?.resetScope)
+          const drafts = withDraftsFromSnapshot(snapshot, loadOptions?.resetScope, resetRevision)
           const nextScope =
             current.scope === 'project' && !snapshot.projectTrusted ? 'user' : current.scope
           set({
@@ -453,6 +485,12 @@ export const createSettingsFeatureStore = (
       reloadFromDisk: async () => {
         const state = get()
         if (state.disposed || !state.open || !state.target) return
+        // 当前作用域有未保存草稿时先要求确认；读取失败仍保留草稿。
+        if (draftIsDirty(state.drafts[keyNow()]) && !state.reloadConfirm) {
+          set({ reloadConfirm: true, notice: '重新读取将丢弃未保存的改动', error: undefined })
+          return
+        }
+        set({ reloadConfirm: false, notice: undefined })
         await get().loadSettings({ resetScope: state.scope })
         await get().loadResources(state.showText)
       },
@@ -475,6 +513,7 @@ export const createSettingsFeatureStore = (
           },
           error: undefined,
           notice: undefined,
+          reloadConfirm: false,
         })
       },
 
@@ -500,6 +539,7 @@ export const createSettingsFeatureStore = (
           },
           notice: undefined,
           error: undefined,
+          reloadConfirm: false,
         })
       },
 
@@ -514,12 +554,13 @@ export const createSettingsFeatureStore = (
         const targetKey = state.targetKey
         const submitted = {
           content: draft.content,
+          baseContent: draft.baseContent,
           revision: draft.revision,
           draftRevision: draft.draftRevision,
         }
         const panel = state.targetEpoch
         const request = ++saveRequest
-        set({ saving: true, notice: undefined, error: undefined })
+        set({ saving: true, notice: undefined, error: undefined, reloadConfirm: false })
         try {
           const result = await browser.client.saveSettings({
             target: targetInputOf(target),
@@ -547,7 +588,15 @@ export const createSettingsFeatureStore = (
             set({
               ...(samePanel ? { snapshot: result.snapshot } : {}),
               drafts,
-              ...(samePanel ? { notice: saveResultMessage(result) } : {}),
+              ...(samePanel
+                ? {
+                    notice: saveResultMessage(result, {
+                      session: target.threadId !== undefined,
+                      baseContent: submitted.baseContent,
+                      content: submitted.content,
+                    }),
+                  }
+                : {}),
             })
             return
           }
@@ -582,7 +631,7 @@ export const createSettingsFeatureStore = (
         const targetKey = state.targetKey
         const panel = state.targetEpoch
         const request = ++reloadRequest
-        set({ reloading: true, notice: undefined, error: undefined })
+        set({ reloading: true, notice: undefined, error: undefined, reloadConfirm: false })
         const outcome = await reload(target)
         const current = get()
         if (current.disposed || request !== reloadRequest) return
@@ -670,6 +719,7 @@ export const createSettingsFeatureStore = (
           notice: undefined,
           error: undefined,
           resourceError: undefined,
+          reloadConfirm: false,
           observedResourceRevision: undefined,
           disposed: true,
         })

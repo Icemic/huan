@@ -1209,7 +1209,7 @@ export const createSessionsFeatureStore = (
           set({
             importPanel: {
               ...panel,
-              error: '同 ID 会话内容不同；请先勾选“作为独立副本导入”。',
+              error: '同 ID 会话内容不同；请先勾选“作为新会话导入”。',
             },
           })
           return undefined

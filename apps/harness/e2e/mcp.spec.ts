@@ -126,12 +126,12 @@ async function openServersTab(_page: Page, dialog: ReturnType<typeof mcpDialog>)
 }
 
 async function applyReload(_page: Page, dialog: ReturnType<typeof mcpDialog>): Promise<void> {
-  await dialog.getByRole('button', { name: '应用 MCP 资源重载' }).click()
-  await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已应用资源重载')
+  await dialog.getByRole('button', { name: '应用到当前会话' }).click()
+  await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已应用到当前会话')
 }
 
 async function saveConfig(_page: Page, dialog: ReturnType<typeof mcpDialog>): Promise<void> {
-  await dialog.getByRole('button', { name: '保存 MCP 配置' }).click()
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
   await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已保存')
 }
 
@@ -230,7 +230,7 @@ test('顶栏与 /mcp 打开同一面板，未知子命令不发模型', async ({
   await messageInput(page).press('Enter')
   await expect(mcpDialog(page)).toBeVisible()
   await expect(mcpDialog(page).locator('[data-slot="huan-mcp-notice"]')).toContainText(
-    '未知 MCP 服务器',
+    '找不到此服务器',
   )
   await expect(userMessages(page)).toHaveCount(0)
 })
@@ -268,7 +268,7 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
       dialog.locator('[data-slot="huan-mcp-draft-server"][data-server-name="fixture"]'),
     ).toBeVisible()
     await saveConfig(page, dialog)
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('保存不会自动连接')
+    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('可应用到当前会话')
 
     // 保存 ≠ 连接：配置已落盘，但 live manager 尚未启动 fixture。
     expect(await readProjectMcp(request, projectPath)).toContain('fixture')
@@ -344,7 +344,7 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
     await expect(dynamicRow).toBeVisible()
     await dynamicRow.getByRole('combobox', { name: '工具 dynamic_tool exposure' }).click()
     await page.getByRole('option', { name: 'hidden', exact: true }).click()
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('本会话临时应用')
+    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已更新 fixture')
     await expect(
       dynamicRow.getByRole('combobox', { name: '工具 dynamic_tool exposure' }),
     ).toContainText('hidden')
@@ -376,7 +376,7 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
 
     // 本会话临时重连、服务器 exposure 与启停；不写配置文件。
     await row.getByRole('button', { name: '重连 fixture' }).click()
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('本会话临时应用')
+    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已更新 fixture')
     await row.getByRole('combobox', { name: 'fixture exposure' }).click()
     await page.getByRole('option', { name: 'hidden', exact: true }).click()
     await expect(row).toContainText('hidden', { timeout: 10_000 })
@@ -485,20 +485,20 @@ test('项目未信任不读取配置，revision 冲突与非法配置保留草�
     await editor.fill('{"mcpServers":{},"draftOnly":true}\n')
     // 模拟另一个窗口/进程修改同一文件。
     await writeProjectMcp(request, project.path, '{"mcpServers":{},"externalChange":true}\n')
-    await dialog.getByRole('button', { name: '保存 MCP 配置' }).click()
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
     await expect(dialog.locator('[data-slot="huan-mcp-error"]')).toContainText('保存冲突')
     await expect(editor).toHaveValue(/"draftOnly":true/)
 
     // 显式重新读取才覆盖草稿；有未保存改动时先要求确认丢弃。
-    await dialog.getByRole('button', { name: '重新读取 MCP 配置' }).click()
+    await dialog.getByRole('button', { name: '重新读取文件' }).click()
     await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('未保存改动')
-    await dialog.getByRole('button', { name: '确认重新读取 MCP 配置' }).click()
+    await dialog.getByRole('button', { name: '确认重新读取文件' }).click()
     await expect(editor).toHaveValue(/"externalChange":true/)
     await expect(editor).not.toHaveValue(/"draftOnly":true/)
 
     // 非法服务器配置由宿主校验拒绝，草稿保留并可修复。
     await editor.fill('{"mcpServers":{"bad":{"command":5}}}\n')
-    await dialog.getByRole('button', { name: '保存 MCP 配置' }).click()
+    await dialog.getByRole('button', { name: '保存', exact: true }).click()
     await expect(dialog.locator('[data-slot="huan-mcp-issues"]').first()).toBeVisible()
     await expect(editor).toHaveValue(/"command":5/)
     expect(await readProjectMcp(request, project.path)).toContain('externalChange')
@@ -508,7 +508,7 @@ test('项目未信任不读取配置，revision 冲突与非法配置保留草�
   }
 })
 
-test('项目 override 只写三个持久字段，删除需要确认', async ({ page, request }) => {
+test('项目覆盖只写三个持久字段，删除需要确认', async ({ page, request }) => {
   const run = Date.now().toString(36)
   const project = await createProject(request, `mcp-override-${run}`)
   const userConfig = `${JSON.stringify(
@@ -533,12 +533,12 @@ test('项目 override 只写三个持久字段，删除需要确认', async ({ p
     const effective = dialog.locator('[data-slot="huan-mcp-effective-server"]', {
       hasText: 'shared',
     })
-    await expect(effective).toContainText('override')
+    await expect(effective).toContainText('项目覆盖')
     await expect(effective).toContainText('停用')
 
     await dialog.getByRole('button', { name: '修改 shared' }).click()
     const form = dialog.locator('[data-slot="huan-mcp-server-form"]')
-    await expect(form).toContainText('override')
+    await expect(form).toContainText('项目覆盖')
     await expect(form.getByLabel('stdio 命令')).toHaveCount(0)
     await form.getByRole('combobox', { name: '启用状态' }).click()
     await page.getByRole('option', { name: '启用', exact: true }).click()
@@ -636,6 +636,9 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
     await expect(dialog2.locator('[data-slot="huan-mcp-auth-operation"]')).toContainText('remote')
     const prompt2 = dialog2.getByRole('textbox', { name: '授权回调 URL' })
     await expect(prompt2).toBeVisible()
+    await expect(dialog2.locator('[data-slot="huan-mcp-auth-policy"]')).toContainText(
+      '关闭面板后登录继续',
+    )
     await captureMcp(page2, 'auth-light')
     await prompt2.fill(callbackUrl ?? '')
     await dialog2.getByRole('button', { name: '提交回填' }).click()
@@ -644,6 +647,7 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
     await expect(
       dialog2.locator('[data-slot="huan-mcp-auth-result"][data-status="succeeded"]'),
     ).toBeVisible({ timeout: 25_000 })
+    await expect(dialog2.locator('[data-slot="huan-mcp-auth-policy"]')).toHaveCount(0)
 
     dialog = await openMcp(page)
     await dialog.getByRole('tab', { name: 'MCP 认证' }).click()
@@ -670,7 +674,7 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
     await messageInput(page).fill('/mcp reconnect remote')
     await messageInput(page).press('Enter')
     await expect(dialog).toBeVisible()
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('本会话临时应用')
+    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('已更新 remote')
     await page.keyboard.press('Escape')
     await expect(dialog).toHaveCount(0)
 

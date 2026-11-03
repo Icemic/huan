@@ -114,11 +114,6 @@ export function SessionDetailsDialog() {
           <DialogTitle>
             <Trans>会话详情</Trans>
           </DialogTitle>
-          <DialogDescription>
-            <Trans>
-              只读信息。累计统计覆盖整个会话文件（含已压缩历史与其他分支）；当前上下文只按活动分支估算。
-            </Trans>
-          </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pe-1">
@@ -201,6 +196,9 @@ export function SessionDetailsDialog() {
             </p>
           ) : stats ? (
             <div className="flex flex-col gap-1.5">
+              <p className="text-muted-foreground text-xs">
+                <Trans>累计统计覆盖整个会话文件（含已压缩历史与其他分支）。</Trans>
+              </p>
               <Field label={<Trans>消息</Trans>}>
                 <Trans>用户 {stats.userMessages}</Trans>
                 {' · '}
@@ -252,6 +250,9 @@ export function SessionDetailsDialog() {
                     <Trans>当前分支 {details.branchEntryCount} 条记录</Trans>
                   </span>
                 )}
+                <span className="text-muted-foreground block text-xs">
+                  <Trans>只按当前活动分支估算。</Trans>
+                </span>
               </Field>
             </div>
           ) : null}
@@ -388,7 +389,7 @@ export function AssignWorkspaceDialog() {
             <Trans>加入工作区</Trans>
           </DialogTitle>
           <DialogDescription>
-            <Trans>该会话没有工作区归属。请明确选择目标工作区；宿主不会按 cwd 自动猜测。</Trans>
+            <Trans>选择目标工作区。</Trans>
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-2 text-sm">

@@ -219,7 +219,7 @@ function ToolNodeView({
             ) : null}
             {pending ? (
               <p className="text-amber-700 text-xs dark:text-amber-300">
-                <Trans>该工具关联请求正在等待应答；入口在输入区上方，不在折叠内容内。</Trans>
+                <Trans>等待你的答复</Trans>
               </p>
             ) : null}
             {part.status === 'error' && !part.output ? (

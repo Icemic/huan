@@ -371,7 +371,7 @@ export const createComposerFeatureStore = (
       if (snapshot && !snapshot.providers.some((item) => item.providerId === providerId)) {
         setIfAlive((current) => ({
           ...current,
-          notice: `未知 provider：${providerId}。该 ID 不会发送给模型。`,
+          notice: `找不到此服务商：${providerId}，请重新选择。`,
         }))
         return false
       }
@@ -808,7 +808,7 @@ export const createComposerFeatureStore = (
       case 'resume':
         setIfAlive((current) => ({
           ...current,
-          notice: '请从左侧会话列表选择要恢复的会话；切换只影响当前窗口。',
+          notice: '请从左侧会话列表选择要恢复的会话。',
         }))
         return true
       case 'compact':

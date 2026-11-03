@@ -348,7 +348,6 @@ export const createWorkspaceFeatureStore = (
       }
       get().beginNewSession(intent.workspaceId, intent.startProjectPath)
       set({ newSession: emptyNewSession() })
-      get().showNotice(`新会话将以 ${intent.startProjectPath} 作为固定起始目录。`)
       return true
     }
 
@@ -648,7 +647,6 @@ export const createWorkspaceFeatureStore = (
           }
           get().beginNewSession(workspaceId, selectedPath)
           set({ newSession: emptyNewSession() })
-          get().showNotice(`新会话将以 ${selectedPath} 作为固定起始目录。`)
         } catch {
           if (get().disposed || !currentPanel()) return
           set({

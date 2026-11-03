@@ -567,7 +567,7 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     browser.windowStore.getState().editDraftText(draftId, '/login unknown-provider')
     await composer.getState().submit()
     expect(auth.getState().open).toBe(false)
-    expect(composer.getState().notice).toContain('未知 provider')
+    expect(composer.getState().notice).toContain('找不到此服务商')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/login unknown-provider')
   })
 
@@ -645,7 +645,7 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
       threadId: 't1',
       trigger: 'settings',
     })
-    expect(composer.getState().notice).toContain('资源版本 1')
+    expect(composer.getState().notice).toContain('已应用到当前会话')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 

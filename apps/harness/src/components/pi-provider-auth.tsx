@@ -166,11 +166,6 @@ function PromptForm({
           aria-label={secret ? '认证密钥' : prompt.kind === 'manual_code' ? '授权码' : '认证输入'}
           onChange={(event) => setAnswer(operation.id, prompt.promptId, event.target.value)}
         />
-        {secret && (
-          <span className="text-muted-foreground text-xs">
-            <Trans>密钥只提交给宿主内存中的认证流程，不会进入快照、日志或聊天记录。</Trans>
-          </span>
-        )}
       </label>
       <div className="flex justify-end">
         <Button type="submit" size="sm" disabled={busy}>
@@ -315,7 +310,13 @@ function OperationCard({ operation }: { operation: HarnessProviderAuthOperation 
         </p>
       )}
       {canCancel && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span
+            className="text-muted-foreground text-xs"
+            data-slot="huan-provider-auth-cancel-note"
+          >
+            <Trans>关闭面板后认证继续；要终止请点击取消认证</Trans>
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -335,9 +336,11 @@ function OperationCard({ operation }: { operation: HarnessProviderAuthOperation 
 function ProviderRow({
   provider,
   focused,
+  logoutCompleted,
 }: {
   provider: HarnessProviderAuthProvider
   focused: boolean
+  logoutCompleted: boolean
 }) {
   const source = sourceLabel(provider.source)
   const busy = useAuthStore((state) => state.providerBusy[provider.providerId])
@@ -361,6 +364,16 @@ function ProviderRow({
     provider.source !== 'runtime' &&
     provider.source !== 'models-json-key' &&
     provider.source !== 'models-json-command'
+
+  // 退出成功后若该 provider 仍由其他来源提供凭据，用现有快照与退出结果说明，
+  // 不假设退出一定清除了环境变量或 models.json。
+  const leftoverSource =
+    provider.configured &&
+    provider.source !== undefined &&
+    provider.source !== 'stored' &&
+    logoutCompleted
+      ? source
+      : undefined
 
   return (
     <section
@@ -397,10 +410,7 @@ function ProviderRow({
 
       {provider.ambientOnly ? (
         <p className="text-muted-foreground text-xs">
-          <Trans>
-            该 provider 只支持环境变量或 models.json
-            凭据，没有交互登录入口；退出登录也不会清除这些来源。
-          </Trans>
+          <Trans>请在环境变量或 models.json 中配置凭据。</Trans>
         </p>
       ) : (
         <div className="flex flex-wrap gap-2">
@@ -428,6 +438,15 @@ function ProviderRow({
             ),
           )}
         </div>
+      )}
+
+      {leftoverSource && (
+        <p
+          className="text-muted-foreground text-xs"
+          data-slot="huan-provider-auth-remaining-source"
+        >
+          <Trans>仍通过{leftoverSource}提供凭据，请修改对应配置</Trans>
+        </p>
       )}
 
       {canLogout && (
@@ -486,6 +505,13 @@ export function ProviderAuthDialog() {
 
   const providers = snapshot?.providers ?? []
   const operations = snapshot?.operations ?? []
+  const latestByProvider = new Map<string, HarnessProviderAuthOperation>()
+  for (const operation of operations) {
+    const latest = latestByProvider.get(operation.providerId)
+    if (!latest || operation.startedAt > latest.startedAt) {
+      latestByProvider.set(operation.providerId, operation)
+    }
+  }
   const focusedMissing =
     focusedProvider !== undefined && snapshot !== undefined
       ? !providers.some((provider) => provider.providerId === focusedProvider)
@@ -508,13 +534,24 @@ export function ProviderAuthDialog() {
             <Trans>模型认证</Trans>
           </DialogTitle>
           <DialogDescription>
-            <Trans>
-              API key 与 OAuth 凭据保存在当前用户空间的 auth.json，由 Pi SDK 管理。
-              回填值只提交给宿主内存中的认证流程，不会写入快照、日志或聊天；关闭面板不会终止登录，
-              需要点“取消认证”。退出登录只移除本地已存凭据，不清除环境变量、models.json 或远端授权。
-            </Trans>
+            <Trans>管理模型服务商的登录凭据。</Trans>
           </DialogDescription>
         </DialogHeader>
+
+        <details
+          className="text-muted-foreground text-xs"
+          data-slot="huan-provider-auth-credentials-note"
+        >
+          <summary className="cursor-pointer">
+            <Trans>凭据说明</Trans>
+          </summary>
+          <p className="mt-1">
+            <Trans>
+              凭据保存在服务端用户空间的
+              auth.json；退出登录仅移除此处保存的凭据，远端授权需在服务商处撤销。
+            </Trans>
+          </p>
+        </details>
 
         {focusedMissing && (
           <p
@@ -522,7 +559,7 @@ export function ProviderAuthDialog() {
             className="text-destructive text-sm"
             data-slot="huan-provider-auth-notice"
           >
-            <Trans>未知 provider：请从列表中可用的 provider 选择；该 ID 不会发送给模型。</Trans>
+            <Trans>找不到此服务商：{focusedProvider}，请重新选择。</Trans>
           </p>
         )}
         {notice && (
@@ -560,6 +597,10 @@ export function ProviderAuthDialog() {
                     key={provider.providerId}
                     provider={provider}
                     focused={focusedProvider === provider.providerId}
+                    logoutCompleted={
+                      latestByProvider.get(provider.providerId)?.kind === 'logout' &&
+                      latestByProvider.get(provider.providerId)?.phase === 'succeeded'
+                    }
                   />
                 ))
               )}

@@ -153,9 +153,9 @@ test('常用项与 JSON 保存写盘、保留未知字段，非法类型被拒�
     await openApp(page)
     const dialog = await openSettings(page, '常用项')
     await dialog.getByLabel('默认模型 ID').fill('test-model-b')
-    await dialog.getByRole('button', { name: '保存设置' }).click()
+    await dialog.getByRole('button', { name: '保存' }).click()
     await expect(notice(page)).toContainText('已保存')
-    await expect(notice(page)).toContainText('待重载')
+    await expect(notice(page)).toContainText('可刷新项目资源')
     const afterCommon = JSON.parse((await readSettingsFile(request)) ?? '{}') as Record<
       string,
       unknown
@@ -164,11 +164,14 @@ test('常用项与 JSON 保存写盘、保留未知字段，非法类型被拒�
 
     // JSON：整份文件语义，未知字段写入磁盘。
     await dialog.getByRole('tab', { name: 'JSON 原文' }).click()
+    await expect(dialog).not.toContainText('随包 settings schema')
     const current = JSON.parse(await jsonEditor(page).inputValue()) as Record<string, unknown>
     const withUnknown = { ...current, e2eUnknown: { nested: true } }
     await jsonEditor(page).fill(`${JSON.stringify(withUnknown, null, 2)}\n`)
-    await dialog.getByRole('button', { name: '保存设置' }).click()
+    await dialog.getByRole('button', { name: '保存' }).click()
     await expect(notice(page)).toContainText('已保存')
+    await dialog.locator('[data-slot="huan-settings-effective"] summary').click()
+    await expect(dialog).toContainText('文件配置预览')
     const afterJson = JSON.parse((await readSettingsFile(request)) ?? '{}') as Record<
       string,
       unknown
@@ -179,7 +182,7 @@ test('常用项与 JSON 保存写盘、保留未知字段，非法类型被拒�
     // 非法已知字段：宿主拒绝且磁盘保持上一次有效内容。
     const invalid = { ...afterJson, retry: { enabled: 'yes' } }
     await jsonEditor(page).fill(`${JSON.stringify(invalid, null, 2)}\n`)
-    await dialog.getByRole('button', { name: '保存设置' }).click()
+    await dialog.getByRole('button', { name: '保存' }).click()
     await expect(dialog.locator('[data-slot="huan-settings-issues"]')).toContainText(
       '/retry/enabled',
     )
@@ -212,9 +215,12 @@ test('外部修改导致保存冲突，重新加载后可继续', async ({ page,
     }
     await writeSettingsFile(request, `${JSON.stringify(external, null, 2)}\n`)
 
-    await settingsDialog(page).getByRole('button', { name: '保存设置' }).click()
+    await settingsDialog(page).getByRole('button', { name: '保存' }).click()
     await expect(notice(page)).toContainText('保存冲突')
-    await settingsDialog(page).getByRole('button', { name: '重新加载设置与资源' }).click()
+    // 重新读取会丢弃冲突草稿：首次点击只要求确认，再确认才读取磁盘。
+    await settingsDialog(page).getByRole('button', { name: '重新读取文件' }).click()
+    await expect(notice(page)).toContainText('重新读取将丢弃未保存的改动')
+    await settingsDialog(page).getByRole('button', { name: '确认重新读取文件' }).click()
     await expect(jsonEditor(page)).toHaveValue(/"externalChange": true/)
   } finally {
     await writeSettingsFile(request, original)
@@ -243,8 +249,14 @@ test('切换作用域保留未保存草稿', async ({ page, request }) => {
         .locator('[data-slot="huan-settings-dirty"]'),
     ).toBeVisible()
 
-    // 重新加载丢弃草稿（保留磁盘原文）。
-    await dialog.getByRole('button', { name: '重新加载设置与资源' }).click()
+    // 重新读取丢弃草稿（保留磁盘原文）：编辑会取消首次确认。
+    await dialog.getByRole('button', { name: '重新读取文件' }).click()
+    await expect(notice(page)).toContainText('重新读取将丢弃未保存的改动')
+    await expect(dialog.getByRole('button', { name: '确认重新读取文件' })).toBeVisible()
+    await jsonEditor(page).fill('{"userDraft":2}\n')
+    await expect(dialog.getByRole('button', { name: '重新读取文件' })).toBeVisible()
+    await dialog.getByRole('button', { name: '重新读取文件' }).click()
+    await dialog.getByRole('button', { name: '确认重新读取文件' }).click()
     await expect(jsonEditor(page)).not.toHaveValue(/"userDraft"/)
     await dialog.getByRole('tab', { name: /编辑项目设置/ }).click()
     await expect(jsonEditor(page)).toHaveValue('{"projectDraft":1}\n')

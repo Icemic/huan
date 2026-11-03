@@ -443,11 +443,11 @@ export const createMcpFeatureStore = (
       }
       const row = selectMcpServerRows(get()).find((item) => item.name === server)
       if (!row) {
-        set({ notice: `未知 MCP 服务器：${server}。该名称不会发送给模型。` })
+        set({ notice: `找不到此服务器：${server}，请重新选择。` })
         return
       }
       if (!row.live) {
-        set({ notice: `服务器 ${server} 尚未连接；请先应用资源重载。` })
+        set({ notice: `服务器 ${server} 尚未连接；请先应用配置。` })
         return
       }
       set({ selected: row.name })
@@ -775,6 +775,11 @@ export const createMcpFeatureStore = (
             current.open && current.targetEpoch === panel && current.targetKey === targetKey
           if (result.status === 'saved') {
             const editedLater = currentDraft.draftRevision !== submitted.draftRevision
+            const savedNotice = result.apply.reloadRequired
+              ? target.threadId
+                ? '已保存，可应用到当前会话'
+                : '已保存，可刷新项目资源'
+              : '已保存'
             set({
               // 保存响应只更新所属草稿基线；请求期间的新编辑保留。
               drafts: {
@@ -790,7 +795,7 @@ export const createMcpFeatureStore = (
               ...(samePanel
                 ? {
                     configSnapshot: result.snapshot,
-                    notice: `${result.apply.message}（保存不会自动连接或应用；请点“应用 MCP 资源重载”。）`,
+                    notice: savedNotice,
                   }
                 : {}),
             })
@@ -856,10 +861,7 @@ export const createMcpFeatureStore = (
           await get().refreshLive()
           if (get().targetEpoch !== panel || get().targetKey !== targetKey) return
           set({
-            notice:
-              result.kind === 'session'
-                ? `已应用资源重载（资源版本 ${result.resourceRevision}）；当前会话已使用新的 MCP 配置。`
-                : `已应用资源重载（资源版本 ${result.resourceRevision}）；该起始目录的待消费装配已刷新。`,
+            notice: result.kind === 'session' ? '已应用到当前会话' : '已刷新项目资源',
           })
         } catch (error) {
           const current = get()
@@ -945,7 +947,7 @@ export const createMcpFeatureStore = (
         applyDraftContent(formatMcpDraft(result.root), {
           editor: undefined,
           editorError: undefined,
-          notice: '服务器改动已写入 JSON 草稿；保存只写磁盘，需显式应用资源重载。',
+          notice: '草稿已更新',
         })
       },
 
@@ -973,7 +975,7 @@ export const createMcpFeatureStore = (
         const name = state.deleteName
         applyDraftContent(formatMcpDraft(removeDraftServer(parsed.value, name)), {
           deleteName: undefined,
-          notice: `已从 JSON 草稿删除 ${name}；保存只写磁盘。`,
+          notice: `已从草稿删除 ${name}`,
         })
       },
 
@@ -985,7 +987,7 @@ export const createMcpFeatureStore = (
         if (dirty && !state.rereadConfirm) {
           set({
             rereadConfirm: true,
-            notice: '当前作用域有未保存改动；再次点击“确认重新读取”将丢弃该草稿。',
+            notice: '当前作用域有未保存改动；再次点击“确认重新读取文件”将丢弃该草稿。',
           })
           return
         }
@@ -1102,7 +1104,7 @@ export const createMcpFeatureStore = (
           }
           if (result.status === 'applied') {
             applyLiveSnapshot(result.snapshot)
-            set({ notice: `已在本会话临时应用 ${row.name} 的管理操作；未写入配置文件。` })
+            set({ notice: `已更新 ${row.name}` })
             if (get().selected === row.name) {
               await get().loadDetails(row.name, true)
             }
@@ -1156,10 +1158,7 @@ export const createMcpFeatureStore = (
           if (result.status === 'started') {
             set({
               tab: 'auth',
-              notice:
-                kind === 'login'
-                  ? '已开始 MCP 登录；关闭面板不会取消认证。'
-                  : '已开始 MCP 退出登录流程。',
+              notice: kind === 'login' ? '已开始 MCP 登录。' : '已开始 MCP 退出登录流程。',
             })
           } else if (result.status === 'busy') {
             set({ notice: result.message ?? 'MCP 认证操作正忙；请等待当前操作结束。' })

@@ -73,7 +73,7 @@ const startResultNotice = (
   switch (result.status) {
     case 'started':
       return action === 'login'
-        ? `已开始 ${providerName} 的登录流程。关闭面板不会终止登录。`
+        ? `已开始 ${providerName} 的登录流程。`
         : `已开始 ${providerName} 的退出流程。`
     case 'busy':
       return '该 provider 已有进行中的认证操作，请先完成或取消。'

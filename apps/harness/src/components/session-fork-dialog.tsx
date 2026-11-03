@@ -52,13 +52,9 @@ export function ForkThreadDialog() {
           </DialogTitle>
           <DialogDescription>
             {before ? (
-              <Trans>
-                复制该用户消息之前的活动路径到独立会话，消息原文会恢复到本窗口编辑器；父会话与其他窗口保持不变。
-              </Trans>
+              <Trans>将这条消息之前的对话复制到新会话，并把这条消息填入输入框。</Trans>
             ) : (
-              <Trans>
-                复制当前活动路径到独立会话。父会话与其他窗口保持不变；废弃分支不会进入新会话。
-              </Trans>
+              <Trans>将当前分支复制到新会话。</Trans>
             )}
           </DialogDescription>
         </DialogHeader>

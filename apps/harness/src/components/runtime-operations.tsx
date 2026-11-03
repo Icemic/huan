@@ -393,9 +393,7 @@ export function RuntimeOperationsDialog() {
             </div>
             <StatusLine tone="muted">
               <Trans>
-                刷新只更新共享目录，不重建会话、不发起模型请求。范围默认只作用于当前会话；
-                勾选“保存为用户默认”才写入用户设置并影响未来会话。patterns 原文保留 Thinking
-                后缀，未编辑时不会改写。
+                范围默认只作用于当前会话；勾选“保存为用户默认”才写入用户设置并影响未来会话。
               </Trans>
             </StatusLine>
             {threadId ? (

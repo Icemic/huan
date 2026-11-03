@@ -55,7 +55,7 @@ function ChatEmpty({
   path,
 }: {
   title: ReactNode
-  description: ReactNode
+  description?: ReactNode
   path?: string | undefined
 }) {
   return (
@@ -65,7 +65,7 @@ function ChatEmpty({
           <MessagesSquareIcon aria-hidden />
         </EmptyMedia>
         <EmptyTitle>{title}</EmptyTitle>
-        <EmptyDescription>{description}</EmptyDescription>
+        {description ? <EmptyDescription>{description}</EmptyDescription> : null}
         {path ? (
           <p className="text-muted-foreground max-w-full truncate font-mono text-xs" title={path}>
             {path}
@@ -111,13 +111,7 @@ export function ChatView() {
       />
     )
   } else if (selection.kind === 'new') {
-    body = (
-      <ChatEmpty
-        title={<Trans>新会话</Trans>}
-        description={<Trans>发送首条消息时创建会话；目标工作区已确定。</Trans>}
-        path={selection.startProjectPath}
-      />
-    )
+    body = <ChatEmpty title={<Trans>新会话</Trans>} path={selection.startProjectPath} />
   } else if (loading) {
     body = <HistorySkeleton />
   } else if (views.length === 0 && session?.lastError) {

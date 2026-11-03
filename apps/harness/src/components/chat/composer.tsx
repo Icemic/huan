@@ -93,9 +93,6 @@ function LocalPendingList({ submissions }: { submissions: readonly HarnessSubmis
               : 'border-foreground/10',
           )}
         >
-          <span className="bg-muted text-muted-foreground rounded px-1 text-[10px] leading-5">
-            <Trans>本窗</Trans>
-          </span>
           <span className="min-w-0 flex-1">
             <span className="block whitespace-pre-wrap">{submission.content}</span>
             <span

@@ -127,6 +127,25 @@ const draftOf = (
   scope: 'user' | 'project',
 ) => store.getState().drafts[settingsScopedDraftKey(targetKey, scope)]
 
+/** 保存成功结果：只关注结构化 apply 字段，宿主原始 message 不参与界面文案。 */
+const savedResult = (
+  snapshot: HarnessSettingsSnapshot,
+  options: { reloadRequired?: boolean; restartRequiredKeys?: readonly string[] } = {},
+) => ({
+  status: 'saved' as const,
+  scope: 'user' as const,
+  path: '/agent/settings.json',
+  revision: 'r2',
+  bytes: 1,
+  snapshot,
+  apply: {
+    persisted: true,
+    reloadRequired: options.reloadRequired ?? true,
+    restartRequiredKeys: options.restartRequiredKeys ?? [],
+    message: '宿主原始说明',
+  },
+})
+
 describe('settings feature：原文、dirty 与目标保护', () => {
   it('打开读取用户/项目原文与资源，关闭重开仍保留 dirty 草稿', async () => {
     const client = createFakeClient()
@@ -196,7 +215,47 @@ describe('settings feature：原文、dirty 与目标保护', () => {
       revision: 'r2',
     })
     expect(store.getState().notice).toContain('已保存')
+    expect(store.getState().notice).toContain('可应用到当前会话')
     expect(client.reloadResources).not.toHaveBeenCalled()
+  })
+
+  it('保存结果区分需应用与需重启，同次混合时保留应用提示', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ threadId: 't1' })
+    const snapshot = snapshotOf({ threadId: 't1' })
+
+    // 同次既有普通字段也有重启字段：应用提示不能因重启字段被隐藏。
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(
+      savedResult(snapshot, { restartRequiredKeys: ['sessionDir'] }),
+    )
+    store.getState().updateDraft('{\n  "defaultModel": "m2",\n  "sessionDir": "/tmp/sessions"\n}\n')
+    await store.getState().save()
+    expect(store.getState().notice).toContain('已保存，可应用到当前会话')
+    expect(store.getState().notice).toContain('以下设置需重启服务：sessionDir')
+    expect(store.getState().notice).not.toContain('宿主原始说明')
+
+    // 只改重启字段：只提示重启，不提示可应用。
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(
+      savedResult(snapshot, { restartRequiredKeys: ['sessionDir'] }),
+    )
+    store.getState().updateDraft('{\n  "defaultModel": "m2",\n  "sessionDir": "/tmp/other"\n}\n')
+    await store.getState().save()
+    expect(store.getState().notice).toContain('已保存')
+    expect(store.getState().notice).not.toContain('可应用到当前会话')
+    expect(store.getState().notice).toContain('以下设置需重启服务：sessionDir')
+  })
+
+  it('空白页目标保存后提示可刷新项目资源', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ workspacePath: '/workspace' })
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(
+      savedResult(snapshotOf({ workspacePath: '/workspace' })),
+    )
+    store.getState().updateDraft('{\n  "defaultModel": "m2"\n}\n')
+    await store.getState().save()
+    expect(store.getState().notice).toBe('已保存，可刷新项目资源')
   })
 
   it('保存迟到回执不覆盖之后的新编辑', async () => {
@@ -225,6 +284,7 @@ describe('settings feature：原文、dirty 与目标保护', () => {
     expect(draft?.baseContent).toContain('first')
     expect(draft?.revision).toBe('r2')
     expect(draft?.content).not.toBe(draft?.baseContent)
+    expect(store.getState().notice).toBe('已保存')
   })
 
   it('冲突/校验失败保留草稿与受控错误', async () => {
@@ -255,6 +315,108 @@ describe('settings feature：原文、dirty 与目标保护', () => {
 })
 
 describe('settings feature：资源读取与重载', () => {
+  it('当前作用域有草稿时，重新读取先确认；编辑/切作用域/换目标/关闭取消确认', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ threadId: 't1' })
+    store.getState().updateDraft('{\n  "draft": 1\n}\n')
+    const reads = vi.mocked(client.getSettings).mock.calls.length
+
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(true)
+    expect(store.getState().notice).toContain('重新读取将丢弃未保存的改动')
+    expect(vi.mocked(client.getSettings)).toHaveBeenCalledTimes(reads)
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('draft')
+
+    // 编辑取消确认。
+    store.getState().updateDraft('{\n  "draft": 2\n}\n')
+    expect(store.getState().reloadConfirm).toBe(false)
+    expect(store.getState().notice).toBeUndefined()
+
+    // 切换作用域取消确认，草稿仍在。
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(true)
+    store.getState().setScope('project')
+    expect(store.getState().reloadConfirm).toBe(false)
+    store.getState().setScope('user')
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('"draft": 2')
+
+    // 换目标取消确认。
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(true)
+    await store.getState().openPanel({ threadId: 't2' })
+    expect(store.getState().reloadConfirm).toBe(false)
+
+    // 回到原目标，确认后读取并丢弃草稿。
+    await store.getState().openPanel({ threadId: 't1' })
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('"draft": 2')
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(true)
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(false)
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('unknownField')
+    expect(draftOf(store, 't:t1', 'user')?.content).not.toContain('draft')
+
+    // 关闭取消确认。
+    store.getState().updateDraft('{\n  "draft": 3\n}\n')
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(true)
+    store.getState().close()
+    expect(store.getState().reloadConfirm).toBe(false)
+  })
+
+  it('确认重新读取期间的新编辑保留，迟到文件内容不覆盖新草稿', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ threadId: 't1' })
+    store.getState().updateDraft('{"draft":1}\n')
+    await store.getState().reloadFromDisk()
+    const gate = deferred<HarnessSettingsSnapshot>()
+    vi.mocked(client.getSettings).mockReturnValueOnce(gate.promise)
+    const reading = store.getState().reloadFromDisk()
+    store.getState().updateDraft('{"draft":2}\n')
+    gate.resolve(snapshotOf({ threadId: 't1' }, '{"disk":true}\n'))
+    await reading
+    expect(draftOf(store, 't:t1', 'user')?.content).toBe('{"draft":2}\n')
+  })
+
+  it('重新读取请求失败或文件读取错误时保留草稿', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ threadId: 't1' })
+    store.getState().updateDraft('{\n  "draft": 1\n}\n')
+
+    await store.getState().reloadFromDisk()
+    vi.mocked(client.getSettings).mockRejectedValueOnce(new Error('读取失败'))
+    await store.getState().reloadFromDisk()
+    expect(store.getState().error).toContain('读取失败')
+    expect(store.getState().reloadConfirm).toBe(false)
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('draft')
+
+    // 文件本身读取错误也保留草稿，不重置基线与内容。
+    const source = snapshotOf({ threadId: 't1' })
+    vi.mocked(client.getSettings).mockResolvedValueOnce({
+      ...source,
+      files: {
+        user: {
+          ...source.files.user,
+          content: '',
+          exists: false,
+          revision: null,
+          readable: false,
+          readError: '读取失败',
+          issues: [],
+        },
+        project: source.files.project,
+      },
+    })
+    await store.getState().reloadFromDisk()
+    await store.getState().reloadFromDisk()
+    expect(store.getState().reloadConfirm).toBe(false)
+    expect(draftOf(store, 't:t1', 'user')?.content).toContain('draft')
+    expect(store.getState().snapshot?.files.user.readError).toBe('读取失败')
+  })
+
   it('正文按需读取，隐藏即清正文；资源重载不重置 dirty 草稿', async () => {
     const client = createFakeClient()
     const onReloaded = vi.fn()
@@ -288,7 +450,7 @@ describe('settings feature：资源读取与重载', () => {
       trigger: 'settings',
     })
     expect(onReloaded).toHaveBeenCalled()
-    expect(store.getState().notice).toContain('资源版本 3')
+    expect(store.getState().notice).toBe('已应用到当前会话')
     expect(draftOf(store, 't:t1', 'user')?.content).toContain('dirty')
 
     await store.getState().loadResources(false)

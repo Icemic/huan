@@ -191,7 +191,7 @@ async function importPath(
 ): Promise<void> {
   const dialog = await openImport(page)
   await chooseWorkspace(page, dialog, workspaceName)
-  await dialog.getByLabel('宿主 JSONL 路径').fill(sourcePath)
+  await dialog.getByLabel('服务端 JSONL 绝对路径').fill(sourcePath)
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible()
   await confirmImport(page, dialog)
@@ -373,13 +373,13 @@ test('路径导入拒绝非法 JSONL；cwd 非成员时必须选择替代目录�
   await chooseWorkspace(page, dialog, workspaceName)
 
   // 非法 JSONL：坏行不被宽松跳过，确认按钮保持禁用。
-  await dialog.getByLabel('宿主 JSONL 路径').fill(invalid)
+  await dialog.getByLabel('服务端 JSONL 绝对路径').fill(invalid)
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.getByRole('alert')).toContainText('合法 JSON')
   await expect(dialog.getByRole('button', { name: '确认导入' })).toBeDisabled()
 
   // cwd 不属于目标工作区：要求显式选择成员作为替代目录。
-  await dialog.getByLabel('宿主 JSONL 路径').fill(source)
+  await dialog.getByLabel('服务端 JSONL 绝对路径').fill(source)
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.getByRole('alert')).toContainText('源起始目录不在目标工作区内')
   await expect(dialog.getByRole('button', { name: '确认导入' })).toBeDisabled()
@@ -409,7 +409,7 @@ test('上传 JSONL 导入后列表自动更新并可继续发送', async ({ page
   await openApp(page)
   const dialog = await openImport(page)
   await chooseWorkspace(page, dialog, workspaceName)
-  await dialog.getByRole('radio', { name: '上传 JSONL' }).check()
+  await dialog.getByRole('radio', { name: '上传文件' }).check()
   await dialog.locator('input[type="file"]').setInputFiles({
     name: `upload-${run}.jsonl`,
     mimeType: 'application/jsonl',
@@ -489,7 +489,7 @@ test('同 ID 冲突可作为独立副本导入，保留完整树且不覆盖已�
   // 相同内容：定位既有会话，不复制。
   const same = await openImport(page)
   await chooseWorkspace(page, same, workspaceName)
-  await same.getByLabel('宿主 JSONL 路径').fill(sameSource)
+  await same.getByLabel('服务端 JSONL 绝对路径').fill(sameSource)
   await same.getByRole('button', { name: '预览导入' }).click()
   await expect(same.getByText('已有完全相同的会话')).toBeVisible()
   await expect(same.getByRole('button', { name: '确认导入' })).toBeDisabled()
@@ -502,11 +502,11 @@ test('同 ID 冲突可作为独立副本导入，保留完整树且不覆盖已�
   // 同 ID 不同内容：未勾选副本时确认禁用；勾选后以新 ID 导入完整树。
   const conflict = await openImport(page)
   await chooseWorkspace(page, conflict, workspaceName)
-  await conflict.getByLabel('宿主 JSONL 路径').fill(sourceB)
+  await conflict.getByLabel('服务端 JSONL 绝对路径').fill(sourceB)
   await conflict.getByRole('button', { name: '预览导入' }).click()
   await expect(conflict.getByText('同 ID 内容不同')).toBeVisible()
   await expect(conflict.getByRole('button', { name: '确认导入' })).toBeDisabled()
-  await conflict.getByRole('checkbox', { name: '作为独立副本导入' }).check()
+  await conflict.getByRole('checkbox', { name: '作为新会话导入' }).check()
   await confirmImport(page, conflict)
   await expect(userMessages(page).first()).toContainText(secondText)
 
@@ -600,7 +600,7 @@ test('导入预览在途时关闭重开并换文件，迟到结果不写入新�
   try {
     const firstDialog = await openImport(page)
     await chooseWorkspace(page, firstDialog, workspaceName)
-    await firstDialog.getByLabel('宿主 JSONL 路径').fill(first)
+    await firstDialog.getByLabel('服务端 JSONL 绝对路径').fill(first)
     const stalePreviewed = page.waitForResponse((response) =>
       response.url().includes('/threads/import/preview'),
     )
@@ -610,7 +610,7 @@ test('导入预览在途时关闭重开并换文件，迟到结果不写入新�
     await expect(firstDialog).toHaveCount(0)
     const dialog = await openImport(page)
     await chooseWorkspace(page, dialog, workspaceName)
-    await dialog.getByLabel('宿主 JSONL 路径').fill(second)
+    await dialog.getByLabel('服务端 JSONL 绝对路径').fill(second)
     release()
     expect((await stalePreviewed).ok()).toBe(true)
     await page.waitForTimeout(500)

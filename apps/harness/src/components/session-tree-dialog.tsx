@@ -571,13 +571,6 @@ export function SessionTreeDialog() {
                 </label>
               ))}
             </fieldset>
-            <p className="text-muted-foreground">
-              {tree.tree.branchSummarySkipPrompt ? (
-                <Trans>Pi 设置当前默认跳过摘要；这里仍可显式选择。</Trans>
-              ) : (
-                <Trans>Pi 设置默认询问摘要；这里默认不摘要，避免意外计费。</Trans>
-              )}
-            </p>
             {navigation.mode === 'custom' && (
               <>
                 <Textarea
