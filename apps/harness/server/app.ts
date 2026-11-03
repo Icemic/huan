@@ -72,29 +72,44 @@ const workspaceProjectsOf = (value: unknown): { alias: string; path: string }[] 
     : []
 
 /**
- * 解析设置/资源目标：threadId 与 workspacePath 必须恰好提供一个。
- * 返回的对象可直接作为宿主输入；两者都缺失或同时出现时为 undefined。
+ * 解析设置/资源目标：threadId、workspacePath、global 必须恰好提供一个。
+ * 返回的对象可直接作为宿主输入；缺失、同时出现或不允许的 global 为 undefined。
  */
 function parseConfigTarget(
   threadId: string | undefined,
   workspacePath: string | undefined,
-): { threadId?: string; workspacePath?: string } | undefined {
+  global: string | undefined = undefined,
+  allowGlobal = false,
+): { threadId?: string; workspacePath?: string; global?: true } | undefined {
+  const wantsGlobal = global === 'true'
+  if (global !== undefined && !wantsGlobal) return undefined
   const hasThread = typeof threadId === 'string' && threadId.trim().length > 0
   const hasPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+  if (wantsGlobal) {
+    if (!allowGlobal || hasThread || hasPath) return undefined
+    return { global: true }
+  }
   if (hasThread === hasPath) return undefined
   return hasThread ? { threadId: threadId?.trim() } : { workspacePath: workspacePath?.trim() }
 }
 
-/** 解析设置保存请求体中的目标对象。 */
+/** 解析设置保存请求体中的目标对象；只有设置/资源支持 global。 */
 function parseConfigTargetObject(
   value: unknown,
-): { threadId?: string; workspacePath?: string } | undefined {
+  allowGlobal = false,
+): { threadId?: string; workspacePath?: string; global?: true } | undefined {
   if (value === null || typeof value !== 'object') return undefined
-  const target = value as { threadId?: unknown; workspacePath?: unknown }
+  const target = value as { threadId?: unknown; workspacePath?: unknown; global?: unknown }
   if (target.threadId !== undefined && typeof target.threadId !== 'string') return undefined
   if (target.workspacePath !== undefined && typeof target.workspacePath !== 'string')
     return undefined
-  return parseConfigTarget(target.threadId, target.workspacePath)
+  if (target.global !== undefined && typeof target.global !== 'boolean') return undefined
+  return parseConfigTarget(
+    target.threadId,
+    target.workspacePath,
+    target.global === true ? 'true' : undefined,
+    allowGlobal,
+  )
 }
 
 /**
@@ -269,7 +284,12 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
 
   // 设置：目标必须显式二选一；读取不加载项目扩展（未信任时不读项目原文）。
   app.get('/api/pi/settings', async (c) => {
-    const target = parseConfigTarget(c.req.query('threadId'), c.req.query('workspacePath'))
+    const target = parseConfigTarget(
+      c.req.query('threadId'),
+      c.req.query('workspacePath'),
+      c.req.query('global'),
+      true,
+    )
     if (!target) return c.json({ error: 'invalid-config-target' }, 400)
     return c.json(await piClient.getSettings(target))
   })
@@ -294,9 +314,10 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
       content?: unknown
       expectedRevision?: unknown
     }
-    const target = parseConfigTargetObject(body.target)
+    const target = parseConfigTargetObject(body.target, true)
     if (
       !target ||
+      (target.global === true && body.scope !== 'user') ||
       (body.scope !== 'user' && body.scope !== 'project') ||
       typeof body.content !== 'string' ||
       (body.expectedRevision !== null && typeof body.expectedRevision !== 'string')
@@ -678,11 +699,12 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     )
   })
 
-  // 显式目录刷新：必须带会话或固定起始目录，不使用隐式窗口工作区。
+  // 显式目录刷新：会话、固定起始目录或已有共享注册表（global）三选一。
   app.post('/api/pi/models/refresh', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       threadId?: unknown
       workspacePath?: unknown
+      global?: unknown
     }
     if (body.threadId !== undefined && (typeof body.threadId !== 'string' || !body.threadId)) {
       return c.json({ error: 'invalid-runtime-input' }, 400)
@@ -693,8 +715,16 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     ) {
       return c.json({ error: 'invalid-runtime-input' }, 400)
     }
+    if (body.global !== undefined && typeof body.global !== 'boolean') {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
+    const global = body.global === true
+    if (global && (body.threadId !== undefined || body.workspacePath !== undefined)) {
+      return c.json({ error: 'invalid-runtime-input' }, 400)
+    }
     return c.json(
       await piClient.refreshModels({
+        ...(global ? { global: true } : {}),
         ...(typeof body.threadId === 'string' ? { threadId: body.threadId } : {}),
         ...(typeof body.workspacePath === 'string' ? { workspacePath: body.workspacePath } : {}),
       }),

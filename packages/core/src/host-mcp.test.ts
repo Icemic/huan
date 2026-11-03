@@ -290,6 +290,47 @@ afterEach(async () => {
 })
 
 describe('真实 SDK：MCP 工具调用', () => {
+  it('全局 MCP 配置无需会话或项目，只读写用户文件并拒绝运行连接', async () => {
+    const initial = await host.getMcpConfig({ global: true })
+    expect(initial.target).toEqual({ kind: 'global', workspacePath: '' })
+    expect(initial.projectTrusted).toBe(false)
+    expect(initial.trust).toMatchObject({
+      decision: 'untrusted',
+      requiresTrust: false,
+      origin: 'global',
+    })
+    expect(initial.files.user.path).toBe(join(env.agentDir, 'mcp.json'))
+    expect(initial.files.project).toMatchObject({
+      path: '',
+      readable: false,
+      exists: false,
+      content: '',
+      revision: null,
+    })
+
+    const content = '{"mcpServers":{}}\n'
+    const saved = await host.saveMcpConfig({
+      target: { global: true },
+      scope: 'user',
+      content,
+      expectedRevision: initial.files.user.revision,
+    })
+    expect(saved.status).toBe('saved')
+    if (saved.status !== 'saved') throw new Error('全局 MCP 配置未保存')
+    expect(saved.snapshot.target).toEqual({ kind: 'global', workspacePath: '' })
+    expect(saved.snapshot.files.user.content).toBe(content)
+    expect(saved.snapshot.files.project.readable).toBe(false)
+
+    const blocked = await host.saveMcpConfig({
+      target: { global: true },
+      scope: 'project',
+      content: '{}',
+      expectedRevision: null,
+    })
+    expect(blocked.status).toBe('failed')
+    await expect(host.getMcp({ global: true })).rejects.toThrow('全局')
+  })
+
   it('direct 工具经真实 stdio 服务执行', async () => {
     const pidFile = join(env.root, 'direct.pid')
     await writeUserMcp({ demo: stdioServer({ pidFile, exposure: 'direct' }) })

@@ -1,4 +1,8 @@
+// @vitest-environment jsdom
+
 import type { HarnessModelInfo } from '@huan/protocol'
+import { act, createElement } from 'react'
+import { createRoot } from 'react-dom/client'
 import { describe, expect, it, vi } from 'vitest'
 
 // 组件文件含 Lingui 宏；纯助手测试不加载真实宏转换链。
@@ -7,6 +11,7 @@ vi.mock('@lingui/react/macro', () => ({
 }))
 
 import {
+  ModelScopeEditor,
   modelKeyOf,
   modelPatternMatchesModel,
   modelPatternsSelectModel,
@@ -14,6 +19,9 @@ import {
   stripModelThinkingSuffix,
   toggleModelPattern,
 } from './model-scope-editor'
+
+// React 19 的 act 在测试环境需要显式标记。
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const model = (provider: string, modelId: string, name?: string): HarnessModelInfo => ({
   provider,
@@ -79,5 +87,69 @@ describe('模型范围编辑：patterns 匹配与普通多选', () => {
       'provider/*:high',
       ' other/model ',
     ])
+  })
+})
+
+describe('模型范围编辑：官方 Checkbox 接线', () => {
+  const renderEditor = async (value: readonly string[], onChange: (next: string[]) => void) => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(createElement(ModelScopeEditor, { models: catalog, value, onChange }))
+    })
+    return {
+      container,
+      cleanup: async () => {
+        await act(async () => root.unmount())
+        container.remove()
+      },
+    }
+  }
+
+  const optionOf = (container: HTMLElement, key: string) => {
+    const option = [
+      ...container.querySelectorAll<HTMLElement>('[data-slot="huan-model-scope-option"]'),
+    ].find((item) => item.dataset.modelKey === key)
+    expect(option).toBeDefined()
+    return option as HTMLElement
+  }
+
+  it('FieldLabel 与 Checkbox 关联，勾选回调使用新布尔状态追加精确模式', async () => {
+    const onChange = vi.fn()
+    const { container, cleanup } = await renderEditor(['provider/alpha'], onChange)
+    try {
+      const option = optionOf(container, 'provider/beta')
+      const checkbox = option.querySelector<HTMLElement>('[role="checkbox"]')
+      const label = option.querySelector<HTMLLabelElement>('[data-slot="field-label"]')
+      expect(checkbox).not.toBeNull()
+      expect(label).not.toBeNull()
+      expect(checkbox?.getAttribute('aria-checked')).toBe('false')
+      // 隐藏 input 的 id 由 htmlFor 关联，可访问名称通过 aria-labelledby 指回 FieldLabel。
+      expect(label?.htmlFor).not.toBe('')
+      expect(checkbox?.getAttribute('aria-labelledby')).toBe(label?.id)
+      expect(label?.textContent).toContain('provider/beta')
+
+      await act(async () => label?.click())
+      expect(onChange).toHaveBeenCalledWith(['provider/alpha', 'provider/beta'])
+    } finally {
+      await cleanup()
+    }
+  })
+
+  it('取消勾选回调使用新布尔状态移除该模型的精确模式', async () => {
+    const onChange = vi.fn()
+    const { container, cleanup } = await renderEditor(['provider/alpha', 'provider/beta'], onChange)
+    try {
+      const checkbox = optionOf(container, 'provider/alpha').querySelector<HTMLElement>(
+        '[role="checkbox"]',
+      )
+      expect(checkbox?.getAttribute('aria-checked')).toBe('true')
+
+      await act(async () => checkbox?.click())
+      expect(onChange).toHaveBeenCalledWith(['provider/beta'])
+    } finally {
+      await cleanup()
+    }
   })
 })

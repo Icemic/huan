@@ -18,7 +18,7 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/ui/model-selector'
-import { useAuthStore, useModelStore, useSettingsStore } from '@/state/app-context'
+import { useModelStore, useSettingsUiStore } from '@/state/app-context'
 import type { ModelTarget } from '@/state/model-store'
 
 /** 把宿主模型目录映射为选择器条目；Thinking 级别完整来自模型能力（含 max）。 */
@@ -95,8 +95,7 @@ export const PiModelSelector = memo(function PiModelSelector({
   const loadCatalog = useModelStore((state) => state.loadCatalog)
   const chooseModel = useModelStore((state) => state.chooseModel)
   const chooseThinking = useModelStore((state) => state.chooseThinking)
-  const openSettings = useSettingsStore((state) => state.openPanel)
-  const openAuth = useAuthStore((state) => state.openPanel)
+  const openSettingsPage = useSettingsUiStore((state) => state.openPage)
 
   const draft = useWindowStore((state) =>
     selection ? state.draftsById[draftIdOf(selection)] : undefined,
@@ -176,13 +175,7 @@ export const PiModelSelector = memo(function PiModelSelector({
           size="xs"
           onClick={() => {
             close()
-            void openSettings(
-              currentTarget?.threadId
-                ? { threadId: currentTarget.threadId }
-                : currentTarget?.workspacePath
-                  ? { workspacePath: currentTarget.workspacePath }
-                  : undefined,
-            )
+            openSettingsPage('models')
           }}
         >
           <Trans>打开设置</Trans>
@@ -192,7 +185,7 @@ export const PiModelSelector = memo(function PiModelSelector({
           size="xs"
           onClick={() => {
             close()
-            void openAuth()
+            openSettingsPage('models', { mode: 'login' })
           }}
         >
           <Trans>管理认证</Trans>

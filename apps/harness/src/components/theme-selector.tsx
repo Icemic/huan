@@ -18,10 +18,9 @@ const THEME_OPTIONS = [
   icon: typeof MonitorIcon
 }[]
 
-/** 顶栏主题选择：只影响当前浏览器的本地显示，DOM 资源由 bootstrap 持有。 */
-export function ThemeSelector() {
+/** 浏览器外观选择：只影响当前浏览器的本地显示，DOM 资源由 bootstrap 持有。 */
+export function ThemeSelector({ id }: { id?: string }) {
   const { i18n } = useLingui()
-  const themeLabel = i18n._(msg`主题`)
   const theme = useThemeStore((state) => state.theme)
   const setTheme = useThemeStore((state) => state.setTheme)
   const current = THEME_OPTIONS.find((option) => option.value === theme) ?? THEME_OPTIONS[0]
@@ -34,21 +33,16 @@ export function ThemeSelector() {
         if (value) setTheme(value)
       }}
     >
-      <SelectTrigger
-        size="sm"
-        aria-label={themeLabel}
-        data-slot="theme-selector-trigger"
-        className="text-muted-foreground hover:text-foreground gap-1.5 px-2"
-      >
-        <CurrentIcon aria-hidden className="size-3.5" />
-        <span className="text-xs">{i18n._(current.label)}</span>
+      <SelectTrigger id={id} size="sm" data-slot="theme-selector-trigger">
+        <CurrentIcon aria-hidden className="text-muted-foreground" />
+        <span>{i18n._(current.label)}</span>
       </SelectTrigger>
-      <SelectContent className="min-w-40">
+      <SelectContent className="min-w-44">
         {THEME_OPTIONS.map((option) => {
           const Icon = option.icon
           return (
             <SelectItem key={option.value} value={option.value}>
-              <Icon aria-hidden className="size-3.5" />
+              <Icon aria-hidden />
               <span>{i18n._(option.label)}</span>
             </SelectItem>
           )

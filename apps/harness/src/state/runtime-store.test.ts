@@ -38,11 +38,6 @@ const createStore = () => {
     abortThreadBash: vi.fn(async () => ({ status: 'requested' as const })),
     compactThread: vi.fn(async () => ({ status: 'compacted' as const, tokensBefore: 10 })),
     abortThreadCompaction: vi.fn(async () => ({ status: 'requested' as const })),
-    setAutoCompaction: vi.fn(async () => ({
-      status: 'saved' as const,
-      enabled: true,
-      scope: 'global' as const,
-    })),
     getThread: vi.fn(async (threadId: string) => threadSnapshotOf(threadId)),
     reloadResources: vi.fn(),
   } as unknown as HarnessClient
@@ -56,7 +51,7 @@ const createStore = () => {
   return { client, browser, store }
 }
 
-describe('runtime feature：Shell、压缩与自动开关', () => {
+describe('runtime feature：Shell 与压缩', () => {
   it('Shell 成功后只清空本次命令；busy/失败如实提示', async () => {
     const { client, store } = createStore()
     await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
@@ -79,17 +74,9 @@ describe('runtime feature：Shell、压缩与自动开关', () => {
     expect(store.getState().notice).toBe('已有 Shell')
   })
 
-  it('压缩失败/取消和自动压缩项目覆盖均如实显示', async () => {
+  it('压缩失败与取消均如实显示', async () => {
     const { browser, client, store } = createStore()
-    browser.serviceStore.getState().applyThreadSnapshot('t1', {
-      ...threadSnapshotOf('t1'),
-      metadata: {
-        id: 't1',
-        status: 'idle',
-        workspacePath: '/workspace',
-        autoCompactionEnabled: false,
-      },
-    })
+    browser.serviceStore.getState().applyThreadSnapshot('t1', threadSnapshotOf('t1'))
     await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
 
     vi.mocked(client.compactThread).mockResolvedValueOnce({
@@ -102,17 +89,6 @@ describe('runtime feature：Shell、压缩与自动开关', () => {
     vi.mocked(client.abortThreadCompaction).mockResolvedValueOnce({ status: 'idle' })
     await store.getState().abortCompaction()
     expect(store.getState().notice).toContain('没有进行中的压缩')
-
-    vi.mocked(client.setAutoCompaction).mockResolvedValueOnce({
-      status: 'saved',
-      enabled: true,
-      scope: 'global',
-      overridden: true,
-      message: '用户默认已保存，但项目设置覆盖了当前会话',
-    })
-    await store.getState().toggleAutoCompaction()
-    expect(client.setAutoCompaction).toHaveBeenCalledWith('t1', true)
-    expect(store.getState().notice).toContain('项目设置覆盖')
   })
 
   it('关闭或换目标后迟到压缩结果不写新面板', async () => {

@@ -8,7 +8,9 @@
 
 import type { HarnessModelInfo } from '@huan/protocol'
 import { Trans } from '@lingui/react/macro'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldDescription, FieldLabel, FieldSet } from '@/components/ui/field'
 import { Textarea } from '@/components/ui/textarea'
 
 /** 模型模式中的 Thinking 后缀；匹配时忽略，回写时保留原文。 */
@@ -114,6 +116,7 @@ export function ModelScopeEditor({
   disabled = false,
 }: ModelScopeEditorProps) {
   const patterns = useMemo(() => [...value], [value])
+  const idPrefix = useId()
   const visibleModels = useMemo(
     () => models.filter((model) => model.provider.length > 0 && model.modelId.length > 0),
     [models],
@@ -134,12 +137,13 @@ export function ModelScopeEditor({
           <Trans>没有可用模型。</Trans>
         </p>
       ) : (
-        <fieldset
+        <FieldSet
           aria-label="模型范围"
-          className="flex max-h-56 flex-col gap-0.5 overflow-y-auto rounded-md border p-1"
+          className="max-h-56 gap-0.5 overflow-y-auto rounded-lg border p-1"
         >
-          {visibleModels.map((model) => {
+          {visibleModels.map((model, index) => {
             const key = modelKeyOf(model)
+            const fieldId = `${idPrefix}-model-${index}`
             const selected = modelPatternsSelectModel(patterns, model)
             const exact = patterns.some((pattern) => isExactModelPattern(pattern, model))
             // 通配包含的行无法用普通多选排除；最后一项取消后会变成空 patterns（全部）。
@@ -152,8 +156,9 @@ export function ModelScopeEditor({
                 : patterns.every((pattern) => isExactModelPattern(pattern, model)))
             const locked = lockedByPattern || lockedAsLast
             return (
-              <label
+              <Field
                 key={key}
+                orientation="horizontal"
                 data-slot="huan-model-scope-option"
                 data-model-key={key}
                 data-locked={locked ? 'true' : undefined}
@@ -164,27 +169,30 @@ export function ModelScopeEditor({
                       ? '至少保留一项模型；可改用高级 patterns 调整。'
                       : undefined
                 }
-                className="hover:bg-accent flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm"
+                className="hover:bg-accent items-start gap-2 rounded-lg px-2 py-1.5 text-sm"
               >
-                <input
-                  type="checkbox"
-                  className="mt-1 size-4 shrink-0 accent-current"
+                <Checkbox
+                  id={fieldId}
+                  className="mt-1"
                   checked={selected}
                   disabled={disabled || locked}
-                  onChange={(event) =>
-                    onChange(
-                      toggleModelPattern(patterns, visibleModels, model, event.target.checked),
-                    )
+                  onCheckedChange={(checked) =>
+                    onChange(toggleModelPattern(patterns, visibleModels, model, checked))
                   }
                 />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate">{model.name ?? model.modelId}</span>
-                  <span className="text-muted-foreground break-all font-mono text-xs">{key}</span>
-                </span>
-              </label>
+                <FieldLabel
+                  htmlFor={fieldId}
+                  className="min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 font-normal leading-snug"
+                >
+                  <span className="w-full truncate">{model.name ?? model.modelId}</span>
+                  <span className="text-muted-foreground w-full break-all font-mono text-xs">
+                    {key}
+                  </span>
+                </FieldLabel>
+              </Field>
             )
           })}
-        </fieldset>
+        </FieldSet>
       )}
 
       <details data-slot="huan-model-scope-advanced">
@@ -192,21 +200,23 @@ export function ModelScopeEditor({
           <Trans>高级 patterns</Trans>
         </summary>
         <div className="flex flex-col gap-1 pt-2">
-          <p className="text-muted-foreground text-xs">
-            <Trans>每行一个模式，可保留 :thinking 后缀与通配符。</Trans>
-          </p>
-          <Textarea
-            aria-label="模型 patterns"
-            className="min-h-24 font-mono text-xs"
-            value={advancedText}
-            disabled={disabled}
-            placeholder={'provider/model\nanthropic/*:high'}
-            onChange={(event) => {
-              const text = event.target.value
-              setAdvancedText(text)
-              onChange(parseModelPatternText(text))
-            }}
-          />
+          <Field className="gap-1">
+            <FieldDescription className="text-xs">
+              <Trans>每行一个模式，可保留 :thinking 后缀与通配符。</Trans>
+            </FieldDescription>
+            <Textarea
+              aria-label="模型 patterns"
+              className="min-h-24 font-mono text-xs"
+              value={advancedText}
+              disabled={disabled}
+              placeholder={'provider/model\nanthropic/*:high'}
+              onChange={(event) => {
+                const text = event.target.value
+                setAdvancedText(text)
+                onChange(parseModelPatternText(text))
+              }}
+            />
+          </Field>
         </div>
       </details>
     </div>

@@ -42,12 +42,8 @@ export interface HostFeatureState {
   /** 按 `${threadId}:${requestId}` 索引的会话级答案。 */
   threadAnswers: Readonly<Record<string, ThreadRequestDraft>>
   refreshing: boolean
-  statusOpen: boolean
   disposed: boolean
 
-  /** 宿主状态面板开关；面板内容仍直接读 serviceStore。 */
-  openStatus: () => void
-  closeStatus: () => void
   /** 重新读取宿主信息；协议不匹配由 serviceStore 记录受控错误。 */
   refreshHostInfo: () => Promise<void>
   setInteractionAnswer: (requestId: string, text: string) => void
@@ -122,18 +118,7 @@ export const createHostFeatureStore = (
     dismissedNotifications: new Set(),
     threadAnswers: {},
     refreshing: false,
-    statusOpen: false,
     disposed: false,
-
-    openStatus: () => {
-      if (get().disposed) return
-      set({ statusOpen: true })
-    },
-
-    closeStatus: () => {
-      if (get().disposed) return
-      set({ statusOpen: false })
-    },
 
     refreshHostInfo: async () => {
       const state = get()
@@ -324,7 +309,6 @@ export const createHostFeatureStore = (
         dismissedNotifications: new Set(),
         threadAnswers: {},
         refreshing: false,
-        statusOpen: false,
         disposed: true,
       })
     },

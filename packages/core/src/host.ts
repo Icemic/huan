@@ -534,6 +534,15 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     oauth: mcpOAuth,
     resolveTarget: async (input) => {
       const resolved = await configuration.resolveConfigTarget(input)
+      // 全局目标只管理用户配置：不查询项目信任，也不返回可当成 cwd 的路径。
+      if (resolved.target.kind === 'global') {
+        return {
+          target: { kind: 'global', workspacePath: '' },
+          cwd: '',
+          trust: { decision: 'untrusted', requiresTrust: false, origin: 'global' },
+          global: true,
+        }
+      }
       const trust = await configuration.configTrustOf(resolved.cwd, resolved.record)
       return {
         target: {
@@ -840,6 +849,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
 
     async getSettings(input: HarnessSettingsTargetInput): Promise<HarnessSettingsSnapshot> {
       assertActive()
+      if (input.global === true) return configuration.globalSettingsSnapshot(input)
       const resolved = await configuration.resolveConfigTarget(input)
       return configuration.settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
     },

@@ -38,9 +38,11 @@ const settingsFile = (
 })
 
 const resolvedTarget = (target: HarnessSettingsTargetInput): HarnessSettingsTarget =>
-  target.threadId
-    ? { kind: 'session', threadId: target.threadId, workspacePath: '/workspace' }
-    : { kind: 'workspace', workspacePath: target.workspacePath ?? '/workspace' }
+  target.global === true
+    ? { kind: 'global', workspacePath: '' }
+    : target.threadId
+      ? { kind: 'session', threadId: target.threadId, workspacePath: '/workspace' }
+      : { kind: 'workspace', workspacePath: target.workspacePath ?? '/workspace' }
 
 const snapshotOf = (
   targetInput: HarnessSettingsTargetInput,
@@ -53,7 +55,11 @@ const snapshotOf = (
   trust: { decision: 'trusted', requiresTrust: true, origin: 'explicit' },
   files: {
     user: settingsFile('user', content),
-    project: settingsFile('project', projectContent),
+    // 全局快照不提供项目文件原文。
+    project:
+      targetInput.global === true
+        ? { ...settingsFile('project', '', null), readable: false }
+        : settingsFile('project', projectContent),
   },
   effective: {
     source: 'disk',
@@ -97,7 +103,9 @@ const createFakeClient = () => {
   const otherTarget: HarnessSettingsTargetInput = { threadId: 't2' }
   const client = {
     getSettings: vi.fn(async (input: HarnessSettingsTargetInput) =>
-      input.threadId === 't2' ? snapshotOf(otherTarget, '{}\n', '{}\n') : snapshotOf(target),
+      input.threadId === 't2'
+        ? snapshotOf(otherTarget, '{}\n', '{}\n')
+        : snapshotOf(input.global === true ? input : target),
     ),
     saveSettings: vi.fn(),
     getResources: vi.fn(async (input: HarnessSettingsTargetInput & { includeText?: boolean }) =>
@@ -319,6 +327,79 @@ describe('settings feature：原文、dirty 与目标保护', () => {
     expect(draftOf(store, 't:t1', 'user')?.issues).toEqual([
       { kind: 'schema', path: '/defaultModel', message: '类型错误' },
     ])
+  })
+})
+
+describe('settings feature：全局设置目标', () => {
+  it('全局目标不要求 cwd，只读取用户设置并保留用户草稿', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+
+    await store.getState().openPanel({ global: true })
+    expect(store.getState().open).toBe(true)
+    expect(store.getState().target).toMatchObject({ global: true })
+    expect(store.getState().targetKey).toBe('g')
+    expect(store.getState().scope).toBe('user')
+    expect(client.getSettings).toHaveBeenCalledWith({ global: true })
+    expect(client.getResources).not.toHaveBeenCalled()
+    expect(client.getSettings).toHaveBeenCalledTimes(1)
+    expect(draftOf(store, 'g', 'user')?.content).toContain('unknownField')
+    expect(draftOf(store, 'g', 'project')).toBeUndefined()
+
+    store.getState().updateDraft('{\n  "draft": true\n}\n')
+    store.getState().close()
+    await store.getState().openPanel({ global: true })
+    expect(draftOf(store, 'g', 'user')?.content).toContain('"draft": true')
+    // 再次打开全局目标仍不读取项目/资源。
+    expect(client.getResources).not.toHaveBeenCalled()
+  })
+
+  it('全局保存写用户文件，成功后提示新会话与资源页，不选择当前会话', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ global: true })
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(savedResult(snapshotOf({ global: true })))
+    store.getState().updateDraft('{\n  "defaultModel": "m2"\n}\n')
+    await store.getState().save()
+
+    expect(client.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { global: true },
+        scope: 'user',
+      }),
+    )
+    expect(store.getState().notice).toBe('已保存，新会话将使用；已有会话可在资源页重新加载')
+    expect(store.getState().notice).not.toContain('当前会话')
+    expect(client.reloadResources).not.toHaveBeenCalled()
+  })
+
+  it('全局目标不加载资源、不应用资源重载；重新读取只刷新设置', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ global: true })
+    await store.getState().loadResources(true)
+    expect(client.getResources).not.toHaveBeenCalled()
+    await store.getState().applyResourceReload()
+    expect(client.reloadResources).not.toHaveBeenCalled()
+    await store.getState().reloadFromDisk()
+    expect(client.getSettings).toHaveBeenCalledTimes(2)
+    expect(client.getResources).not.toHaveBeenCalled()
+  })
+
+  it('全局模型目录使用空路径完整目录，刷新使用 global 目标', async () => {
+    const client = createFakeClient()
+    const { browser, store } = createStore(client)
+    const loadCatalog = vi
+      .spyOn(browser.serviceStore.getState(), 'loadModelCatalog')
+      .mockResolvedValue(models)
+    await store.getState().openPanel({ global: true }, { tab: 'models' })
+    await store.getState().loadModelCatalog()
+    expect(loadCatalog).toHaveBeenLastCalledWith({ workspacePath: '', all: true })
+
+    await store.getState().refreshModelCatalog()
+    expect(client.refreshModels).toHaveBeenCalledWith({ global: true })
+    expect(loadCatalog).toHaveBeenLastCalledWith({ workspacePath: '', all: true })
+    expect(store.getState().modelRefreshing).toBe(false)
   })
 })
 

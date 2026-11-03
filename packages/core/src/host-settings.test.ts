@@ -160,6 +160,82 @@ describe('设置读取与保存', () => {
     expect(await readFile(userSettingsFile(), 'utf8')).toBe(content)
   })
 
+  it('全局目标无需会话或存在的启动目录，只读写用户设置并拒绝资源目标', async () => {
+    const missing = join(env.root, 'missing-startup-settings')
+    await restartHost({ workspacePath: missing })
+
+    const snapshot = await host.getSettings({ global: true })
+    expect(snapshot.target).toEqual({ kind: 'global', workspacePath: '' })
+    expect(snapshot.projectTrusted).toBe(false)
+    expect(snapshot.trust).toMatchObject({
+      decision: 'untrusted',
+      requiresTrust: false,
+      origin: 'global',
+    })
+    expect(snapshot.files.user.path).toBe(userSettingsFile())
+    expect(snapshot.files.project).toMatchObject({
+      path: '',
+      readable: false,
+      exists: false,
+      content: '',
+      revision: null,
+    })
+    expect(Object.values(snapshot.effective.origins)).not.toContain('project')
+
+    const content = `${JSON.stringify({ globalMarker: { ok: true } }, null, 2)}\n`
+    const saved = await host.saveSettings({
+      target: { global: true },
+      scope: 'user',
+      content,
+      expectedRevision: snapshot.files.user.revision,
+    })
+    expect(saved.status).toBe('saved')
+    if (saved.status !== 'saved') throw new Error('全局设置未保存')
+    expect(saved.snapshot.target).toEqual({ kind: 'global', workspacePath: '' })
+    expect(saved.snapshot.files.project.readable).toBe(false)
+    expect(await readJson(userSettingsFile())).toMatchObject({ globalMarker: { ok: true } })
+
+    // 全局目标只能写用户配置；项目写入与资源/重载目标都被拒绝。
+    const blocked = await host.saveSettings({
+      target: { global: true },
+      scope: 'project',
+      content: '{}',
+      expectedRevision: null,
+    })
+    expect(blocked.status).toBe('failed')
+    if (blocked.status === 'failed') expect(blocked.path).toBe('')
+    await expect(host.getResources({ global: true })).rejects.toThrow('全局')
+    await expect(host.reloadResources({ global: true })).rejects.toThrow('全局')
+
+    // 全局目录管理不进入项目装配。
+    expect((await host.getAvailableModels({ all: true })).length).toBeGreaterThan(0)
+    expect((await host.refreshModels({ global: true })).models.length).toBeGreaterThan(0)
+  })
+
+  it('全局保存自动压缩变化后同步所有已打开会话的设置缓存', async () => {
+    const first = (await host.createThread()).metadata.id
+    const second = (await host.createThread()).metadata.id
+    const base = await host.getSettings({ global: true })
+    const content = `${JSON.stringify(
+      {
+        ...(JSON.parse(base.files.user.content) as Record<string, unknown>),
+        compaction: { enabled: false },
+      },
+      null,
+      2,
+    )}
+`
+    const saved = await host.saveSettings({
+      target: { global: true },
+      scope: 'user',
+      content,
+      expectedRevision: base.files.user.revision,
+    })
+    expect(saved.status).toBe('saved')
+    expect((await host.getThread(first)).metadata.autoCompactionEnabled).toBe(false)
+    expect((await host.getThread(second)).metadata.autoCompactionEnabled).toBe(false)
+  })
+
   it('损坏原文可读可修复；不存在文件按 revision=null 创建', async () => {
     await writeFile(userSettingsFile(), '{ broken json')
     const broken = await host.getSettings({

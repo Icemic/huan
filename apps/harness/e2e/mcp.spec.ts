@@ -35,17 +35,16 @@ test.afterEach(async ({ request }) => {
   await resetStream(request).catch(() => {})
 })
 
-async function captureMcp(page: Page, name: string): Promise<void> {
-  await mkdir('test-results/mcp-review', { recursive: true })
-  await page.screenshot({ path: `test-results/mcp-review/${name}.png` })
-  const overflow = await mcpDialog(page).evaluate(
-    (element) => element.scrollWidth > element.clientWidth + 2,
-  )
-  expect(overflow).toBe(false)
-}
-
+const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
 const mcpDialog = (page: Page) => page.getByRole('dialog', { name: 'MCP 服务器' })
 const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
+
+async function captureMcp(page: Page, name: string, dialog = mcpDialog(page)): Promise<void> {
+  await mkdir('test-results/mcp-review', { recursive: true })
+  await page.screenshot({ path: `test-results/mcp-review/${name}.png` })
+  const overflow = await dialog.evaluate((element) => element.scrollWidth > element.clientWidth + 2)
+  expect(overflow).toBe(false)
+}
 
 type FixtureInfo = {
   stdioFixturePath: string
@@ -96,24 +95,46 @@ async function writeUserMcp(request: APIRequestContext, content: string | null):
   expect(response.ok()).toBe(true)
 }
 
+async function readUserMcp(request: APIRequestContext): Promise<string | null> {
+  const response = await request.get(`${E2E_HOST_URL}/__e2e__/mcp-file`, {
+    params: { scope: 'user' },
+  })
+  expect(response.ok()).toBe(true)
+  return ((await response.json()) as { content: string | null }).content
+}
+
+/** 统一设置 → MCP 页：只编辑全局用户配置和查看已有认证进度。 */
+async function openGlobalMcp(page: Page): Promise<ReturnType<typeof settingsDialog>> {
+  await page.getByRole('button', { name: '设置', exact: true }).click()
+  const dialog = settingsDialog(page)
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('tab', { name: 'MCP', exact: true }).click()
+  await expect(dialog.locator('[data-slot="huan-mcp-global"]')).toBeVisible()
+  return dialog
+}
+
+/** /mcp 定位当前会话，空白目标则打开起始目录的项目配置。 */
 async function openMcp(page: Page): Promise<ReturnType<typeof mcpDialog>> {
-  await page.getByRole('button', { name: 'MCP 服务器' }).click()
+  await messageInput(page).fill('/mcp')
+  await messageInput(page).press('Enter')
   const dialog = mcpDialog(page)
   await expect(dialog).toBeVisible()
   return dialog
 }
 
-async function openConfigTab(
+/** 管理工作区成员行 → MCP：项目目标固定 project 作用域。 */
+async function openProjectMcp(
   page: Page,
-  scope: 'project' | 'user',
+  workspaceName: string,
 ): Promise<ReturnType<typeof mcpDialog>> {
-  const dialog = await openMcp(page)
-  await dialog.getByRole('tab', { name: 'MCP 配置' }).click()
-  const scopeTab = dialog.getByRole('tab', {
-    name: scope === 'project' ? '编辑项目 MCP 配置' : '编辑用户 MCP 配置',
-  })
-  await expect(scopeTab).toBeEnabled()
-  await scopeTab.click()
+  await workspaceGroup(page, workspaceName)
+    .getByRole('button', { name: '管理工作区', exact: true })
+    .click()
+  const manager = page.getByRole('dialog', { name: '管理工作区' })
+  await expect(manager).toBeVisible()
+  await manager.getByRole('button', { name: 'MCP', exact: true }).first().click()
+  const dialog = mcpDialog(page)
+  await expect(dialog).toBeVisible()
   return dialog
 }
 
@@ -203,16 +224,17 @@ async function createLiveSession(
   return { projectPath: project.path, workspaceName }
 }
 
-test('顶栏与 /mcp 打开同一面板，未知子命令不发模型', async ({ page }) => {
+test('统一设置打开全局 MCP，/mcp 打开上下文面板，未知子命令不发模型', async ({ page }) => {
   await openApp(page)
-  const dialog = await openMcp(page)
-  await expect(dialog.getByRole('tab', { name: 'MCP 服务器列表' })).toBeVisible()
+  const settings = await openGlobalMcp(page)
+  await expect(settings.locator('[data-slot="huan-mcp-scope"]')).toContainText('与 Pi 共用')
+  await expect(settings.getByRole('tab', { name: 'MCP 服务器列表' })).toHaveCount(0)
+  await expect(settings.getByRole('button', { name: '应用到当前会话' })).toHaveCount(0)
   await page.keyboard.press('Escape')
-  await expect(dialog).toHaveCount(0)
+  await expect(settings).toHaveCount(0)
 
-  await messageInput(page).fill('/mcp')
-  await messageInput(page).press('Enter')
-  await expect(mcpDialog(page)).toBeVisible()
+  const dialog = await openMcp(page)
+  await expect(dialog.getByRole('tab', { name: 'MCP 配置' })).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(messageInput(page)).toHaveValue('')
@@ -247,14 +269,14 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
   const resourceReadFile = join(projectPath, `mcp-${run}-resources.txt`)
 
   try {
-    let dialog = await openConfigTab(page, 'project')
-    await dialog.getByRole('button', { name: '新增 stdio 服务器' }).click()
-    await dialog.getByLabel('服务器名称').fill('fixture')
-    await dialog.getByLabel('stdio 命令').fill(fixture.nodePath)
-    await dialog.getByLabel('stdio 参数').fill(fixture.stdioFixturePath)
-    await dialog.getByRole('combobox', { name: '服务器 exposure' }).click()
+    const configDialog = await openGlobalMcp(page)
+    await configDialog.getByRole('button', { name: '新增 stdio 服务器' }).click()
+    await configDialog.getByLabel('服务器名称').fill('fixture')
+    await configDialog.getByLabel('stdio 命令').fill(fixture.nodePath)
+    await configDialog.getByLabel('stdio 参数').fill(fixture.stdioFixturePath)
+    await configDialog.getByRole('combobox', { name: '服务器 exposure' }).click()
     await page.getByRole('option', { name: 'direct', exact: true }).click()
-    await dialog
+    await configDialog
       .getByLabel('环境变量')
       .fill(
         [
@@ -263,21 +285,21 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
           `FIXTURE_RESOURCE_READ_FILE=${resourceReadFile}`,
         ].join('\n'),
       )
-    await dialog.getByRole('button', { name: '保存服务器' }).click()
+    await configDialog.getByRole('button', { name: '保存服务器' }).click()
     await expect(
-      dialog.locator('[data-slot="huan-mcp-draft-server"][data-server-name="fixture"]'),
+      configDialog.locator('[data-slot="huan-mcp-draft-server"][data-server-name="fixture"]'),
     ).toBeVisible()
-    await saveConfig(page, dialog)
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('可应用到当前会话')
+    await saveConfig(page, configDialog)
 
-    // 保存 ≠ 连接：配置已落盘，但 live manager 尚未启动 fixture。
-    expect(await readProjectMcp(request, projectPath)).toContain('fixture')
-    await openServersTab(page, dialog)
-    let row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="fixture"]')
-    await expect(row).toHaveAttribute('data-state', 'not-connected')
+    // 保存 ≠ 连接：全局配置已落盘，但 live manager 尚未启动 fixture。
+    expect(await readUserMcp(request)).toContain('fixture')
     expect(readPid(pidFile)).toBeUndefined()
+    await page.keyboard.press('Escape')
+    await expect(configDialog).toHaveCount(0)
 
+    let dialog = await openMcp(page)
     await applyReload(page, dialog)
+    let row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="fixture"]')
     await expect.poll(() => row.getAttribute('data-state'), { timeout: 20_000 }).toBe('connected')
     const firstPid = await expect
       .poll(() => readPid(pidFile), { timeout: 20_000 })
@@ -349,20 +371,26 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
       dynamicRow.getByRole('combobox', { name: '工具 dynamic_tool exposure' }),
     ).toContainText('hidden')
 
-    // 持久 exposure 走同一 JSON 草稿；重载同时验证旧 stdio PID 回收。
-    await dialog.getByRole('tab', { name: 'MCP 配置' }).click()
-    await openJsonView(page, dialog)
-    const editor = dialog.getByRole('textbox', { name: 'MCP 配置 JSON' })
+    // 持久 exposure 走统一设置中的同一用户 JSON 草稿；重载同时验证旧 stdio PID 回收。
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const globalConfigDialog = await openGlobalMcp(page)
+    await openJsonView(page, globalConfigDialog)
+    const editor = globalConfigDialog.getByRole('textbox', { name: 'MCP 配置 JSON' })
     const value = JSON.parse(await editor.inputValue()) as {
       mcpServers: Record<string, Record<string, unknown>>
     }
     value.mcpServers.fixture = { ...value.mcpServers.fixture, toolExposure: { echo: 'hidden' } }
     await editor.fill(`${JSON.stringify(value, null, 2)}\n`)
-    await captureMcp(page, 'config-light')
-    await saveConfig(page, dialog)
+    await captureMcp(page, 'config-light', globalConfigDialog)
+    await saveConfig(page, globalConfigDialog)
+    await page.keyboard.press('Escape')
+    await expect(globalConfigDialog).toHaveCount(0)
     const oldPid = readPid(pidFile)
     expect(oldPid).toBeDefined()
+    dialog = await openMcp(page)
     await applyReload(page, dialog)
+    row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="fixture"]')
     await expect.poll(() => readPid(pidFile), { timeout: 20_000 }).not.toBe(oldPid)
     await expect.poll(() => (oldPid ? processAlive(oldPid) : true), { timeout: 20_000 }).toBe(false)
 
@@ -388,12 +416,12 @@ test('配置保存不连接，显式重载后真实调用工具/资源、动态�
     await expect.poll(() => row.getAttribute('data-state'), { timeout: 20_000 }).toBe('connected')
   } finally {
     await stopFixture(pidFile)
-    await writeProjectMcp(request, projectPath, null)
+    await writeUserMcp(request, null)
   }
 })
 
 test('连接失败修复后可恢复，无资源服务器仍显示工具详情', async ({ page, request }) => {
-  const { projectPath } = await createLiveSession(page, request, 'recover')
+  const { projectPath, workspaceName } = await createLiveSession(page, request, 'recover')
   const fixture = await fixtureInfo(request)
   const pidFile = join(projectPath, 'recovered.pid')
   try {
@@ -408,12 +436,20 @@ test('连接失败修复后可恢复，无资源服务器仍显示工具详情',
     )
     let dialog = await openMcp(page)
     await applyReload(page, dialog)
-    const row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="broken"]')
+    let row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="broken"]')
     await expect(row).toHaveAttribute('data-state', 'failed', { timeout: 15_000 })
-    await dialog.getByRole('tab', { name: 'MCP 配置' }).click()
-    await dialog.getByRole('tab', { name: '编辑项目 MCP 配置' }).click()
-    await openJsonView(page, dialog)
-    await dialog.getByRole('textbox', { name: 'MCP 配置 JSON' }).fill(
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    // 临时信任仅覆盖当次会话装配；项目文件编辑需用户明确记住此项目信任。
+    const trust = await request.post(`${E2E_HOST_URL}/api/pi/projects/trust`, {
+      data: { path: projectPath, trusted: true, remember: true },
+    })
+    expect(trust.ok()).toBe(true)
+    // 项目配置从工作区成员入口打开，固定 project 作用域。
+    const projectDialog = await openProjectMcp(page, workspaceName)
+    await openJsonView(page, projectDialog)
+    await projectDialog.getByRole('textbox', { name: 'MCP 配置 JSON' }).fill(
       JSON.stringify({
         mcpServers: {
           broken: {
@@ -428,9 +464,13 @@ test('连接失败修复后可恢复，无资源服务器仍显示工具详情',
         },
       }),
     )
-    await saveConfig(page, dialog)
+    await saveConfig(page, projectDialog)
+    await page.keyboard.press('Escape')
+    await expect(projectDialog).toHaveCount(0)
+
+    dialog = await openMcp(page)
     await applyReload(page, dialog)
-    await openServersTab(page, dialog)
+    row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="broken"]')
     await expect(row).toHaveAttribute('data-state', 'connected', { timeout: 15_000 })
     await dialog.getByRole('button', { name: '查看 broken 详情' }).click()
     await expect(dialog.locator('[data-slot="huan-mcp-tool"][data-tool-name="echo"]')).toBeVisible()
@@ -459,9 +499,12 @@ test('项目未信任不读取配置，revision 冲突与非法配置保留草�
   await workspaceGroup(page, untrustedWorkspace)
     .getByRole('button', { name: new RegExp(untrustedWorkspace) })
     .click()
-  let dialog = await openMcp(page)
+  let dialog = await openProjectMcp(page, untrustedWorkspace)
   await dialog.getByRole('tab', { name: 'MCP 配置' }).click()
-  await expect(dialog.getByRole('tab', { name: '编辑项目 MCP 配置' })).toBeDisabled()
+  await expect(dialog.locator('[data-slot="huan-mcp-config"]')).toHaveAttribute(
+    'data-scope',
+    'project',
+  )
   await expect(dialog.getByText(/项目未信任/).first()).toBeVisible()
   await expect(dialog.getByText('hidden', { exact: true })).toHaveCount(0)
   await page.keyboard.press('Escape')
@@ -476,7 +519,7 @@ test('项目未信任不读取配置，revision 冲突与非法配置保留草�
   await workspaceGroup(page, workspaceName)
     .getByRole('button', { name: new RegExp(workspaceName) })
     .click()
-  dialog = await openConfigTab(page, 'project')
+  dialog = await openProjectMcp(page, workspaceName)
   await openJsonView(page, dialog)
   const editor = dialog.getByRole('textbox', { name: 'MCP 配置 JSON' })
   await expect(editor).toHaveValue(/"mcpServers"/)
@@ -529,7 +572,7 @@ test('项目覆盖只写三个持久字段，删除需要确认', async ({ page,
     await workspaceGroup(page, workspaceName)
       .getByRole('button', { name: new RegExp(workspaceName) })
       .click()
-    const dialog = await openConfigTab(page, 'project')
+    const dialog = await openProjectMcp(page, workspaceName)
     const effective = dialog.locator('[data-slot="huan-mcp-effective-server"]', {
       hasText: 'shared',
     })
@@ -574,20 +617,23 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
   context,
   request,
 }) => {
-  const { projectPath } = await createLiveSession(page, request, 'oauth')
+  await createLiveSession(page, request, 'oauth')
   const fixture = await fixtureInfo(request)
   let page2: Page | undefined
   try {
-    let dialog = await openConfigTab(page, 'project')
-    await dialog.getByRole('button', { name: '新增 HTTP 服务器' }).click()
-    await dialog.getByLabel('服务器名称').fill('remote')
-    await dialog.getByLabel('HTTP URL').fill(fixture.oauthResourceUrl)
-    await dialog.getByRole('combobox', { name: '服务器 exposure' }).click()
+    const configDialog = await openGlobalMcp(page)
+    await configDialog.getByRole('button', { name: '新增 HTTP 服务器' }).click()
+    await configDialog.getByLabel('服务器名称').fill('remote')
+    await configDialog.getByLabel('HTTP URL').fill(fixture.oauthResourceUrl)
+    await configDialog.getByRole('combobox', { name: '服务器 exposure' }).click()
     await page.getByRole('option', { name: 'direct', exact: true }).click()
-    await dialog.getByRole('button', { name: '保存服务器' }).click()
-    await saveConfig(page, dialog)
-    await applyReload(page, dialog)
+    await configDialog.getByRole('button', { name: '保存服务器' }).click()
+    await saveConfig(page, configDialog)
+    await page.keyboard.press('Escape')
+    await expect(configDialog).toHaveCount(0)
 
+    let dialog = await openMcp(page)
+    await applyReload(page, dialog)
     await openServersTab(page, dialog)
     const row = dialog.locator('[data-slot="huan-mcp-server"][data-server-name="remote"]')
     await expect.poll(() => row.getAttribute('data-state'), { timeout: 25_000 }).toBe('needs-auth')
@@ -631,15 +677,14 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
     await expect(dialog).toHaveCount(0)
     page2 = await context.newPage()
     await openApp(page2)
-    const dialog2 = await openMcp(page2)
-    await dialog2.getByRole('tab', { name: 'MCP 认证' }).click()
+    const dialog2 = await openGlobalMcp(page2)
     await expect(dialog2.locator('[data-slot="huan-mcp-auth-operation"]')).toContainText('remote')
     const prompt2 = dialog2.getByRole('textbox', { name: '授权回调 URL' })
     await expect(prompt2).toBeVisible()
     await expect(dialog2.locator('[data-slot="huan-mcp-auth-policy"]')).toContainText(
-      '关闭面板后登录继续',
+      '关闭设置后登录继续',
     )
-    await captureMcp(page2, 'auth-light')
+    await captureMcp(page2, 'auth-light', dialog2)
     await prompt2.fill(callbackUrl ?? '')
     await dialog2.getByRole('button', { name: '提交回填' }).click()
     // 已提交回填立即清空；随后提示表单随快照卸载。
@@ -689,7 +734,7 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
       .toBe(true)
     await releaseSegment(request)
     await expect(assistantMessages(page).last()).toContainText('busy-')
-    await openMcp(page)
+    dialog = await openMcp(page)
     await openServersTab(page, dialog)
     await row.getByRole('button', { name: '退出 remote' }).click()
     await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('暂不可用')
@@ -732,6 +777,6 @@ test('OAuth 链接、回填、多窗接管、旧提示拒绝、取消、退出�
     ).toBeVisible({ timeout: 25_000 })
   } finally {
     await page2?.close().catch(() => {})
-    await writeProjectMcp(request, projectPath, null)
+    await writeUserMcp(request, null)
   }
 })

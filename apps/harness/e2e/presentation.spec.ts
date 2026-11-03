@@ -9,6 +9,7 @@ import { expect, type Locator, test } from '@playwright/test'
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
+  chooseSessionAction,
   createProject,
   createWorkspaceApi,
   DEFAULT_REPLY,
@@ -444,16 +445,18 @@ test('历史模型不可用时展示受控回退原因且不泄露原始错误',
   await expect(fallback).not.toContainText('Error:')
   await expect(fallback).not.toContainText('at ')
 
-  // 宿主状态面板按会话展示同一受控原因。
-  await page.getByRole('button', { name: '宿主状态' }).click()
-  const status = page.getByRole('dialog', { name: '宿主状态' })
-  const sessionFallback = status.locator('[data-slot="huan-model-fallback"]')
-  await expect(sessionFallback).toContainText('历史恢复时原模型不可用')
-  await expect(sessionFallback).toContainText('原模型 huan-test/ghost-model')
-  await expect(sessionFallback).toContainText('当前使用')
-  await expect(sessionFallback).not.toContainText('Error:')
+  // 服务诊断只展示全局状态；按会话的回退原因在会话详情核对。
+  await chooseSessionAction(page, '详情')
+  const details = page.getByRole('dialog', { name: '会话详情' })
+  await expect(details).toBeVisible()
+  const detailsFallback = details.locator('[data-slot="huan-details-fallback"]')
+  await expect(detailsFallback).toContainText('历史恢复时原模型不可用')
+  await expect(detailsFallback).toContainText('huan-test/ghost-model')
+  await expect(detailsFallback).toContainText('已使用')
+  await expect(detailsFallback).not.toContainText('Error:')
+  await expect(detailsFallback).not.toContainText('at ')
   await page.keyboard.press('Escape')
-  await expect(status).toHaveCount(0)
+  await expect(details).toHaveCount(0)
 
   // 会话仍可继续对话（使用有效模型）。
   await messageInput(page).fill(`回退后继续-${run}`)

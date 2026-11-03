@@ -14,6 +14,7 @@ import { createModelFeatureStore } from './model-store'
 import { createRuntimeFeatureStore } from './runtime-store'
 import { createSessionsFeatureStore } from './sessions-store'
 import { createSettingsFeatureStore } from './settings-store'
+import { createSettingsUiStore } from './settings-ui-store'
 import { createWorkspaceFeatureStore } from './workspace-store'
 
 const hostInfo: HarnessHostInfo = {
@@ -283,6 +284,7 @@ const createApp = (
   composer: ReturnType<typeof createComposerFeatureStore>
   sessions: ReturnType<typeof createSessionsFeatureStore>
   settings: ReturnType<typeof createSettingsFeatureStore>
+  settingsUi: ReturnType<typeof createSettingsUiStore>
   auth: ReturnType<typeof createAuthFeatureStore>
   mcp: ReturnType<typeof createMcpFeatureStore>
   runtime: ReturnType<typeof createRuntimeFeatureStore>
@@ -297,6 +299,7 @@ const createApp = (
   const workspaceStore = createWorkspaceFeatureStore({ browser, storage: null })
   const sessions = createSessionsFeatureStore({ browser })
   const settingsStore = createSettingsFeatureStore({ browser })
+  const settingsUiStore = createSettingsUiStore()
   const authStore = createAuthFeatureStore({ browser })
   const mcp = createMcpFeatureStore({ browser })
   const runtime = createRuntimeFeatureStore({ browser })
@@ -306,16 +309,17 @@ const createApp = (
     workspaceStore,
     sessionsStore: sessions,
     settingsStore,
-    authStore,
     mcpStore: mcp,
     runtimeStore: runtime,
     modelStore: model,
+    settingsUiStore,
   })
   return {
     browser,
     composer,
     sessions,
     settings: settingsStore,
+    settingsUi: settingsUiStore,
     auth: authStore,
     mcp,
     runtime,
@@ -541,32 +545,32 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     vi.unstubAllGlobals()
   })
 
-  it('/settings 打开设置面板并清空命令文本', async () => {
+  it('/settings 打开统一设置并清空命令文本', async () => {
     const fake = createFakeClient()
-    const { browser, composer, settings } = createApp(fake.client)
+    const { browser, composer, settingsUi } = createApp(fake.client)
     const draftId = selectThread(browser)
     browser.windowStore.getState().editDraftText(draftId, '/settings')
 
     await composer.getState().submit()
-    expect(settings.getState().open).toBe(true)
-    expect(settings.getState().target).toEqual({ threadId: 't1' })
+    expect(settingsUi.getState().open).toBe(true)
+    expect(settingsUi.getState().page).toBe('appearance')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 
-  it('/login 验证 provider 后打开认证面板；未知 provider 保留输入', async () => {
+  it('/login 验证 provider 后定位模型页；未知 provider 保留输入', async () => {
     const fake = createFakeClient()
-    const { browser, composer, auth } = createApp(fake.client)
+    const { browser, composer, settingsUi } = createApp(fake.client)
     const draftId = selectThread(browser)
     browser.windowStore.getState().editDraftText(draftId, '/login provider-a')
     await composer.getState().submit()
-    expect(auth.getState().open).toBe(true)
-    expect(auth.getState().focusedProvider).toBe('provider-a')
+    expect(settingsUi.getState().open).toBe(true)
+    expect(settingsUi.getState().page).toBe('models')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
 
-    auth.getState().closePanel()
+    settingsUi.getState().close()
     browser.windowStore.getState().editDraftText(draftId, '/login unknown-provider')
     await composer.getState().submit()
-    expect(auth.getState().open).toBe(false)
+    expect(settingsUi.getState().open).toBe(false)
     expect(composer.getState().notice).toContain('找不到此服务商')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/login unknown-provider')
   })
@@ -583,16 +587,14 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 
-  it('/scoped-models 打开设置面板模型页并固定用户作用域', async () => {
+  it('/scoped-models 定位统一设置模型页', async () => {
     const fake = createFakeClient()
-    const { browser, composer, settings } = createApp(fake.client)
+    const { browser, composer, settingsUi } = createApp(fake.client)
     const draftId = selectThread(browser)
     browser.windowStore.getState().editDraftText(draftId, '/scoped-models')
     await composer.getState().submit()
-    expect(settings.getState().open).toBe(true)
-    expect(settings.getState().tab).toBe('models')
-    expect(settings.getState().scope).toBe('user')
-    expect(settings.getState().target).toEqual({ threadId: 't1' })
+    expect(settingsUi.getState().open).toBe(true)
+    expect(settingsUi.getState().page).toBe('models')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 

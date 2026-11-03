@@ -5,7 +5,8 @@
  * 以及当前实际加载的指令/system prompt/扩展/skill/模板/主题/packages 与诊断。
  *
  * 语义约定（迭代设计）：
- * - 查询目标 `threadId` 与 `workspacePath` 二选一，不接受任意配置文件路径；
+ * - 查询目标 `threadId`、`workspacePath` 与 `global` 三选一，不接受任意配置文件路径；
+ * - `global` 只查询/保存用户配置，不探测目录、不读取项目文件；
  * - 项目未信任时不返回其设置原文、不允许写项目设置；
  * - 设置原文可能损坏：GUI 保留原文用于修复，revision 用于多窗口乐观并发；
  * - 保存与应用分开：保存只返回磁盘合并预览与“需重载/重启”说明，
@@ -15,17 +16,20 @@
 /** 设置作用域：用户（agentDir）或项目（<cwd>/.pi）。 */
 export type HarnessSettingsScope = 'user' | 'project'
 
-/** 设置/资源查询目标：会话或空白页固定起始目录二选一。 */
+/** 设置查询目标：会话、空白页固定起始目录或用户全局三选一。 */
 export type HarnessSettingsTargetInput = {
   /** 活/冷会话 ID：使用该会话固定的 cwd。 */
   threadId?: string
   /** 空白页的固定起始目录（绝对路径）。 */
   workspacePath?: string
+  /** 只使用用户配置，不需要会话、目录或项目信任。 */
+  global?: boolean
 }
 
 /** 解析后的查询目标（回显给 GUI，便于展示实际使用的目录）。 */
 export type HarnessSettingsTarget = {
-  kind: 'session' | 'workspace'
+  kind: 'session' | 'workspace' | 'global'
+  /** 全局目标使用空串，不伪造启动目录。 */
   workspacePath: string
   threadId?: string
 }

@@ -83,14 +83,13 @@ const createBrowser = (client: HarnessClient): HarnessBrowser =>
     storage: null,
   })
 
-describe('auth feature：登录/退出与面板关闭', () => {
-  it('打开读取权威快照；启动登录只标记本地忙，关闭面板不取消远端操作', async () => {
+describe('auth feature：登录/退出与定位清理', () => {
+  it('定位读取权威快照；启动登录只标记本地忙，离开页面不取消远端操作', async () => {
     const client = createFakeClient()
     const browser = createBrowser(client)
     const store = createAuthFeatureStore({ browser })
 
-    await store.getState().openPanel()
-    expect(store.getState().open).toBe(true)
+    await store.getState().focusProvider()
     expect(browser.serviceStore.getState().providerAuth?.providers).toHaveLength(1)
 
     await store.getState().startLogin('provider-a', 'api_key')
@@ -104,8 +103,8 @@ describe('auth feature：登录/退出与面板关闭', () => {
     expect(store.getState().providerBusy).toEqual({})
 
     store.getState().setAnswer('op-a', 'p1', 'secret-value')
-    store.getState().closePanel()
-    expect(store.getState().open).toBe(false)
+    store.getState().resetView()
+    expect(store.getState().focusedProvider).toBeUndefined()
     expect(store.getState().answers).toEqual({})
     expect(client.cancelProviderAuth).not.toHaveBeenCalled()
   })
@@ -114,7 +113,7 @@ describe('auth feature：登录/退出与面板关闭', () => {
     const client = createFakeClient()
     const browser = createBrowser(client)
     const store = createAuthFeatureStore({ browser })
-    await store.getState().openPanel()
+    await store.getState().focusProvider()
     await store.getState().logout('provider-a')
     expect(client.logoutProvider).toHaveBeenCalledWith('provider-a')
     expect(store.getState().notice).toContain('退出流程')
@@ -134,7 +133,7 @@ describe('auth feature：短期回填与密钥清理', () => {
           operation('op-2', prompt('p2', 'text')),
         ]),
       )
-    await store.getState().openPanel()
+    await store.getState().focusProvider()
 
     store.getState().setAnswer('op-1', 'p1', 'secret-value')
     store.getState().setAnswer('op-2', 'p2', 'other-answer')
@@ -162,7 +161,7 @@ describe('auth feature：短期回填与密钥清理', () => {
     browser.serviceStore
       .getState()
       .applyProviderAuth(snapshotOf([operation('op-1', prompt('p1', 'text'))]))
-    await store.getState().openPanel()
+    await store.getState().focusProvider()
     store.getState().setAnswer('op-1', 'p1', 'old')
 
     browser.serviceStore

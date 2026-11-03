@@ -12,36 +12,44 @@ msgid "（空）"
 msgstr "（空）"
 
 #. placeholder {0}: workspace.projects.length
-#: src/components/session-context-bar.tsx:283
+#: src/components/session-context-bar.tsx:321
 msgid "{0} 个项目"
 msgstr "{0} 个项目"
 
-#: src/components/runtime-operations.tsx:181
+#: src/components/runtime-operations.tsx:180
 msgid "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 msgstr "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 
-#: src/components/pi-mcp-panel.tsx:990
-#: src/components/settings-resources-dialog.tsx:823
+#: src/components/pi-mcp-panel.tsx:1056
+#: src/components/settings-resources-dialog.tsx:264
 msgid "JSON 原文"
 msgstr "JSON 原文"
 
-#: src/components/settings-resources-dialog.tsx:1056
-msgid "live 会话正在使用的 loader"
-msgstr "live 会话正在使用的 loader"
+#: src/components/global-settings-content.tsx:394
+#: src/components/settings-resources-dialog.tsx:233
+msgid "JSON 解析错误"
+msgstr "JSON 解析错误"
 
-#: src/components/pi-mcp-panel.tsx:1239
+#: src/components/session-context-bar.tsx:224
+#: src/components/settings-dialog.tsx:50
+#: src/components/settings-dialog.tsx:242
+#: src/components/workspace-manager.tsx:461
 msgid "MCP"
 msgstr "MCP"
 
-#: src/components/pi-mcp-panel.tsx:1259
+#: src/components/pi-mcp-panel.tsx:1405
 msgid "MCP 服务器"
 msgstr "MCP 服务器"
+
+#: src/components/pi-mcp-panel.tsx:1267
+msgid "OAuth 登录需要会话连接；保存配置后从会话的 MCP 面板登录。"
+msgstr "OAuth 登录需要会话连接；保存配置后从会话的 MCP 面板登录。"
 
 #: src/components/theme-selector.tsx:13
 msgid "One Dark"
 msgstr "One Dark"
 
-#: src/components/pi-host-status.tsx:247
+#: src/components/pi-host-status.tsx:182
 msgid "Provider 来源"
 msgstr "Provider 来源"
 
@@ -57,8 +65,7 @@ msgstr "Thinking"
 msgid "Token"
 msgstr "Token"
 
-#: src/components/runtime-operations.tsx:246
-#: src/components/settings-resources-dialog.tsx:384
+#: src/components/runtime-operations.tsx:245
 msgid "上下文压缩"
 msgstr "上下文压缩"
 
@@ -87,15 +94,15 @@ msgstr "不摘要（只切换上下文）"
 msgid "不进入上下文"
 msgstr "不进入上下文"
 
-#: src/components/pi-mcp-panel.tsx:901
+#: src/components/pi-mcp-panel.tsx:945
 msgid "与 Pi 共用，适用于所有项目"
 msgstr "与 Pi 共用，适用于所有项目"
 
-#: src/components/settings-resources-dialog.tsx:992
+#: src/components/settings-inspector.tsx:31
 msgid "与当前会话使用的设置不同"
 msgstr "与当前会话使用的设置不同"
 
-#: src/components/theme-selector.tsx:24
+#: src/components/settings-dialog.tsx:198
 msgid "主题"
 msgstr "主题"
 
@@ -103,15 +110,19 @@ msgstr "主题"
 msgid "仅命名"
 msgstr "仅命名"
 
-#: src/components/pi-mcp-panel.tsx:903
+#: src/components/settings-dialog.tsx:192
+msgid "仅影响此浏览器。"
+msgstr "仅影响此浏览器。"
+
+#: src/components/pi-mcp-panel.tsx:947
 msgid "仅用于当前项目"
 msgstr "仅用于当前项目"
 
-#: src/components/workspace-manager.tsx:68
+#: src/components/workspace-manager.tsx:76
 msgid "仅用户资源"
 msgstr "仅用户资源"
 
-#: src/components/pi-provider-auth.tsx:448
+#: src/components/pi-provider-auth.tsx:469
 msgid "仍通过{leftoverSource}提供凭据，请修改对应配置"
 msgstr "仍通过{leftoverSource}提供凭据，请修改对应配置"
 
@@ -139,7 +150,7 @@ msgstr "会话名称"
 msgid "会话将保存到服务端，请确认其中没有不希望保留的敏感信息。原文件保持不变。"
 msgstr "会话将保存到服务端，请确认其中没有不希望保留的敏感信息。原文件保持不变。"
 
-#: src/components/session-context-bar.tsx:67
+#: src/components/session-context-bar.tsx:75
 msgid "会话操作"
 msgstr "会话操作"
 
@@ -151,7 +162,7 @@ msgstr "会话文件"
 msgid "会话暂时不可用"
 msgstr "会话暂时不可用"
 
-#: src/components/session-context-bar.tsx:195
+#: src/components/session-context-bar.tsx:233
 #: src/components/session-tree-dialog.tsx:363
 #: src/components/session-tree-dialog.tsx:366
 msgid "会话树"
@@ -161,7 +172,7 @@ msgstr "会话树"
 msgid "会话正在运行；需先停止当前响应才能分叉。"
 msgstr "会话正在运行；需先停止当前响应才能分叉。"
 
-#: src/components/pi-host-status.tsx:213
+#: src/components/pi-host-status.tsx:140
 msgid "会话目录"
 msgstr "会话目录"
 
@@ -181,13 +192,14 @@ msgstr "使用源会话起始目录"
 msgid "例如：重点保留文件改动与失败命令"
 msgstr "例如：重点保留文件改动与失败命令"
 
-#: src/components/pi-mcp-panel.tsx:935
-#: src/components/settings-resources-dialog.tsx:1027
-#: src/components/workspace-manager.tsx:423
+#: src/components/global-settings-content.tsx:156
+#: src/components/pi-mcp-panel.tsx:980
+#: src/components/settings-resources-dialog.tsx:365
+#: src/components/workspace-manager.tsx:497
 msgid "保存"
 msgstr "保存"
 
-#: src/components/pi-mcp-panel.tsx:812
+#: src/components/pi-mcp-panel.tsx:892
 msgid "保存到 JSON 草稿"
 msgstr "保存到 JSON 草稿"
 
@@ -195,23 +207,31 @@ msgstr "保存到 JSON 草稿"
 msgid "保存名称"
 msgstr "保存名称"
 
+#: src/components/settings-forms.tsx:404
+msgid "保存后同步到已打开的会话；项目设置覆盖仍然有效。"
+msgstr "保存后同步到已打开的会话；项目设置覆盖仍然有效。"
+
+#: src/components/global-settings-content.tsx:122
+msgid "保存所有设置更改"
+msgstr "保存所有设置更改"
+
 #: src/components/session-tree-dialog.tsx:512
 msgid "保存标签"
 msgstr "保存标签"
 
-#: src/components/workspace-manager.tsx:549
+#: src/components/workspace-manager.tsx:631
 msgid "信任是加载项目资源的前提，不等同于操作系统沙箱。"
 msgstr "信任是加载项目资源的前提，不等同于操作系统沙箱。"
 
-#: src/components/workspace-manager.tsx:117
+#: src/components/workspace-manager.tsx:133
 msgid "信任查询或保存失败，请查看宿主终端后重试。"
 msgstr "信任查询或保存失败，请查看宿主终端后重试。"
 
-#: src/components/pi-mcp-panel.tsx:1102
+#: src/components/pi-mcp-panel.tsx:1143
 msgid "修改"
 msgstr "修改"
 
-#: src/components/pi-mcp-panel.tsx:678
+#: src/components/pi-mcp-panel.tsx:745
 msgid "修改服务器"
 msgstr "修改服务器"
 
@@ -228,7 +248,7 @@ msgstr "停止运行"
 msgid "停止运行后取回 {0} 条未发送消息"
 msgstr "停止运行后取回 {0} 条未发送消息"
 
-#: src/components/pi-mcp-panel.tsx:339
+#: src/components/pi-mcp-panel.tsx:357
 msgid "停用"
 msgstr "停用"
 
@@ -237,23 +257,23 @@ msgstr "停用"
 msgid "允许"
 msgstr "允许"
 
-#: src/components/pi-mcp-panel.tsx:1061
+#: src/components/pi-mcp-panel.tsx:1095
 msgid "先修复 JSON 解析错误，常用表单才可用。"
 msgstr "先修复 JSON 解析错误，常用表单才可用。"
 
-#: src/components/settings-resources-dialog.tsx:879
+#: src/components/settings-resources-dialog.tsx:284
 msgid "先修复 JSON 解析错误，常用项表单才可用。"
 msgstr "先修复 JSON 解析错误，常用项表单才可用。"
 
-#: src/components/settings-resources-dialog.tsx:933
-msgid "先修复 JSON 解析错误，模型范围才可用。"
-msgstr "先修复 JSON 解析错误，模型范围才可用。"
+#: src/components/global-settings-content.tsx:272
+msgid "先修复 JSON 解析错误，此页表单才可用。"
+msgstr "先修复 JSON 解析错误，此页表单才可用。"
 
-#: src/components/runtime-operations.tsx:309
-msgid "先建立或打开会话，才能压缩或修改自动压缩。"
-msgstr "先建立或打开会话，才能压缩或修改自动压缩。"
+#: src/components/runtime-operations.tsx:298
+msgid "先建立或打开会话，才能压缩。"
+msgstr "先建立或打开会话，才能压缩。"
 
-#: src/components/runtime-operations.tsx:235
+#: src/components/runtime-operations.tsx:234
 msgid "先建立或打开会话，才能执行 Shell。"
 msgstr "先建立或打开会话，才能执行 Shell。"
 
@@ -261,13 +281,17 @@ msgstr "先建立或打开会话，才能执行 Shell。"
 msgid "克隆为独立会话"
 msgstr "克隆为独立会话"
 
-#: src/components/session-context-bar.tsx:204
+#: src/components/session-context-bar.tsx:242
 msgid "克隆到新会话"
 msgstr "克隆到新会话"
 
 #: src/components/session-fork-dialog.tsx:51
 msgid "克隆当前会话"
 msgstr "克隆当前会话"
+
+#: src/components/settings-dialog.tsx:243
+msgid "全局服务器配置；连接与工具从会话查看。"
+msgstr "全局服务器配置；连接与工具从会话查看。"
 
 #: src/components/session-tree-dialog.tsx:353
 msgid "全部"
@@ -284,15 +308,13 @@ msgid "共 {0} 条"
 msgstr "共 {0} 条"
 
 #: src/components/pi-composer-tools.tsx:466
-#: src/components/pi-host-status.tsx:292
-#: src/components/pi-mcp-panel.tsx:1457
-#: src/components/pi-provider-auth.tsx:613
+#: src/components/pi-mcp-panel.tsx:1620
 #: src/components/session-dialogs.tsx:293
 #: src/components/session-tree-dialog.tsx:643
-#: src/components/settings-resources-dialog.tsx:1031
+#: src/components/settings-resources-dialog.tsx:369
 #: src/components/ui/dialog.tsx:74
 #: src/components/ui/dialog.tsx:109
-#: src/components/workspace-manager.tsx:555
+#: src/components/workspace-manager.tsx:637
 msgid "关闭"
 msgstr "关闭"
 
@@ -300,11 +322,15 @@ msgstr "关闭"
 msgid "关闭提示"
 msgstr "关闭提示"
 
-#: src/components/pi-mcp-panel.tsx:1326
+#: src/components/pi-mcp-panel.tsx:1281
+msgid "关闭设置后登录继续；要终止请取消认证。"
+msgstr "关闭设置后登录继续；要终止请取消认证。"
+
+#: src/components/pi-mcp-panel.tsx:1477
 msgid "关闭面板后登录继续；要终止请取消认证。"
 msgstr "关闭面板后登录继续；要终止请取消认证。"
 
-#: src/components/pi-provider-auth.tsx:318
+#: src/components/pi-provider-auth.tsx:326
 msgid "关闭面板后认证继续；要终止请点击取消认证"
 msgstr "关闭面板后认证继续；要终止请点击取消认证"
 
@@ -319,15 +345,15 @@ msgid "冲突"
 msgstr "冲突"
 
 #: src/components/import-thread-dialog.tsx:355
-#: src/components/workspace-manager.tsx:391
+#: src/components/workspace-manager.tsx:429
 msgid "决定信任"
 msgstr "决定信任"
 
-#: src/components/pi-provider-auth.tsx:549
+#: src/components/pi-provider-auth.tsx:531
 msgid "凭据保存在服务端用户空间的 auth.json；退出登录仅移除此处保存的凭据，远端授权需在服务商处撤销。"
 msgstr "凭据保存在服务端用户空间的 auth.json；退出登录仅移除此处保存的凭据，远端授权需在服务商处撤销。"
 
-#: src/components/pi-provider-auth.tsx:546
+#: src/components/pi-provider-auth.tsx:528
 msgid "凭据说明"
 msgstr "凭据说明"
 
@@ -346,8 +372,8 @@ msgstr "创建时间"
 msgid "创建独立分支"
 msgstr "创建独立分支"
 
-#: src/components/pi-mcp-panel.tsx:1135
-#: src/components/session-context-bar.tsx:230
+#: src/components/pi-mcp-panel.tsx:1176
+#: src/components/session-context-bar.tsx:268
 msgid "删除"
 msgstr "删除"
 
@@ -365,21 +391,21 @@ msgstr "刷新"
 msgid "刷新会话树"
 msgstr "刷新会话树"
 
-#: src/components/settings-resources-dialog.tsx:900
+#: src/components/global-settings-content.tsx:320
 msgid "刷新模型目录"
 msgstr "刷新模型目录"
 
-#: src/components/workspace-manager.tsx:258
+#: src/components/workspace-manager.tsx:293
 msgid "刷新目录"
 msgstr "刷新目录"
 
-#: src/components/pi-mcp-panel.tsx:419
+#: src/components/pi-mcp-panel.tsx:447
 #: src/components/session-dialogs.tsx:290
 msgid "刷新详情"
 msgstr "刷新详情"
 
-#: src/components/pi-mcp-panel.tsx:1380
-#: src/components/settings-resources-dialog.tsx:786
+#: src/components/pi-mcp-panel.tsx:1526
+#: src/components/settings-resources-dialog.tsx:208
 msgid "刷新项目资源"
 msgstr "刷新项目资源"
 
@@ -387,7 +413,7 @@ msgstr "刷新项目资源"
 msgid "加入"
 msgstr "加入"
 
-#: src/components/session-context-bar.tsx:243
+#: src/components/session-context-bar.tsx:281
 #: src/components/session-dialogs.tsx:278
 #: src/components/session-dialogs.tsx:389
 msgid "加入工作区"
@@ -399,30 +425,38 @@ msgid "助手 {0}"
 msgstr "助手 {0}"
 
 #. placeholder {0}: host.protocolVersion
-#: src/components/pi-host-status.tsx:151
+#: src/components/pi-host-status.tsx:72
 msgid "协议版本不匹配：宿主 {0}，页面 {HARNESS_PROTOCOL_VERSION}。 请更新页面或宿主，当前不进行业务初始化。"
 msgstr "协议版本不匹配：宿主 {0}，页面 {HARNESS_PROTOCOL_VERSION}。 请更新页面或宿主，当前不进行业务初始化。"
 
-#: src/components/pi-host-status.tsx:264
+#: src/components/pi-host-status.tsx:204
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 
-#: src/components/runtime-operations.tsx:279
+#: src/components/runtime-operations.tsx:278
 msgid "压缩上下文"
 msgstr "压缩上下文"
 
 #. placeholder {0}: compactionReasonLabel(metadata?.compactionReason)
-#: src/components/runtime-operations.tsx:251
+#: src/components/runtime-operations.tsx:250
 msgid "压缩中（{0}）"
 msgstr "压缩中（{0}）"
+
+#: src/components/settings-forms.tsx:422
+msgid "压缩保留最近 tokens"
+msgstr "压缩保留最近 tokens"
 
 #: src/components/session-dialogs.tsx:236
 msgid "压缩后上下文未知，等待下一次响应"
 msgstr "压缩后上下文未知，等待下一次响应"
 
-#: src/components/runtime-operations.tsx:261
+#: src/components/runtime-operations.tsx:260
 msgid "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
 msgstr "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
+
+#: src/components/settings-forms.tsx:409
+msgid "压缩预留 tokens"
+msgstr "压缩预留 tokens"
 
 #: src/components/chat/tool-part.tsx:234
 msgid "参数"
@@ -435,27 +469,27 @@ msgstr "取回全部"
 #: src/components/import-thread-dialog.tsx:388
 #: src/components/pi-composer-tools.tsx:513
 #: src/components/pi-host-interactions.tsx:107
-#: src/components/pi-mcp-panel.tsx:809
-#: src/components/pi-mcp-panel.tsx:1123
+#: src/components/pi-mcp-panel.tsx:889
+#: src/components/pi-mcp-panel.tsx:1164
 #: src/components/pi-thread-host-ui.tsx:131
 #: src/components/session-dialogs.tsx:347
 #: src/components/session-dialogs.tsx:439
 #: src/components/session-fork-dialog.tsx:102
 #: src/components/session-tree-dialog.tsx:616
-#: src/components/workspace-manager.tsx:414
-#: src/components/workspace-manager.tsx:519
+#: src/components/workspace-manager.tsx:488
+#: src/components/workspace-manager.tsx:601
 msgid "取消"
 msgstr "取消"
 
-#: src/components/runtime-operations.tsx:231
+#: src/components/runtime-operations.tsx:230
 msgid "取消 Shell"
 msgstr "取消 Shell"
 
-#: src/components/runtime-operations.tsx:287
+#: src/components/runtime-operations.tsx:286
 msgid "取消压缩"
 msgstr "取消压缩"
 
-#: src/components/session-context-bar.tsx:222
+#: src/components/session-context-bar.tsx:260
 #: src/components/session-dialogs.tsx:274
 msgid "取消归档"
 msgstr "取消归档"
@@ -472,12 +506,12 @@ msgstr "取消摘要"
 msgid "取消编辑标签"
 msgstr "取消编辑标签"
 
-#: src/components/pi-mcp-panel.tsx:641
-#: src/components/pi-provider-auth.tsx:328
+#: src/components/pi-mcp-panel.tsx:705
+#: src/components/pi-provider-auth.tsx:337
 msgid "取消认证"
 msgstr "取消认证"
 
-#: src/components/settings-resources-dialog.tsx:1058
+#: src/components/settings-resource-pane.tsx:80
 msgid "受信装配缓存（未重新执行扩展）"
 msgstr "受信装配缓存（未重新执行扩展）"
 
@@ -485,9 +519,14 @@ msgstr "受信装配缓存（未重新执行扩展）"
 msgid "只按当前活动分支估算。"
 msgstr "只按当前活动分支估算。"
 
-#: src/components/workspace-manager.tsx:316
+#: src/components/workspace-manager.tsx:352
 msgid "可用 @别名 引用项目。"
 msgstr "可用 @别名 引用项目。"
+
+#. placeholder {0}: catalog.length
+#: src/components/global-settings-content.tsx:303
+msgid "可用于范围选择的模型：{0} 个"
+msgstr "可用于范围选择的模型：{0} 个"
 
 #: src/components/import-thread-dialog.tsx:290
 msgid "同 ID 内容不同"
@@ -508,22 +547,22 @@ msgstr "后台扩展请求修改输入框"
 msgid "后续"
 msgstr "后续"
 
-#: src/components/pi-host-status.tsx:209
-#: src/components/pi-host-status.tsx:221
-#: src/components/pi-host-status.tsx:243
+#: src/components/pi-host-status.tsx:134
+#: src/components/pi-host-status.tsx:148
+#: src/components/pi-host-status.tsx:176
 msgid "启动时读取，修改后需重启服务"
 msgstr "启动时读取，修改后需重启服务"
 
-#: src/components/pi-host-status.tsx:235
+#: src/components/pi-host-status.tsx:168
 msgid "启动默认模型"
 msgstr "启动默认模型"
 
 #. placeholder {0}: readiness.message
-#: src/components/pi-host-status.tsx:176
+#: src/components/pi-host-status.tsx:99
 msgid "启动默认模型未配置：{0}"
 msgstr "启动默认模型未配置：{0}"
 
-#: src/components/pi-mcp-panel.tsx:339
+#: src/components/pi-mcp-panel.tsx:357
 msgid "启用"
 msgstr "启用"
 
@@ -543,11 +582,11 @@ msgstr "在下方输入内容，继续这个会话。"
 msgid "填入输入框"
 msgstr "填入输入框"
 
-#: src/components/pi-host-status.tsx:287
+#: src/components/pi-host-status.tsx:229
 msgid "复制失败，请手工选择信息复制。"
 msgstr "复制失败，请手工选择信息复制。"
 
-#: src/components/pi-host-status.tsx:280
+#: src/components/pi-host-status.tsx:222
 msgid "复制诊断摘要"
 msgstr "复制诊断摘要"
 
@@ -555,7 +594,12 @@ msgstr "复制诊断摘要"
 msgid "复制输出"
 msgstr "复制输出"
 
-#: src/app.tsx:182
+#: src/components/settings-dialog.tsx:46
+#: src/components/settings-dialog.tsx:191
+msgid "外观"
+msgstr "外观"
+
+#: src/app.tsx:178
 msgid "多项目工作区"
 msgstr "多项目工作区"
 
@@ -567,7 +611,12 @@ msgstr "失败"
 msgid "子调用摘要"
 msgstr "子调用摘要"
 
-#: src/components/pi-host-status.tsx:225
+#: src/components/global-settings-content.tsx:402
+#: src/components/settings-resources-dialog.tsx:241
+msgid "字段校验失败"
+msgstr "字段校验失败"
+
+#: src/components/pi-host-status.tsx:154
 msgid "存储方式"
 msgstr "存储方式"
 
@@ -588,19 +637,17 @@ msgstr "完整输出：{fullOutputPath}"
 msgid "实时输出已截断"
 msgstr "实时输出已截断"
 
-#: src/components/pi-host-status.tsx:120
-msgid "宿主"
-msgstr "宿主"
-
 #: src/components/pi-host-interactions.tsx:129
 msgid "宿主交互"
 msgstr "宿主交互"
 
-#: src/components/pi-host-status.tsx:139
+#: src/components/pi-host-status.tsx:61
 msgid "宿主状态"
 msgstr "宿主状态"
 
 #: src/components/session-tree-dialog.tsx:351
+#: src/components/settings-dialog.tsx:48
+#: src/components/settings-dialog.tsx:224
 msgid "对话"
 msgstr "对话"
 
@@ -624,12 +671,15 @@ msgstr "将当前分支复制到新会话。"
 msgid "将这条消息之前的对话复制到新会话，并把这条消息填入输入框。"
 msgstr "将这条消息之前的对话复制到新会话，并把这条消息填入输入框。"
 
-#: src/components/pi-mcp-panel.tsx:1302
+#: src/components/pi-mcp-panel.tsx:1453
 msgid "尚无运行实例"
 msgstr "尚无运行实例"
 
-#: src/components/pi-mcp-panel.tsx:167
-#: src/components/settings-resources-dialog.tsx:229
+#: src/components/settings-forms.tsx:557
+msgid "尚未创建"
+msgstr "尚未创建"
+
+#: src/components/pi-mcp-panel.tsx:187
 msgid "尚未创建（保存时写入）"
 msgstr "尚未创建（保存时写入）"
 
@@ -641,7 +691,7 @@ msgstr "尚未创建会话文件"
 msgid "尚未创建会话文件；删除后当前会话记录不会保留。"
 msgstr "尚未创建会话文件；删除后当前会话记录不会保留。"
 
-#: src/components/pi-mcp-panel.tsx:1280
+#: src/components/pi-mcp-panel.tsx:1428
 msgid "尚未应用"
 msgstr "尚未应用"
 
@@ -653,7 +703,7 @@ msgstr "展开编辑输入"
 msgid "工作区"
 msgstr "工作区"
 
-#: src/components/session-context-bar.tsx:279
+#: src/components/session-context-bar.tsx:317
 #: src/components/session-dialogs.tsx:167
 msgid "工作区不可用"
 msgstr "工作区不可用"
@@ -662,19 +712,19 @@ msgstr "工作区不可用"
 msgid "工作区元数据不可用，会话归属修改已禁用。"
 msgstr "工作区元数据不可用，会话归属修改已禁用。"
 
-#: src/components/workspace-manager.tsx:403
+#: src/components/workspace-manager.tsx:476
 msgid "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
 msgstr "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
 
-#: src/app.tsx:120
+#: src/app.tsx:116
 msgid "工作区元数据不可用（{workspaceState}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
 msgstr "工作区元数据不可用（{workspaceState}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
 
-#: src/components/workspace-manager.tsx:227
+#: src/components/workspace-manager.tsx:262
 msgid "工作区名称"
 msgstr "工作区名称"
 
-#: src/components/pi-host-status.tsx:197
+#: src/components/pi-host-status.tsx:120
 msgid "工作目录"
 msgstr "工作目录"
 
@@ -682,13 +732,18 @@ msgstr "工作目录"
 msgid "工具"
 msgstr "工具"
 
-#: src/components/settings-resources-dialog.tsx:420
-msgid "工具、Skill 与传输"
-msgstr "工具、Skill 与传输"
-
-#: src/components/pi-mcp-panel.tsx:442
+#: src/components/pi-mcp-panel.tsx:471
 msgid "工具（本会话 exposure）"
 msgstr "工具（本会话 exposure）"
+
+#: src/components/settings-forms.tsx:453
+msgid "工具与图片"
+msgstr "工具与图片"
+
+#: src/components/settings-dialog.tsx:49
+#: src/components/settings-dialog.tsx:233
+msgid "工具与资源"
+msgstr "工具与资源"
 
 #: src/components/chat/tool-part.tsx:217
 msgid "工具仍在运行，以下为部分输出。"
@@ -702,7 +757,7 @@ msgstr "工具关联："
 msgid "工具执行失败，未返回可读输出。"
 msgstr "工具执行失败，未返回可读输出。"
 
-#: src/components/pi-mcp-panel.tsx:427
+#: src/components/pi-mcp-panel.tsx:456
 msgid "工具版本"
 msgstr "工具版本"
 
@@ -720,7 +775,7 @@ msgstr "工具详情"
 msgid "工具调用 {0}"
 msgstr "工具调用 {0}"
 
-#: src/components/workspace-manager.tsx:61
+#: src/components/workspace-manager.tsx:69
 msgid "已信任"
 msgstr "已信任"
 
@@ -737,12 +792,12 @@ msgstr "已取消"
 msgid "已填入输入框。"
 msgstr "已填入输入框。"
 
-#: src/components/pi-host-status.tsx:285
+#: src/components/pi-host-status.tsx:227
 msgid "已复制"
 msgstr "已复制"
 
-#: src/components/pi-mcp-panel.tsx:165
-#: src/components/settings-resources-dialog.tsx:227
+#: src/components/pi-mcp-panel.tsx:185
+#: src/components/settings-forms.tsx:555
 msgid "已存在"
 msgstr "已存在"
 
@@ -767,15 +822,15 @@ msgstr "已有完全相同的会话"
 msgid "已标记"
 msgstr "已标记"
 
-#: src/components/pi-provider-auth.tsx:396
+#: src/components/pi-provider-auth.tsx:412
 msgid "已配置"
 msgstr "已配置"
 
-#: src/components/pi-mcp-panel.tsx:980
+#: src/components/pi-mcp-panel.tsx:1053
 msgid "常用编辑"
 msgstr "常用编辑"
 
-#: src/components/settings-resources-dialog.tsx:814
+#: src/components/settings-resources-dialog.tsx:261
 msgid "常用项"
 msgstr "常用项"
 
@@ -784,24 +839,20 @@ msgstr "常用项"
 msgid "应用"
 msgstr "应用"
 
-#: src/components/pi-mcp-panel.tsx:1380
-#: src/components/settings-resources-dialog.tsx:786
+#: src/components/pi-mcp-panel.tsx:1526
+#: src/components/settings-resources-dialog.tsx:208
 msgid "应用到当前会话"
 msgstr "应用到当前会话"
 
-#: src/components/pi-mcp-panel.tsx:312
+#: src/components/pi-mcp-panel.tsx:330
 msgid "应用配置后连接"
 msgstr "应用配置后连接"
-
-#: src/components/runtime-operations.tsx:302
-msgid "开关保存到当前 agentDir 用户设置，对所有会话生效；项目设置若覆盖会如实提示。"
-msgstr "开关保存到当前 agentDir 用户设置，对所有会话生效；项目设置若覆盖会如实提示。"
 
 #: src/components/chat/chat-view.tsx:109
 msgid "开始对话"
 msgstr "开始对话"
 
-#: src/components/workspace-manager.tsx:528
+#: src/components/workspace-manager.tsx:610
 msgid "开始新会话"
 msgstr "开始新会话"
 
@@ -809,7 +860,7 @@ msgstr "开始新会话"
 msgid "引导"
 msgstr "引导"
 
-#: src/components/session-context-bar.tsx:222
+#: src/components/session-context-bar.tsx:260
 #: src/components/session-dialogs.tsx:169
 #: src/components/session-dialogs.tsx:274
 msgid "归档"
@@ -823,12 +874,15 @@ msgstr "当前"
 msgid "当前上下文"
 msgstr "当前上下文"
 
-#: src/components/pi-mcp-panel.tsx:1280
+#: src/components/pi-mcp-panel.tsx:1428
 msgid "当前会话"
 msgstr "当前会话"
 
-#: src/components/pi-mcp-panel.tsx:1277
-#: src/components/settings-resources-dialog.tsx:701
+#: src/components/settings-resource-pane.tsx:78
+msgid "当前会话正在使用的 loader"
+msgstr "当前会话正在使用的 loader"
+
+#: src/components/pi-mcp-panel.tsx:1424
 msgid "当前会话目录"
 msgstr "当前会话目录"
 
@@ -846,28 +900,32 @@ msgstr "当前响应仍在运行。确认后将停止响应、取回未发送队
 msgid "当前工作区"
 msgstr "当前工作区"
 
-#: src/components/pi-mcp-panel.tsx:1398
-msgid "当前没有 MCP 服务器配置；在“配置”中新增。"
-msgstr "当前没有 MCP 服务器配置；在“配置”中新增。"
+#: src/components/pi-mcp-panel.tsx:1545
+msgid "当前没有 MCP 服务器配置；可在“编辑全局配置”或项目设置中添加。"
+msgstr "当前没有 MCP 服务器配置；可在“编辑全局配置”或项目设置中添加。"
 
-#: src/components/pi-mcp-panel.tsx:1443
+#: src/components/pi-mcp-panel.tsx:1594
 msgid "当前没有 MCP 认证操作；可在服务器行内登录或退出 OAuth。"
 msgstr "当前没有 MCP 认证操作；可在服务器行内登录或退出 OAuth。"
 
-#: src/components/pi-mcp-panel.tsx:1268
-#: src/components/settings-resources-dialog.tsx:675
-msgid "当前没有可用的会话或起始目录；请先选择工作区/项目。"
-msgstr "当前没有可用的会话或起始目录；请先选择工作区/项目。"
+#: src/components/settings-resources-dialog.tsx:146
+msgid "当前没有可用的项目或会话；请从工作区选择项目。"
+msgstr "当前没有可用的项目或会话；请从工作区选择项目。"
 
-#: src/components/pi-provider-auth.tsx:592
+#: src/components/pi-provider-auth.tsx:577
 msgid "当前没有已注册的 provider。"
 msgstr "当前没有已注册的 provider。"
 
-#: src/components/workspace-manager.tsx:110
+#: src/components/workspace-manager.tsx:125
 msgid "当前状态"
 msgstr "当前状态"
 
-#: src/components/pi-model-selector.tsx:165
+#. placeholder {0}: autoCompaction ? '开' : '关'
+#: src/components/runtime-operations.tsx:291
+msgid "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
+msgstr "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
+
+#: src/components/pi-model-selector.tsx:164
 msgid "当前范围内没有可用模型。"
 msgstr "当前范围内没有可用模型。"
 
@@ -917,24 +975,28 @@ msgstr "打开已导入会话"
 msgid "打开已有会话"
 msgstr "打开已有会话"
 
-#: src/components/pi-mcp-panel.tsx:576
-#: src/components/pi-provider-auth.tsx:219
+#: src/components/pi-mcp-panel.tsx:1273
+msgid "打开当前会话 MCP"
+msgstr "打开当前会话 MCP"
+
+#: src/components/pi-mcp-panel.tsx:637
+#: src/components/pi-provider-auth.tsx:227
 msgid "打开授权页"
 msgstr "打开授权页"
 
-#: src/components/pi-model-selector.tsx:188
+#: src/components/pi-model-selector.tsx:181
 msgid "打开设置"
 msgstr "打开设置"
 
-#: src/components/pi-provider-auth.tsx:281
+#: src/components/pi-provider-auth.tsx:289
 msgid "打开链接"
 msgstr "打开链接"
 
-#: src/components/pi-provider-auth.tsx:253
+#: src/components/pi-provider-auth.tsx:261
 msgid "打开验证页"
 msgstr "打开验证页"
 
-#: src/components/pi-mcp-panel.tsx:317
+#: src/components/pi-mcp-panel.tsx:336
 msgid "扩展临时注册不写入配置文件。"
 msgstr "扩展临时注册不写入配置文件。"
 
@@ -950,7 +1012,7 @@ msgstr "扩展消息"
 msgid "扩展请求修改输入框"
 msgstr "扩展请求修改输入框"
 
-#: src/components/pi-provider-auth.tsx:562
+#: src/components/pi-provider-auth.tsx:541
 msgid "找不到此服务商：{focusedProvider}，请重新选择。"
 msgstr "找不到此服务商：{focusedProvider}，请重新选择。"
 
@@ -959,21 +1021,21 @@ msgstr "找不到此服务商：{focusedProvider}，请重新选择。"
 msgid "拒绝"
 msgstr "拒绝"
 
-#: src/components/pi-host-status.tsx:229
+#: src/components/pi-host-status.tsx:159
 msgid "按工作目录分组"
 msgstr "按工作目录分组"
 
-#: src/components/pi-mcp-panel.tsx:582
+#: src/components/pi-mcp-panel.tsx:644
 msgid "授权链接不是 http(s)，已拒绝显示。"
 msgstr "授权链接不是 http(s)，已拒绝显示。"
 
 #: src/components/pi-host-interactions.tsx:98
-#: src/components/pi-provider-auth.tsx:173
+#: src/components/pi-provider-auth.tsx:177
 #: src/components/pi-thread-host-ui.tsx:122
 msgid "提交"
 msgstr "提交"
 
-#: src/components/pi-mcp-panel.tsx:613
+#: src/components/pi-mcp-panel.tsx:676
 msgid "提交回填"
 msgstr "提交回填"
 
@@ -997,61 +1059,58 @@ msgstr "搜索范围：会话名称与首条消息"
 msgid "放回输入"
 msgstr "放回输入"
 
-#: src/components/settings-resources-dialog.tsx:977
+#: src/components/settings-inspector.tsx:16
 msgid "文件配置预览"
 msgstr "文件配置预览"
 
-#: src/components/settings-resources-dialog.tsx:1083
-msgid "文本只在显式请求时加载，且有长度上限。"
-msgstr "文本只在显式请求时加载，且有长度上限。"
-
 #: src/components/chat/chat-view.tsx:114
-#: src/components/session-context-bar.tsx:163
+#: src/components/session-context-bar.tsx:183
 msgid "新会话"
 msgstr "新会话"
 
-#: src/components/pi-mcp-panel.tsx:1044
+#: src/components/pi-mcp-panel.tsx:1078
 msgid "新增 HTTP"
 msgstr "新增 HTTP"
 
-#: src/components/pi-mcp-panel.tsx:1035
+#: src/components/pi-mcp-panel.tsx:1069
 msgid "新增 stdio"
 msgstr "新增 stdio"
 
-#: src/components/pi-mcp-panel.tsx:678
+#: src/components/pi-mcp-panel.tsx:745
 msgid "新增服务器"
 msgstr "新增服务器"
 
-#: src/components/pi-mcp-panel.tsx:1054
+#: src/components/pi-mcp-panel.tsx:1088
 msgid "新增项目覆盖"
 msgstr "新增项目覆盖"
 
-#: src/components/workspace-manager.tsx:456
+#: src/components/workspace-manager.tsx:531
 msgid "新建会话"
 msgstr "新建会话"
 
-#: src/components/workspace-manager.tsx:221
+#: src/components/workspace-manager.tsx:256
 #: src/components/workspace-sidebar.tsx:474
 msgid "新建工作区"
 msgstr "新建工作区"
 
 #: src/components/import-thread-dialog.tsx:292
+#: src/components/settings-resource-pane.tsx:38
 msgid "无"
 msgstr "无"
 
-#: src/app.tsx:103
+#: src/app.tsx:99
 msgid "无法读取工作区与会话列表，请检查宿主连接后重试。"
 msgstr "无法读取工作区与会话列表，请检查宿主连接后重试。"
 
-#: src/components/pi-host-status.tsx:231
+#: src/components/pi-host-status.tsx:161
 msgid "显式共享的平铺目录"
 msgstr "显式共享的平铺目录"
 
-#: src/components/pi-host-status.tsx:29
+#: src/components/pi-host-status.tsx:24
 msgid "显式参数"
 msgstr "显式参数"
 
-#: src/components/settings-resources-dialog.tsx:1080
+#: src/components/settings-resource-pane.tsx:101
 msgid "显示指令/系统提示文本"
 msgstr "显示指令/系统提示文本"
 
@@ -1072,7 +1131,7 @@ msgid "有待打开的会话。"
 msgstr "有待打开的会话。"
 
 #. placeholder {0}: event.expiresInSeconds
-#: src/components/pi-provider-auth.tsx:264
+#: src/components/pi-provider-auth.tsx:272
 msgid "有效期 {0} 秒"
 msgstr "有效期 {0} 秒"
 
@@ -1080,15 +1139,21 @@ msgstr "有效期 {0} 秒"
 msgid "有新输出"
 msgstr "有新输出"
 
-#: src/components/settings-resources-dialog.tsx:800
+#: src/components/global-settings-content.tsx:122
+#: src/components/settings-resources-dialog.tsx:224
 msgid "有未保存的改动"
 msgstr "有未保存的改动"
 
-#: src/components/pi-mcp-panel.tsx:1340
+#: src/components/settings-dialog.tsx:52
+#: src/components/settings-dialog.tsx:259
+msgid "服务与诊断"
+msgstr "服务与诊断"
+
+#: src/components/pi-mcp-panel.tsx:1491
 msgid "服务器"
 msgstr "服务器"
 
-#: src/components/pi-mcp-panel.tsx:433
+#: src/components/pi-mcp-panel.tsx:462
 msgid "服务器 instructions"
 msgstr "服务器 instructions"
 
@@ -1100,11 +1165,9 @@ msgstr "服务端 JSONL 绝对路径"
 msgid "服务端文件"
 msgstr "服务端文件"
 
-#: src/components/pi-mcp-panel.tsx:822
-#: src/components/settings-resources-dialog.tsx:736
-#: src/components/settings-resources-dialog.tsx:756
-msgid "未保存"
-msgstr "未保存"
+#: src/components/settings-dialog.tsx:260
+msgid "服务连接与用户空间。"
+msgstr "服务连接与用户空间。"
 
 #: src/components/session-dialogs.tsx:332
 #: src/components/session-dialogs.tsx:397
@@ -1115,7 +1178,7 @@ msgstr "未命名会话"
 msgid "未归属"
 msgstr "未归属"
 
-#: src/components/session-context-bar.tsx:273
+#: src/components/session-context-bar.tsx:311
 #: src/components/workspace-sidebar.tsx:492
 msgid "未归属会话"
 msgstr "未归属会话"
@@ -1124,28 +1187,31 @@ msgstr "未归属会话"
 msgid "未归档"
 msgstr "未归档"
 
-#: src/components/settings-resources-dialog.tsx:904
-msgid "未设置或空列表表示全部模型；此处保存到用户设置，工作区可单独覆盖。"
-msgstr "未设置或空列表表示全部模型；此处保存到用户设置，工作区可单独覆盖。"
+#: src/components/global-settings-content.tsx:291
+msgid "未设置或空列表表示全部模型；工作区可单独覆盖。"
+msgstr "未设置或空列表表示全部模型；工作区可单独覆盖。"
 
-#: src/components/pi-mcp-panel.tsx:169
-#: src/components/settings-resources-dialog.tsx:231
+#: src/components/settings-forms.tsx:559
+msgid "未读取"
+msgstr "未读取"
+
+#: src/components/pi-mcp-panel.tsx:189
 msgid "未读取（项目未信任）"
 msgstr "未读取（项目未信任）"
 
-#: src/components/pi-provider-auth.tsx:406
+#: src/components/pi-provider-auth.tsx:423
 msgid "未配置"
 msgstr "未配置"
 
-#: src/components/pi-mcp-panel.tsx:330
+#: src/components/pi-mcp-panel.tsx:347
 msgid "本会话临时"
 msgstr "本会话临时"
 
-#: src/components/workspace-manager.tsx:153
+#: src/components/workspace-manager.tsx:172
 msgid "本次允许"
 msgstr "本次允许"
 
-#: src/components/workspace-manager.tsx:146
+#: src/components/workspace-manager.tsx:165
 msgid "本次拒绝"
 msgstr "本次拒绝"
 
@@ -1153,40 +1219,48 @@ msgstr "本次拒绝"
 msgid "条目 / 版本"
 msgstr "条目 / 版本"
 
-#: src/components/settings-resources-dialog.tsx:981
+#: src/components/settings-inspector.tsx:20
 msgid "来源按顶层键："
 msgstr "来源按顶层键："
 
-#: src/components/workspace-manager.tsx:365
+#: src/components/pi-mcp-panel.tsx:1409
+msgid "查看当前会话的 MCP 连接、工具和登录。"
+msgstr "查看当前会话的 MCP 连接、工具和登录。"
+
+#: src/components/workspace-manager.tsx:404
 msgid "检查路径与信任…"
 msgstr "检查路径与信任…"
 
 #: src/components/session-dialogs.tsx:175
-#: src/components/settings-resources-dialog.tsx:832
 msgid "模型"
 msgstr "模型"
+
+#: src/components/settings-dialog.tsx:47
+#: src/components/settings-dialog.tsx:211
+msgid "模型与服务商"
+msgstr "模型与服务商"
 
 #: src/components/session-dialogs.tsx:180
 msgid "模型回退"
 msgstr "模型回退"
 
-#: src/components/session-context-bar.tsx:295
+#: src/components/session-context-bar.tsx:333
 msgid "模型回退："
 msgstr "模型回退："
 
-#: src/components/pi-host-status.tsx:251
+#: src/components/pi-host-status.tsx:188
 msgid "模型来源"
 msgstr "模型来源"
 
-#: src/components/settings-resources-dialog.tsx:927
+#: src/components/global-settings-content.tsx:305
 msgid "模型目录为空；请刷新模型目录。"
 msgstr "模型目录为空；请刷新模型目录。"
 
-#: src/components/pi-host-status.tsx:262
+#: src/components/pi-host-status.tsx:202
 msgid "模型目录刷新失败，当前目录可能来自缓存。"
 msgstr "模型目录刷新失败，当前目录可能来自缓存。"
 
-#: src/components/workspace-manager.tsx:285
+#: src/components/workspace-manager.tsx:320
 msgid "模型目录读取失败，请重试。"
 msgstr "模型目录读取失败，请重试。"
 
@@ -1194,12 +1268,12 @@ msgstr "模型目录读取失败，请重试。"
 msgid "模型窗口未知，无法估算"
 msgstr "模型窗口未知，无法估算"
 
-#: src/components/settings-resources-dialog.tsx:887
-#: src/components/workspace-manager.tsx:240
+#: src/components/global-settings-content.tsx:288
+#: src/components/workspace-manager.tsx:275
 msgid "模型范围"
 msgstr "模型范围"
 
-#: src/components/pi-provider-auth.tsx:534
+#: src/components/pi-provider-auth.tsx:516
 msgid "模型认证"
 msgstr "模型认证"
 
@@ -1215,15 +1289,15 @@ msgstr "正在切换会话上下文…"
 msgid "正在加载会话…"
 msgstr "正在加载会话…"
 
-#: src/components/pi-host-status.tsx:160
+#: src/components/pi-host-status.tsx:82
 msgid "正在查询宿主配置…"
 msgstr "正在查询宿主配置…"
 
-#: src/components/workspace-manager.tsx:105
+#: src/components/workspace-manager.tsx:120
 msgid "正在查询项目信任…"
 msgstr "正在查询项目信任…"
 
-#: src/components/workspace-manager.tsx:510
+#: src/components/workspace-manager.tsx:592
 msgid "正在检查起始项目与信任…"
 msgstr "正在检查起始项目与信任…"
 
@@ -1235,15 +1309,15 @@ msgstr "正在生成分支摘要（可能计费）…"
 msgid "正在等待模型输出…"
 msgstr "正在等待模型输出…"
 
-#: src/components/pi-mcp-panel.tsx:1393
+#: src/components/pi-mcp-panel.tsx:1540
 msgid "正在读取 MCP 服务器状态…"
 msgstr "正在读取 MCP 服务器状态…"
 
-#: src/components/pi-mcp-panel.tsx:1439
+#: src/components/pi-mcp-panel.tsx:1590
 msgid "正在读取 MCP 认证状态…"
 msgstr "正在读取 MCP 认证状态…"
 
-#: src/components/pi-mcp-panel.tsx:997
+#: src/components/pi-mcp-panel.tsx:1029
 msgid "正在读取 MCP 配置原文…"
 msgstr "正在读取 MCP 配置原文…"
 
@@ -1259,21 +1333,29 @@ msgstr "正在读取会话统计…"
 msgid "正在读取文件…"
 msgstr "正在读取文件…"
 
-#: src/components/pi-model-selector.tsx:161
-#: src/components/settings-resources-dialog.tsx:916
-#: src/components/workspace-manager.tsx:295
+#: src/components/global-settings-content.tsx:300
+#: src/components/pi-model-selector.tsx:160
+#: src/components/workspace-manager.tsx:331
 msgid "正在读取模型目录…"
 msgstr "正在读取模型目录…"
 
-#: src/components/pi-provider-auth.tsx:575
+#: src/components/global-settings-content.tsx:376
+msgid "正在读取用户设置…"
+msgstr "正在读取用户设置…"
+
+#: src/components/pi-provider-auth.tsx:555
 msgid "正在读取认证状态…"
 msgstr "正在读取认证状态…"
 
-#: src/components/settings-resources-dialog.tsx:961
+#: src/components/settings-resources-dialog.tsx:320
 msgid "正在读取资源清单…"
 msgstr "正在读取资源清单…"
 
-#: src/components/model-scope-editor.tsx:196
+#: src/components/settings-forms.tsx:458
+msgid "每行一个工具名；可用 +name / -name 调整。"
+msgstr "每行一个工具名；可用 +name / -name 调整。"
+
+#: src/components/model-scope-editor.tsx:205
 msgid "每行一个模式，可保留 :thinking 后缀与通配符。"
 msgstr "每行一个模式，可保留 :thinking 后缀与通配符。"
 
@@ -1293,11 +1375,11 @@ msgstr "没有匹配的模型。"
 msgid "没有匹配的节点。"
 msgstr "没有匹配的节点。"
 
-#: src/components/workspace-manager.tsx:299
+#: src/components/workspace-manager.tsx:335
 msgid "没有可用模型，请刷新目录。"
 msgstr "没有可用模型，请刷新目录。"
 
-#: src/components/model-scope-editor.tsx:134
+#: src/components/model-scope-editor.tsx:137
 msgid "没有可用模型。"
 msgstr "没有可用模型。"
 
@@ -1317,7 +1399,7 @@ msgstr "消息"
 msgid "深色"
 msgstr "深色"
 
-#: src/components/workspace-manager.tsx:321
+#: src/components/workspace-manager.tsx:357
 msgid "添加成员"
 msgstr "添加成员"
 
@@ -1333,7 +1415,7 @@ msgstr "源起始目录"
 msgid "父会话"
 msgstr "父会话"
 
-#: src/components/pi-host-status.tsx:31
+#: src/components/pi-host-status.tsx:26
 msgid "环境变量"
 msgstr "环境变量"
 
@@ -1341,26 +1423,36 @@ msgstr "环境变量"
 msgid "生成摘要（调用模型，可能计费）"
 msgstr "生成摘要（调用模型，可能计费）"
 
+#: src/components/settings-forms.tsx:311
+msgid "用于新会话；当前会话的模型仍由输入区选择。"
+msgstr "用于新会话；当前会话的模型仍由输入区选择。"
+
 #. placeholder {0}: stats.userMessages
 #: src/components/session-dialogs.tsx:203
 msgid "用户 {0}"
 msgstr "用户 {0}"
 
-#: src/components/runtime-operations.tsx:172
+#: src/components/runtime-operations.tsx:171
 msgid "用户 Shell"
 msgstr "用户 Shell"
 
-#: src/components/pi-host-status.tsx:201
+#: src/components/pi-host-status.tsx:126
 msgid "用户空间"
 msgstr "用户空间"
 
-#: src/components/settings-resources-dialog.tsx:220
-#: src/components/settings-resources-dialog.tsx:729
+#: src/components/settings-forms.tsx:551
 msgid "用户设置"
 msgstr "用户设置"
 
-#: src/components/pi-mcp-panel.tsx:158
-#: src/components/pi-mcp-panel.tsx:883
+#: src/components/settings-dialog.tsx:251
+msgid "用户设置原文与传输模式。"
+msgstr "用户设置原文与传输模式。"
+
+#: src/components/global-settings-content.tsx:381
+msgid "用户设置尚未读取；请关闭后重试。"
+msgstr "用户设置尚未读取；请关闭后重试。"
+
+#: src/components/pi-mcp-panel.tsx:181
 msgid "用户配置"
 msgstr "用户配置"
 
@@ -1372,13 +1464,13 @@ msgstr "用自定义指令替换默认摘要提示"
 msgid "留空即清除标签"
 msgstr "留空即清除标签"
 
-#: src/components/pi-mcp-panel.tsx:367
-#: src/components/pi-mcp-panel.tsx:560
-#: src/components/pi-provider-auth.tsx:197
+#: src/components/pi-mcp-panel.tsx:385
+#: src/components/pi-mcp-panel.tsx:621
+#: src/components/pi-provider-auth.tsx:202
 msgid "登录"
 msgstr "登录"
 
-#: src/components/pi-host-status.tsx:188
+#: src/components/pi-host-status.tsx:110
 msgid "登录服务商"
 msgstr "登录服务商"
 
@@ -1390,7 +1482,7 @@ msgstr "目标工作区"
 msgid "目标目录"
 msgstr "目标目录"
 
-#: src/components/pi-mcp-panel.tsx:1114
+#: src/components/pi-mcp-panel.tsx:1155
 msgid "确认删除"
 msgstr "确认删除"
 
@@ -1406,16 +1498,17 @@ msgstr "确认替换当前输入框草稿；所选节点没有原文时清空"
 msgid "确认跳转"
 msgstr "确认跳转"
 
-#: src/components/pi-mcp-panel.tsx:915
-#: src/components/settings-resources-dialog.tsx:774
+#: src/components/global-settings-content.tsx:136
+#: src/components/pi-mcp-panel.tsx:960
+#: src/components/settings-resources-dialog.tsx:196
 msgid "确认重新读取文件"
 msgstr "确认重新读取文件"
 
-#: src/components/workspace-manager.tsx:139
+#: src/components/workspace-manager.tsx:158
 msgid "稍后处理"
 msgstr "稍后处理"
 
-#: src/components/runtime-operations.tsx:255
+#: src/components/runtime-operations.tsx:254
 msgid "空闲"
 msgstr "空闲"
 
@@ -1432,28 +1525,24 @@ msgstr "等待你的答复"
 msgid "等待扩展交互（{0}）"
 msgstr "等待扩展交互（{0}）"
 
-#: src/components/pi-mcp-panel.tsx:1262
-msgid "管理 MCP 服务器、配置和登录。"
-msgstr "管理 MCP 服务器、配置和登录。"
-
-#: src/components/workspace-manager.tsx:221
+#: src/components/workspace-manager.tsx:256
 msgid "管理工作区"
 msgstr "管理工作区"
 
-#: src/components/pi-provider-auth.tsx:537
+#: src/components/settings-resources-dialog.tsx:139
+msgid "管理所选项目的设置，查看已加载的资源。"
+msgstr "管理所选项目的设置，查看已加载的资源。"
+
+#: src/components/pi-provider-auth.tsx:519
 msgid "管理模型服务商的登录凭据。"
 msgstr "管理模型服务商的登录凭据。"
 
-#: src/components/settings-resources-dialog.tsx:669
-msgid "管理用户和项目设置，查看已加载的资源。"
-msgstr "管理用户和项目设置，查看已加载的资源。"
-
-#: src/components/pi-model-selector.tsx:198
+#: src/components/pi-model-selector.tsx:191
 msgid "管理认证"
 msgstr "管理认证"
 
-#: src/components/session-context-bar.tsx:147
-#: src/components/session-context-bar.tsx:255
+#: src/components/session-context-bar.tsx:167
+#: src/components/session-context-bar.tsx:293
 msgid "管理项目"
 msgstr "管理项目"
 
@@ -1479,12 +1568,15 @@ msgstr "缓存写 {0}"
 msgid "缓存读 {0}"
 msgstr "缓存读 {0}"
 
-#. placeholder {0}: autoCompaction ? '开' : '关'
-#: src/components/runtime-operations.tsx:299
-msgid "自动压缩：{0}"
-msgstr "自动压缩：{0}"
+#: src/components/pi-mcp-panel.tsx:1512
+msgid "编辑全局配置"
+msgstr "编辑全局配置"
 
-#: src/components/workspace-manager.tsx:280
+#: src/components/pi-mcp-panel.tsx:1411
+msgid "编辑当前项目的 MCP 配置。"
+msgstr "编辑当前项目的 MCP 配置。"
+
+#: src/components/workspace-manager.tsx:313
 msgid "自定义"
 msgstr "自定义"
 
@@ -1497,39 +1589,48 @@ msgstr "自定义摘要指令"
 msgid "节点标签"
 msgstr "节点标签"
 
-#: src/components/pi-mcp-panel.tsx:1067
+#: src/components/pi-mcp-panel.tsx:1101
 msgid "草稿中还没有服务器条目。"
 msgstr "草稿中还没有服务器条目。"
 
-#: src/components/workspace-manager.tsx:45
+#: src/components/workspace-manager.tsx:53
 msgid "装配失败"
 msgstr "装配失败"
 
-#: src/components/pi-mcp-panel.tsx:1360
-#: src/components/pi-provider-auth.tsx:493
+#: src/components/pi-mcp-panel.tsx:1494
 msgid "认证"
 msgstr "认证"
 
-#: src/components/pi-provider-auth.tsx:582
+#: src/components/pi-provider-auth.tsx:562
 msgid "认证操作"
 msgstr "认证操作"
 
-#: src/components/workspace-manager.tsx:128
+#: src/components/pi-mcp-panel.tsx:1288
+msgid "认证进度"
+msgstr "认证进度"
+
+#: src/components/workspace-manager.tsx:146
 msgid "记住此决定（写入当前路径的 trust.json）"
 msgstr "记住此决定（写入当前路径的 trust.json）"
 
-#: src/components/pi-provider-auth.tsx:230
+#: src/components/pi-provider-auth.tsx:238
 msgid "设备码"
 msgstr "设备码"
 
-#: src/components/settings-resources-dialog.tsx:647
-#: src/components/settings-resources-dialog.tsx:666
-msgid "设置与资源"
-msgstr "设置与资源"
+#: src/components/settings-dialog.tsx:90
+#: src/components/settings-dialog.tsx:157
+#: src/components/workspace-manager.tsx:445
+msgid "设置"
+msgstr "设置"
 
-#: src/components/pi-mcp-panel.tsx:181
-#: src/components/pi-mcp-panel.tsx:424
-#: src/components/pi-mcp-panel.tsx:1296
+#: src/components/global-settings-content.tsx:248
+#: src/components/settings-resources-dialog.tsx:297
+msgid "设置 JSON"
+msgstr "设置 JSON"
+
+#: src/components/pi-mcp-panel.tsx:204
+#: src/components/pi-mcp-panel.tsx:453
+#: src/components/pi-mcp-panel.tsx:1447
 msgid "诊断详情"
 msgstr "诊断详情"
 
@@ -1537,8 +1638,7 @@ msgstr "诊断详情"
 msgid "该会话还没有条目。"
 msgstr "该会话还没有条目。"
 
-#: src/components/pi-mcp-panel.tsx:1002
-#: src/components/settings-resources-dialog.tsx:847
+#: src/components/pi-mcp-panel.tsx:1034
 msgid "该作用域没有可编辑的原文（未信任、读取失败或文件过大）。"
 msgstr "该作用域没有可编辑的原文（未信任、读取失败或文件过大）。"
 
@@ -1546,19 +1646,19 @@ msgstr "该作用域没有可编辑的原文（未信任、读取失败或文件
 msgid "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
 msgstr "该操作会永久删除会话文件，无法撤销。若该会话正在运行，会先停止当前任务。项目目录中的文件不会被删除。"
 
-#: src/components/pi-mcp-panel.tsx:383
+#: src/components/pi-mcp-panel.tsx:407
 msgid "该服务器没有可交互认证信息。"
 msgstr "该服务器没有可交互认证信息。"
 
-#: src/components/workspace-manager.tsx:97
+#: src/components/workspace-manager.tsx:112
 msgid "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 msgstr "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 
-#: src/components/session-context-bar.tsx:213
+#: src/components/session-context-bar.tsx:251
 msgid "详情"
 msgstr "详情"
 
-#: src/components/pi-provider-auth.tsx:413
+#: src/components/pi-provider-auth.tsx:430
 msgid "请在环境变量或 models.json 中配置凭据。"
 msgstr "请在环境变量或 models.json 中配置凭据。"
 
@@ -1566,39 +1666,42 @@ msgstr "请在环境变量或 models.json 中配置凭据。"
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
 
-#: src/components/pi-mcp-panel.tsx:500
+#: src/components/session-context-bar.tsx:215
+msgid "资源"
+msgstr "资源"
+
+#: src/components/pi-mcp-panel.tsx:544
 msgid "资源（只列目录，不读取正文）"
 msgstr "资源（只列目录，不读取正文）"
 
-#: src/components/pi-mcp-panel.tsx:517
+#: src/components/pi-mcp-panel.tsx:569
 msgid "资源模板"
 msgstr "资源模板"
 
-#: src/components/settings-resources-dialog.tsx:841
+#: src/components/settings-resources-dialog.tsx:267
 msgid "资源清单"
 msgstr "资源清单"
 
-#: src/components/pi-host-status.tsx:260
+#: src/components/pi-host-status.tsx:200
 msgid "资源装配存在警告，详细原因请查看宿主终端。"
 msgstr "资源装配存在警告，详细原因请查看宿主终端。"
 
 #: src/components/import-thread-dialog.tsx:276
-#: src/components/pi-mcp-panel.tsx:1277
+#: src/components/pi-mcp-panel.tsx:1424
 #: src/components/session-dialogs.tsx:164
-#: src/components/settings-resources-dialog.tsx:703
 msgid "起始目录"
 msgstr "起始目录"
 
-#: src/components/workspace-manager.tsx:465
+#: src/components/workspace-manager.tsx:540
 msgid "起始项目"
 msgstr "起始项目"
 
-#: src/components/pi-mcp-panel.tsx:175
-#: src/components/settings-resources-dialog.tsx:240
+#: src/components/pi-mcp-panel.tsx:198
+#: src/components/settings-forms.tsx:572
 msgid "超过读取上限"
 msgstr "超过读取上限"
 
-#: src/components/workspace-manager.tsx:270
+#: src/components/workspace-manager.tsx:307
 msgid "跟随全局"
 msgstr "跟随全局"
 
@@ -1606,15 +1709,15 @@ msgstr "跟随全局"
 msgid "跟随系统"
 msgstr "跟随系统"
 
-#: src/components/workspace-manager.tsx:370
+#: src/components/workspace-manager.tsx:409
 msgid "路径可用"
 msgstr "路径可用"
 
-#: src/components/workspace-manager.tsx:486
+#: src/components/workspace-manager.tsx:567
 msgid "路径缺失"
 msgstr "路径缺失"
 
-#: src/components/workspace-manager.tsx:375
+#: src/components/workspace-manager.tsx:414
 msgid "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 msgstr "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 
@@ -1632,7 +1735,7 @@ msgid "转向"
 msgstr "转向"
 
 #. placeholder {0}: event.intervalSeconds
-#: src/components/pi-provider-auth.tsx:260
+#: src/components/pi-provider-auth.tsx:268
 msgid "轮询间隔 {0} 秒"
 msgstr "轮询间隔 {0} 秒"
 
@@ -1650,7 +1753,7 @@ msgstr "输出"
 msgid "输出 {0}"
 msgstr "输出 {0}"
 
-#: src/components/runtime-operations.tsx:222
+#: src/components/runtime-operations.tsx:221
 msgid "运行 Shell"
 msgstr "运行 Shell"
 
@@ -1658,14 +1761,14 @@ msgstr "运行 Shell"
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/runtime-operations.tsx:149
-#: src/components/session-context-bar.tsx:136
-#: src/components/session-context-bar.tsx:186
+#: src/components/runtime-operations.tsx:148
+#: src/components/session-context-bar.tsx:156
+#: src/components/session-context-bar.tsx:206
 msgid "运行操作"
 msgstr "运行操作"
 
 #. placeholder {0}: snapshot.runtime.revision
-#: src/components/pi-mcp-panel.tsx:1300
+#: src/components/pi-mcp-panel.tsx:1451
 msgid "运行版本 {0}"
 msgstr "运行版本 {0}"
 
@@ -1677,18 +1780,14 @@ msgstr "还没有工作区。"
 msgid "还没有消息"
 msgstr "还没有消息"
 
-#: src/components/settings-resources-dialog.tsx:324
-msgid "这里的默认模型只影响未来启动/新会话；当前会话的模型切换仍由模型选择器管理。"
-msgstr "这里的默认模型只影响未来启动/新会话；当前会话的模型切换仍由模型选择器管理。"
-
 #: src/components/chat/composer.tsx:167
 msgid "追加到输入"
 msgstr "追加到输入"
 
-#: src/components/pi-mcp-panel.tsx:376
-#: src/components/pi-mcp-panel.tsx:560
-#: src/components/pi-provider-auth.tsx:197
-#: src/components/pi-provider-auth.tsx:463
+#: src/components/pi-mcp-panel.tsx:394
+#: src/components/pi-mcp-panel.tsx:621
+#: src/components/pi-provider-auth.tsx:202
+#: src/components/pi-provider-auth.tsx:484
 msgid "退出登录"
 msgstr "退出登录"
 
@@ -1705,6 +1804,10 @@ msgstr "退出码 {exitCode}"
 msgid "退出码未知"
 msgstr "退出码未知"
 
+#: src/components/settings-dialog.tsx:201
+msgid "选择后立即生效，保存在此浏览器。"
+msgstr "选择后立即生效，保存在此浏览器。"
+
 #: src/components/import-thread-dialog.tsx:173
 msgid "选择本地 .jsonl 文件"
 msgstr "选择本地 .jsonl 文件"
@@ -1713,135 +1816,144 @@ msgstr "选择本地 .jsonl 文件"
 msgid "选择目标工作区。"
 msgstr "选择目标工作区。"
 
-#: src/components/workspace-manager.tsx:459
+#: src/components/workspace-manager.tsx:534
 msgid "选择起始项目。"
 msgstr "选择起始项目。"
 
-#: src/components/pi-mcp-panel.tsx:1350
+#: src/components/pi-mcp-panel.tsx:1500
 msgid "配置"
 msgstr "配置"
 
-#: src/components/pi-host-status.tsx:33
+#: src/components/pi-host-status.tsx:28
 msgid "配置文件"
 msgstr "配置文件"
 
-#: src/components/pi-mcp-panel.tsx:293
+#: src/components/pi-mcp-panel.tsx:316
 msgid "配置未应用"
 msgstr "配置未应用"
 
-#: src/components/pi-mcp-panel.tsx:184
+#: src/components/pi-mcp-panel.tsx:207
 msgid "配置版本"
 msgstr "配置版本"
 
-#: src/components/pi-mcp-panel.tsx:952
+#: src/components/pi-mcp-panel.tsx:999
 msgid "配置预览"
 msgstr "配置预览"
 
-#: src/app.tsx:128
-#: src/components/pi-host-status.tsx:277
+#: src/app.tsx:124
+#: src/components/pi-host-status.tsx:219
 msgid "重新查询"
 msgstr "重新查询"
 
-#: src/components/pi-mcp-panel.tsx:915
-#: src/components/settings-resources-dialog.tsx:774
+#: src/components/global-settings-content.tsx:136
+#: src/components/pi-mcp-panel.tsx:960
+#: src/components/settings-resources-dialog.tsx:196
 msgid "重新读取文件"
 msgstr "重新读取文件"
 
-#: src/components/pi-mcp-panel.tsx:924
-#: src/components/settings-resources-dialog.tsx:1009
+#: src/components/global-settings-content.tsx:139
+#: src/components/pi-mcp-panel.tsx:969
+#: src/components/settings-resources-dialog.tsx:346
 msgid "重置改动"
 msgstr "重置改动"
 
-#: src/app.tsx:107
+#: src/app.tsx:103
 #: src/components/chat/chat-view.tsx:136
 msgid "重试"
 msgstr "重试"
 
-#: src/components/pi-mcp-panel.tsx:355
+#: src/components/pi-mcp-panel.tsx:373
 msgid "重连"
 msgstr "重连"
 
-#: src/components/settings-resources-dialog.tsx:330
-msgid "队列与重试"
-msgstr "队列与重试"
+#: src/components/settings-dialog.tsx:225
+msgid "队列、重试与自动压缩。"
+msgstr "队列、重试与自动压缩。"
+
+#: src/components/settings-forms.tsx:372
+msgid "队列与压缩"
+msgstr "队列与压缩"
 
 #: src/components/chat/composer-attachments.tsx:99
 msgid "附件预览"
 msgstr "附件预览"
 
-#: src/components/settings-resources-dialog.tsx:1080
+#: src/components/settings-resource-pane.tsx:101
 msgid "隐藏指令/系统提示文本"
 msgstr "隐藏指令/系统提示文本"
 
-#: src/components/runtime-operations.tsx:317
+#: src/components/runtime-operations.tsx:306
 msgid "需要会话的操作在左侧新建会话后可用。"
 msgstr "需要会话的操作在左侧新建会话后可用。"
 
-#: src/components/workspace-manager.tsx:53
+#: src/components/workspace-manager.tsx:61
 msgid "需要信任决定"
 msgstr "需要信任决定"
 
-#: src/components/pi-provider-auth.tsx:209
+#: src/components/pi-provider-auth.tsx:217
 msgid "需要浏览器授权。链接只会在你点击后打开。"
 msgstr "需要浏览器授权。链接只会在你点击后打开。"
 
-#: src/components/settings-resources-dialog.tsx:481
-msgid "顶栏主题只影响本浏览器；此处 `theme`、`tuiMode` 等属于 Pi 终端参数，不影响本页面外观。 终端专属项可通过 JSON 编辑，但不会在 GUI 生效。"
-msgstr "顶栏主题只影响本浏览器；此处 `theme`、`tuiMode` 等属于 Pi 终端参数，不影响本页面外观。 终端专属项可通过 JSON 编辑，但不会在 GUI 生效。"
-
-#: src/components/workspace-manager.tsx:546
+#: src/components/workspace-manager.tsx:628
 msgid "项目信任"
 msgstr "项目信任"
 
-#: src/components/pi-mcp-panel.tsx:1285
-#: src/components/settings-resources-dialog.tsx:708
+#: src/components/pi-mcp-panel.tsx:1434
+#: src/components/settings-resources-dialog.tsx:174
 msgid "项目已信任"
 msgstr "项目已信任"
 
-#: src/components/settings-resources-dialog.tsx:710
+#: src/components/settings-resources-dialog.tsx:176
 msgid "项目待信任决定"
 msgstr "项目待信任决定"
 
-#: src/components/workspace-manager.tsx:314
+#: src/components/workspace-manager.tsx:350
 msgid "项目成员"
 msgstr "项目成员"
 
-#: src/components/pi-mcp-panel.tsx:1287
-#: src/components/settings-resources-dialog.tsx:712
+#: src/components/pi-mcp-panel.tsx:1436
+#: src/components/settings-resources-dialog.tsx:178
 msgid "项目未信任"
 msgstr "项目未信任"
 
-#: src/components/pi-mcp-panel.tsx:943
+#: src/components/pi-mcp-panel.tsx:989
 msgid "项目未信任：不会读取或写入项目 MCP 配置。请先在项目信任面板允许；用户配置仍可编辑。"
 msgstr "项目未信任：不会读取或写入项目 MCP 配置。请先在项目信任面板允许；用户配置仍可编辑。"
 
-#: src/components/settings-resources-dialog.tsx:793
-msgid "项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。"
-msgstr "项目未信任：不读取也不写入项目设置。请先在项目信任面板允许；用户设置仍可编辑。"
+#: src/components/settings-resources-dialog.tsx:215
+msgid "项目未信任：不读取也不写入项目设置。请先允许项目；已加载资源仍可查看。"
+msgstr "项目未信任：不读取也不写入项目设置。请先允许项目；已加载资源仍可查看。"
 
-#: src/components/workspace-manager.tsx:380
+#: src/components/workspace-manager.tsx:419
 msgid "项目装配检查失败"
 msgstr "项目装配检查失败"
 
-#: src/components/pi-mcp-panel.tsx:683
+#: src/components/pi-mcp-panel.tsx:751
 msgid "项目覆盖只修改启用状态、服务器 exposure 与 toolExposure，且仅对用户配置中的同名服务器生效。"
 msgstr "项目覆盖只修改启用状态、服务器 exposure 与 toolExposure，且仅对用户配置中的同名服务器生效。"
 
-#: src/components/settings-resources-dialog.tsx:220
-#: src/components/settings-resources-dialog.tsx:749
+#: src/components/settings-forms.tsx:551
 msgid "项目设置"
 msgstr "项目设置"
 
-#: src/components/settings-resources-dialog.tsx:1063
+#: src/components/settings-resources-dialog.tsx:136
+msgid "项目设置与资源"
+msgstr "项目设置与资源"
+
+#: src/components/settings-resources-dialog.tsx:274
+#: src/components/settings-resources-dialog.tsx:292
+msgid "项目设置没有可编辑的原文（未信任、读取失败或文件过大）。"
+msgstr "项目设置没有可编辑的原文（未信任、读取失败或文件过大）。"
+
+#: src/components/settings-resource-pane.tsx:84
 msgid "项目资源已加载"
 msgstr "项目资源已加载"
 
-#: src/components/settings-resources-dialog.tsx:1065
+#: src/components/settings-resource-pane.tsx:86
 msgid "项目资源未加载"
 msgstr "项目资源未加载"
 
-#: src/components/pi-mcp-panel.tsx:158
-#: src/components/pi-mcp-panel.tsx:895
+#: src/components/pi-mcp-panel.tsx:181
 msgid "项目配置"
 msgstr "项目配置"
 
@@ -1849,23 +1961,44 @@ msgstr "项目配置"
 msgid "预览导入"
 msgstr "预览导入"
 
-#: src/components/model-scope-editor.tsx:192
+#: src/components/settings-dialog.tsx:51
+#: src/components/settings-dialog.tsx:250
+msgid "高级"
+msgstr "高级"
+
+#: src/components/model-scope-editor.tsx:200
 msgid "高级 patterns"
 msgstr "高级 patterns"
 
+#: src/components/settings-dialog.tsx:234
+msgid "默认工具、Skill 命令与图片处理。"
+msgstr "默认工具、Skill 命令与图片处理。"
+
+#: src/components/settings-forms.tsx:317
+msgid "默认服务商"
+msgstr "默认服务商"
+
+#: src/components/settings-forms.tsx:308
+msgid "默认模型"
+msgstr "默认模型"
+
+#: src/components/settings-forms.tsx:328
+msgid "默认模型 ID"
+msgstr "默认模型 ID"
+
+#: src/components/settings-dialog.tsx:212
+msgid "默认模型、模型范围与服务商登录。"
+msgstr "默认模型、模型范围与服务商登录。"
+
 #. placeholder {0}: readiness.message
-#: src/components/pi-host-status.tsx:174
+#: src/components/pi-host-status.tsx:97
 msgid "默认模型不可用：{0}"
 msgstr "默认模型不可用：{0}"
 
-#: src/components/settings-resources-dialog.tsx:278
-msgid "默认模型与 Thinking"
-msgstr "默认模型与 Thinking"
-
-#: src/components/pi-host-status.tsx:172
+#: src/components/pi-host-status.tsx:95
 msgid "默认模型缺少凭据，请登录或选择其他模型"
 msgstr "默认模型缺少凭据，请登录或选择其他模型"
 
-#: src/components/pi-host-status.tsx:35
+#: src/components/pi-host-status.tsx:30
 msgid "默认规则"
 msgstr "默认规则"

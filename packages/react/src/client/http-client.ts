@@ -681,11 +681,12 @@ const parseReloadResultResponse = (value: unknown): HarnessReloadResult => {
   return value
 }
 
-/** 设置/资源查询串：threadId 与 workspacePath 由宿主校验互斥。 */
+/** 设置/资源查询串：目标由宿主校验互斥；global 只查询用户配置。 */
 const configTargetQuery = (input: HarnessSettingsTargetInput): string => {
   const params = new URLSearchParams()
   if (input.threadId) params.set('threadId', input.threadId)
   if (input.workspacePath) params.set('workspacePath', input.workspacePath)
+  if (input.global === true) params.set('global', 'true')
   return params.toString()
 }
 
@@ -1510,6 +1511,7 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
       parseModelRefreshResponse(
         await readJson(
           await send(`${base}/models/refresh`, 'POST', {
+            ...(input?.global === true ? { global: true } : {}),
             ...(input?.threadId ? { threadId: input.threadId } : {}),
             ...(input?.workspacePath ? { workspacePath: input.workspacePath } : {}),
           }),

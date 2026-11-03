@@ -22,18 +22,23 @@ import {
   LogOutIcon,
   ShieldCheckIcon,
 } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemFooter,
+  ItemGroup,
+  ItemHeader,
+  ItemSeparator,
+  ItemTitle,
+} from '@/components/ui/item'
 import { useAuthStore } from '@/state/app-context'
 
 const sourceLabel = (source: HarnessProviderAuthSource | undefined): string | undefined => {
@@ -106,7 +111,7 @@ function PromptForm({
 
   if (prompt.kind === 'select') {
     return (
-      <div className="flex flex-col gap-2" data-slot="huan-provider-auth-prompt">
+      <FieldGroup className="basis-full gap-2" data-slot="huan-provider-auth-prompt">
         <p>{prompt.message}</p>
         <div className="flex flex-wrap gap-2">
           {(prompt.options ?? []).map((option) => (
@@ -136,22 +141,22 @@ function PromptForm({
             )}
           </ul>
         )}
-      </div>
+      </FieldGroup>
     )
   }
 
   const secret = prompt.kind === 'secret'
   return (
     <form
-      className="flex flex-col gap-2"
+      className="flex basis-full flex-col gap-2"
       data-slot="huan-provider-auth-prompt"
       onSubmit={(event) => {
         event.preventDefault()
         void submitPrompt(operation.id, prompt)
       }}
     >
-      <label htmlFor={inputId} className="flex flex-col gap-1">
-        <span>{prompt.message}</span>
+      <Field>
+        <FieldLabel htmlFor={inputId}>{prompt.message}</FieldLabel>
         <Input
           id={inputId}
           // secret 使用密码框；提交后 store 立即清空，关闭面板也会卸载。
@@ -166,13 +171,13 @@ function PromptForm({
           aria-label={secret ? '认证密钥' : prompt.kind === 'manual_code' ? '授权码' : '认证输入'}
           onChange={(event) => setAnswer(operation.id, prompt.promptId, event.target.value)}
         />
-      </label>
-      <div className="flex justify-end">
-        <Button type="submit" size="sm" disabled={busy}>
-          {busy && <Loader2Icon aria-hidden className="animate-spin" />}
-          <Trans>提交</Trans>
-        </Button>
-      </div>
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" disabled={busy}>
+            {busy && <Loader2Icon aria-hidden className="animate-spin" />}
+            <Trans>提交</Trans>
+          </Button>
+        </div>
+      </Field>
     </form>
   )
 }
@@ -185,22 +190,25 @@ function OperationCard({ operation }: { operation: HarnessProviderAuthOperation 
   const canCancel = activeOperation(operation) && operation.phase !== 'cancelling'
 
   return (
-    <section
+    <Item
       data-slot="huan-provider-auth-operation"
       data-operation-id={operation.id}
       data-phase={operation.phase}
-      className="flex flex-col gap-2 rounded-lg border p-3"
+      className="flex-col items-stretch"
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <strong>{operation.providerName}</strong>
-        <span className="text-muted-foreground">
+      <ItemHeader>
+        <ItemTitle>{operation.providerName}</ItemTitle>
+        <span className="text-muted-foreground text-xs">
           {operation.kind === 'login' ? <Trans>登录</Trans> : <Trans>退出登录</Trans>} ·{' '}
           {phaseLabel(operation)}
         </span>
-      </div>
+      </ItemHeader>
 
       {operation.events.length > 0 && (
-        <ul className="flex flex-col gap-1 text-sm" data-slot="huan-provider-auth-events">
+        <ul
+          className="flex basis-full flex-col gap-2 text-sm"
+          data-slot="huan-provider-auth-events"
+        >
           {operation.events.map((event) => (
             <li key={event.eventId}>
               {event.type === 'auth_url' ? (
@@ -300,36 +308,38 @@ function OperationCard({ operation }: { operation: HarnessProviderAuthOperation 
       )}
 
       {result && (
-        <p
+        <ItemDescription
           role="status"
           data-slot="huan-provider-auth-result"
           data-status={result.status}
-          className={result.status === 'succeeded' ? '' : 'text-muted-foreground'}
+          className={result.status === 'succeeded' ? 'basis-full text-foreground' : 'basis-full'}
         >
           {result.message}
-        </p>
+        </ItemDescription>
       )}
       {canCancel && (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <ItemFooter>
           <span
             className="text-muted-foreground text-xs"
             data-slot="huan-provider-auth-cancel-note"
           >
             <Trans>关闭面板后认证继续；要终止请点击取消认证</Trans>
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={cancelling}
-            onClick={() => void cancel(operation.id)}
-            data-slot="huan-provider-auth-cancel"
-          >
-            {cancelling && <Loader2Icon aria-hidden className="animate-spin" />}
-            <Trans>取消认证</Trans>
-          </Button>
-        </div>
+          <ItemActions>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cancelling}
+              onClick={() => void cancel(operation.id)}
+              data-slot="huan-provider-auth-cancel"
+            >
+              {cancelling && <Loader2Icon aria-hidden className="animate-spin" />}
+              <Trans>取消认证</Trans>
+            </Button>
+          </ItemActions>
+        </ItemFooter>
       )}
-    </section>
+    </Item>
   )
 }
 
@@ -346,7 +356,7 @@ function ProviderRow({
   const busy = useAuthStore((state) => state.providerBusy[provider.providerId])
   const startLogin = useAuthStore((state) => state.startLogin)
   const logout = useAuthStore((state) => state.logout)
-  const rowRef = useRef<HTMLElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (focused) rowRef.current?.scrollIntoView({ block: 'nearest' })
@@ -376,81 +386,92 @@ function ProviderRow({
       : undefined
 
   return (
-    <section
+    <Item
       ref={rowRef}
       data-slot="huan-provider-auth-provider"
       data-provider-id={provider.providerId}
       data-focused={focused ? 'true' : undefined}
-      className={`flex flex-col gap-2 rounded-lg border p-3 ${focused ? 'ring-ring ring-2' : ''}`}
+      variant={focused ? 'outline' : 'default'}
+      className={focused ? 'border-ring ring-3 ring-ring/50' : undefined}
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <strong>{provider.name}</strong>
-        <code className="text-muted-foreground text-xs">{provider.providerId}</code>
-        <span
-          className="ms-auto text-xs"
-          data-slot="huan-provider-auth-status"
-          data-configured={provider.configured ? 'true' : 'false'}
-        >
-          {provider.configured ? (
-            <>
-              <ShieldCheckIcon aria-hidden className="inline size-3.5" /> <Trans>已配置</Trans>
-              {provider.storedCredentialType && (
-                <span className="text-muted-foreground">
-                  {' '}
-                  · {provider.storedCredentialType === 'oauth' ? 'OAuth' : 'API key'}
-                </span>
-              )}
-              {source && <span className="text-muted-foreground"> · {source}</span>}
-            </>
-          ) : (
-            <Trans>未配置</Trans>
-          )}
-        </span>
-      </div>
-
-      {provider.ambientOnly ? (
-        <p className="text-muted-foreground text-xs">
-          <Trans>请在环境变量或 models.json 中配置凭据。</Trans>
-        </p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {provider.methods.map((method) =>
-            method.loginable ? (
-              <Button
-                key={method.type}
-                variant="outline"
-                size="sm"
-                disabled={busy !== undefined}
-                data-slot="huan-provider-auth-login"
-                data-method={method.type}
-                onClick={() => run('login', method.type)}
-              >
-                {busy === 'login' && <Loader2Icon aria-hidden className="animate-spin" />}
-                <KeyRoundIcon aria-hidden />
-                {method.subscription
-                  ? `使用 ${method.label} 登录（订阅）`
-                  : `使用 ${method.label} 登录`}
-              </Button>
-            ) : (
-              <span key={method.type} className="text-muted-foreground text-xs">
-                {method.label}（由环境/配置提供）
+      <ItemContent>
+        <ItemTitle>
+          {provider.name}
+          <code className="text-muted-foreground font-mono text-xs">{provider.providerId}</code>
+        </ItemTitle>
+      </ItemContent>
+      <span
+        className="flex flex-wrap items-center gap-2"
+        data-slot="huan-provider-auth-status"
+        data-configured={provider.configured ? 'true' : 'false'}
+      >
+        {provider.configured ? (
+          <>
+            <Badge variant="secondary">
+              <ShieldCheckIcon aria-hidden />
+              <Trans>已配置</Trans>
+            </Badge>
+            {provider.storedCredentialType && (
+              <span className="text-muted-foreground text-xs">
+                {provider.storedCredentialType === 'oauth' ? 'OAuth' : 'API key'}
               </span>
-            ),
-          )}
-        </div>
+            )}
+            {source && <span className="text-muted-foreground text-xs">{source}</span>}
+          </>
+        ) : (
+          <Badge variant="outline">
+            <Trans>未配置</Trans>
+          </Badge>
+        )}
+      </span>
+
+      {provider.ambientOnly && (
+        <ItemDescription className="basis-full">
+          <Trans>请在环境变量或 models.json 中配置凭据。</Trans>
+        </ItemDescription>
+      )}
+
+      {!provider.ambientOnly && (
+        <ItemFooter className="justify-start">
+          <ItemActions className="flex-wrap">
+            {provider.methods.map((method) =>
+              method.loginable ? (
+                <Button
+                  key={method.type}
+                  variant="outline"
+                  size="sm"
+                  disabled={busy !== undefined}
+                  data-slot="huan-provider-auth-login"
+                  data-method={method.type}
+                  onClick={() => run('login', method.type)}
+                >
+                  {busy === 'login' && <Loader2Icon aria-hidden className="animate-spin" />}
+                  <KeyRoundIcon aria-hidden />
+                  {method.subscription
+                    ? `使用 ${method.label} 登录（订阅）`
+                    : `使用 ${method.label} 登录`}
+                </Button>
+              ) : (
+                <span key={method.type} className="text-muted-foreground text-xs">
+                  {method.label}（由环境/配置提供）
+                </span>
+              ),
+            )}
+          </ItemActions>
+        </ItemFooter>
       )}
 
       {leftoverSource && (
-        <p
-          className="text-muted-foreground text-xs"
+        <ItemDescription
+          className="basis-full text-xs"
           data-slot="huan-provider-auth-remaining-source"
         >
           <Trans>仍通过{leftoverSource}提供凭据，请修改对应配置</Trans>
-        </p>
+        </ItemDescription>
       )}
 
       {canLogout && (
-        <div>
+        <ItemFooter className="justify-end">
           <Button
             variant="ghost"
             size="sm"
@@ -462,46 +483,17 @@ function ProviderRow({
             <LogOutIcon aria-hidden />
             <Trans>退出登录</Trans>
           </Button>
-        </div>
+        </ItemFooter>
       )}
-    </section>
+    </Item>
   )
 }
 
-/** 顶栏认证入口与面板；`/login`、`/logout` 打开同一面板。 */
-export function ProviderAuthDialog() {
+/** 模型与服务商页内的认证内容；开关、页签与关闭由统一设置容器负责。 */
+export function ProviderAuthContent() {
   const snapshot = useServiceStore((state) => state.providerAuth)
-  const open = useAuthStore((state) => state.open)
   const focusedProvider = useAuthStore((state) => state.focusedProvider)
   const notice = useAuthStore((state) => state.notice)
-  const openPanel = useAuthStore((state) => state.openPanel)
-  const closePanel = useAuthStore((state) => state.closePanel)
-  const triggerRef = useRestoreTriggerFocus(open)
-
-  if (!open) {
-    return (
-      <Button
-        ref={triggerRef}
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        aria-label="模型认证"
-        data-slot="huan-provider-auth-trigger"
-        onClick={() => void openPanel()}
-      >
-        <KeyRoundIcon aria-hidden className="size-3.5" />
-        <Trans>认证</Trans>
-        {(snapshot?.operations ?? []).filter(activeOperation).length > 0 && (
-          <span
-            className="bg-primary text-primary-foreground rounded-full px-1.5 text-[10px] leading-4"
-            data-slot="huan-provider-auth-active-count"
-          >
-            {(snapshot?.operations ?? []).filter(activeOperation).length}
-          </span>
-        )}
-      </Button>
-    )
-  }
 
   const providers = snapshot?.providers ?? []
   const operations = snapshot?.operations ?? []
@@ -518,102 +510,92 @@ export function ProviderAuthDialog() {
       : false
 
   return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next) closePanel()
-      }}
-    >
-      <DialogContent
-        data-slot="huan-provider-auth-dialog"
-        aria-label="模型认证"
-        className="flex max-h-[85dvh] max-w-2xl flex-col"
+    <div data-slot="huan-provider-auth" className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h3 className="font-heading text-sm font-medium">
+          <Trans>模型认证</Trans>
+        </h3>
+        <p className="text-muted-foreground text-xs">
+          <Trans>管理模型服务商的登录凭据。</Trans>
+        </p>
+      </div>
+
+      <details
+        className="text-muted-foreground text-xs"
+        data-slot="huan-provider-auth-credentials-note"
       >
-        <DialogHeader>
-          <DialogTitle>
-            <Trans>模型认证</Trans>
-          </DialogTitle>
-          <DialogDescription>
-            <Trans>管理模型服务商的登录凭据。</Trans>
-          </DialogDescription>
-        </DialogHeader>
+        <summary className="cursor-pointer">
+          <Trans>凭据说明</Trans>
+        </summary>
+        <p className="mt-1">
+          <Trans>
+            凭据保存在服务端用户空间的
+            auth.json；退出登录仅移除此处保存的凭据，远端授权需在服务商处撤销。
+          </Trans>
+        </p>
+      </details>
 
-        <details
-          className="text-muted-foreground text-xs"
-          data-slot="huan-provider-auth-credentials-note"
-        >
-          <summary className="cursor-pointer">
-            <Trans>凭据说明</Trans>
-          </summary>
-          <p className="mt-1">
-            <Trans>
-              凭据保存在服务端用户空间的
-              auth.json；退出登录仅移除此处保存的凭据，远端授权需在服务商处撤销。
-            </Trans>
-          </p>
-        </details>
-
-        {focusedMissing && (
-          <p
-            role="alert"
-            className="text-destructive text-sm"
-            data-slot="huan-provider-auth-notice"
-          >
+      {focusedMissing && (
+        <Alert variant="destructive" data-slot="huan-provider-auth-notice">
+          <AlertDescription>
             <Trans>找不到此服务商：{focusedProvider}，请重新选择。</Trans>
-          </p>
-        )}
-        {notice && (
-          <p role="status" className="text-sm" data-slot="huan-provider-auth-notice">
-            {notice}
-          </p>
-        )}
+          </AlertDescription>
+        </Alert>
+      )}
+      {notice && (
+        <Alert role="status" data-slot="huan-provider-auth-notice">
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-auto">
-          {snapshot === undefined ? (
-            <p role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
-              <Loader2Icon aria-hidden className="size-4 animate-spin" />
-              <Trans>正在读取认证状态…</Trans>
-            </p>
-          ) : (
-            <>
-              {operations.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-muted-foreground text-xs font-medium">
-                    <Trans>认证操作</Trans>
-                  </h3>
-                  {operations.map((operation) => (
-                    <OperationCard key={operation.id} operation={operation} />
+      <div className="flex flex-col gap-3">
+        {snapshot === undefined ? (
+          <p role="status" className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2Icon aria-hidden className="size-4 animate-spin" />
+            <Trans>正在读取认证状态…</Trans>
+          </p>
+        ) : (
+          <>
+            {operations.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-muted-foreground text-xs font-medium">
+                  <Trans>认证操作</Trans>
+                </h3>
+                <ItemGroup className="gap-0">
+                  {operations.map((operation, index) => (
+                    <Fragment key={operation.id}>
+                      {index > 0 && <ItemSeparator />}
+                      <OperationCard operation={operation} />
+                    </Fragment>
                   ))}
-                </div>
-              )}
+                </ItemGroup>
+              </div>
+            )}
 
-              {providers.length === 0 ? (
-                <p className="text-muted-foreground text-sm">
-                  <Trans>当前没有已注册的 provider。</Trans>
-                </p>
-              ) : (
-                providers.map((provider) => (
-                  <ProviderRow
-                    key={provider.providerId}
-                    provider={provider}
-                    focused={focusedProvider === provider.providerId}
-                    logoutCompleted={
-                      latestByProvider.get(provider.providerId)?.kind === 'logout' &&
-                      latestByProvider.get(provider.providerId)?.phase === 'succeeded'
-                    }
-                  />
-                ))
-              )}
-            </>
-          )}
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={closePanel}>
-            <Trans>关闭</Trans>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            {providers.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                <Trans>当前没有已注册的 provider。</Trans>
+              </p>
+            ) : (
+              <ItemGroup className="gap-0">
+                {providers.map((provider, index) => (
+                  <Fragment key={provider.providerId}>
+                    {index > 0 && <ItemSeparator />}
+                    <ProviderRow
+                      provider={provider}
+                      focused={focusedProvider === provider.providerId}
+                      logoutCompleted={
+                        latestByProvider.get(provider.providerId)?.kind === 'logout' &&
+                        latestByProvider.get(provider.providerId)?.phase === 'succeeded'
+                      }
+                    />
+                  </Fragment>
+                ))}
+              </ItemGroup>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   )
 }

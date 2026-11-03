@@ -966,7 +966,7 @@ export const isThreadSnapshot = (value: unknown): value is HarnessThreadSnapshot
 /** 设置目标守卫：会话或固定起始目录二选一。 */
 const isSettingsTarget = (value: unknown): boolean =>
   isRecord(value) &&
-  (value.kind === 'session' || value.kind === 'workspace') &&
+  (value.kind === 'session' || value.kind === 'workspace' || value.kind === 'global') &&
   typeof value.workspacePath === 'string' &&
   isOptionalString(value.threadId)
 

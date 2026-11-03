@@ -845,6 +845,21 @@ describe('运行操作路由（Shell / 压缩 / 模型目录）', () => {
     })
   })
 
+  it('全局目录刷新以 global 输入转发，不附加会话或目录', async () => {
+    const { fn, calls } = fakeFetch(() =>
+      json({ models: [{ provider: 'huan-test', modelId: 'test-model-a' }], failedProviders: [] }),
+    )
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+    await expect(client.refreshModels({ global: true })).resolves.toMatchObject({
+      failedProviders: [],
+    })
+    expect(calls[0]).toMatchObject({
+      url: '/api/pi/models/refresh',
+      method: 'POST',
+      body: { global: true },
+    })
+  })
+
   it('拒绝畸形的目录刷新结果', async () => {
     const refresh = createHarnessHttpClient({
       fetchImpl: fakeFetch(() => json({ models: [], failedProviders: [1] })).fn,

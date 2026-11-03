@@ -31,7 +31,7 @@ const isExposure = (value: unknown): boolean =>
 
 const isTarget = (value: unknown): boolean =>
   isRecord(value) &&
-  (value.kind === 'session' || value.kind === 'workspace') &&
+  (value.kind === 'session' || value.kind === 'workspace' || value.kind === 'global') &&
   typeof value.workspacePath === 'string' &&
   isOptionalString(value.threadId) &&
   (value.kind !== 'session' || typeof value.threadId === 'string')

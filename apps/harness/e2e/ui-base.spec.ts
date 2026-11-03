@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
-import { assistantMessages, DEFAULT_REPLY, openApp, sendMessage } from './helpers.js'
+import {
+  assistantMessages,
+  DEFAULT_REPLY,
+  openApp,
+  openSettings,
+  sendMessage,
+  settingsDialog,
+  settingsTrigger,
+} from './helpers.js'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -84,9 +92,10 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
   await page.emulateMedia({ colorScheme: 'light' })
   await openApp(page)
   const html = page.locator('html')
-  const trigger = page.locator('[data-slot="theme-selector-trigger"]')
+  const themeTrigger = () => settingsDialog(page).locator('[data-slot="theme-selector-trigger"]')
 
-  await trigger.click()
+  await openSettings(page, '外观')
+  await themeTrigger().click()
   await page.getByRole('option', { name: 'One Dark' }).click()
   await expect(html).toHaveClass(/dark/)
   await expect(html).toHaveClass(/one-dark/)
@@ -98,9 +107,10 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
   await page.reload()
   await expect(page.locator('[data-slot="huan-header"]')).toBeVisible()
   await expect(html).toHaveClass(/one-dark/)
-  await expect(trigger).toContainText('One Dark')
+  await openSettings(page, '外观')
+  await expect(themeTrigger()).toContainText('One Dark')
 
-  await trigger.click()
+  await themeTrigger().click()
   await page.getByRole('option', { name: 'Solarized Light' }).click()
   await expect(html).toHaveClass(/solarized-light/)
   await expect(html).not.toHaveClass(/dark/)
@@ -128,7 +138,7 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
   expect(compact.radius).toBe('0.25rem')
   expect(compact.font).toContain('Geist Variable')
 
-  await trigger.click()
+  await themeTrigger().click()
   await page.getByRole('option', { name: '跟随系统' }).click()
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(html).toHaveClass(/dark/)
@@ -139,13 +149,13 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
 
 test('Dialog 内弹层按 Escape 逐层关闭并恢复焦点', async ({ page }) => {
   await openApp(page)
-  const opener = page.getByRole('button', { name: '设置与资源', exact: true })
-  await opener.click()
-  const dialog = page.getByRole('dialog', { name: '设置与资源' })
+  const opener = settingsTrigger(page)
+  await openSettings(page, '对话')
+  const dialog = settingsDialog(page)
   await expect(dialog).toBeVisible()
 
   // Dialog 内的 Select 是独立弹层：第一次 Escape 只关闭它并回到触发按钮。
-  const trigger = dialog.getByRole('combobox', { name: '转向队列模式' })
+  const trigger = dialog.getByRole('combobox', { name: '转向队列' })
   await trigger.click()
   const listbox = page.getByRole('listbox')
   await expect(listbox).toBeVisible()

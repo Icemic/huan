@@ -10,9 +10,6 @@ import { useEffect, useRef, useState } from 'react'
 import { ChatView } from '@/components/chat/chat-view'
 import { ImportThreadButton, ImportThreadDialog } from '@/components/import-thread-dialog'
 import { PiHostInteractions } from '@/components/pi-host-interactions'
-import { PiHostStatus } from '@/components/pi-host-status'
-import { McpDialog } from '@/components/pi-mcp-panel'
-import { ProviderAuthDialog } from '@/components/pi-provider-auth'
 import { PiRunStatus } from '@/components/pi-run-status'
 import { PiThreadHostUi } from '@/components/pi-thread-host-ui'
 import { RuntimeOperationsDialog } from '@/components/runtime-operations'
@@ -20,8 +17,7 @@ import { SessionContextBar } from '@/components/session-context-bar'
 import { SessionDialogs } from '@/components/session-dialogs'
 import { ForkThreadDialog } from '@/components/session-fork-dialog'
 import { SessionTreeDialog } from '@/components/session-tree-dialog'
-import { SettingsResourcesDialog } from '@/components/settings-resources-dialog'
-import { ThemeSelector } from '@/components/theme-selector'
+import { ContextDialogs, SettingsButton, SettingsDialog } from '@/components/settings-dialog'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TrustDecisionDialog } from '@/components/workspace-manager'
@@ -186,11 +182,7 @@ function AppShell() {
             <Loader2Icon aria-hidden className="text-muted-foreground size-4 animate-spin" />
           ) : null}
           <ImportThreadButton />
-          <SettingsResourcesDialog />
-          <McpDialog />
-          <ProviderAuthDialog />
-          <PiHostStatus />
-          <ThemeSelector />
+          <SettingsButton />
         </div>
       </header>
       <WorkspaceToast />
@@ -212,6 +204,8 @@ function AppShell() {
       <ForkThreadDialog />
       <ImportThreadDialog />
       <TrustDecisionDialog />
+      <SettingsDialog />
+      <ContextDialogs />
     </div>
   )
 }

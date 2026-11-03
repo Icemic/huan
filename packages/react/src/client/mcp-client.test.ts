@@ -126,6 +126,8 @@ describe('MCP typed HTTP 客户端', () => {
     })
     expect(await client.getMcpConfig({ workspacePath: '/ws' })).toEqual(configSnapshot)
     expect(calls[1]?.url).toBe('/api/pi/mcp/config?workspacePath=%2Fws')
+    expect(await client.getMcpConfig({ global: true })).toEqual(configSnapshot)
+    expect(calls[2]?.url).toBe('/api/pi/mcp/config?global=true')
   })
 
   it('详情/管理/认证的 typed 失败结果不被误判为畸形', async () => {

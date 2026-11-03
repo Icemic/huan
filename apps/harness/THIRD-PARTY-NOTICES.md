@@ -38,7 +38,7 @@ SOFTWARE.
 - 用途：按钮、弹层、输入、选择器等基础组件的结构、状态样式与 CSS tokens 参考。
 - 许可：MIT
 
-本应用组件为按自身需求维护的最小封装，不引入完整 DataGrid、Tree 等未使用组件。
+本应用的Button、Dialog、Input、Select保留按需维护的本地封装；直接取得registry源码的组件逐项记录如下。
 
 ### 2026-11-03 获取的官方 Base UI registry 组合
 
@@ -58,6 +58,51 @@ SOFTWARE.
 `src/components/ui/model-selector.tsx` 与 `model-selection.ts` 保留原 Base UI 选择器组合，已移除 assistant-ui 状态/运行时绑定；现无 `@assistant-ui/*` 运行依赖。
 
 上游 MIT 许可：`Copyright (c) 2023 shadcn`。
+
+### 2026-11-03 设置界面采用的官方组件
+
+以下源码来自base-nova registry，保留上游组合API与variant。路径、中文标签与主题tokens按本应用接入；没有引入额外组件运行库。
+
+| 官方来源 | 本地文件 | 本地差异 |
+| --- | --- | --- |
+| https://ui.shadcn.com/r/styles/base-nova/tabs.json | `src/components/ui/tabs.tsx` | 补传Root的orientation；方向选择器显式使用data属性 |
+| https://ui.shadcn.com/r/styles/base-nova/field.json | `src/components/ui/field.tsx` | 本地Label/Separator路径；显式方向选择器 |
+| https://ui.shadcn.com/r/styles/base-nova/checkbox.json | `src/components/ui/checkbox.tsx` | 使用lucide CheckIcon；圆角使用现有4px token |
+| https://ui.shadcn.com/r/styles/base-nova/radio-group.json | `src/components/ui/radio-group.tsx` | 本地cn路径 |
+| https://ui.shadcn.com/r/styles/base-nova/switch.json | `src/components/ui/switch.tsx` | 本地cn路径；作为二态控件保留，三态设置使用Select |
+| https://ui.shadcn.com/r/styles/base-nova/item.json | `src/components/ui/item.tsx` | 本地cn/Separator路径 |
+| https://ui.shadcn.com/r/styles/base-nova/separator.json | `src/components/ui/separator.tsx` | 本地cn路径；显式方向选择器 |
+| https://ui.shadcn.com/r/styles/base-nova/label.json | `src/components/ui/label.tsx` | 本地cn路径 |
+| https://ui.shadcn.com/r/styles/base-nova/alert.json | `src/components/ui/alert.tsx` | 本地cn路径 |
+| https://ui.shadcn.com/r/styles/base-nova/badge.json | `src/components/ui/badge.tsx` | 本地cn路径 |
+
+`src/components/settings-dialog.tsx`参照https://ui.shadcn.com/r/styles/base-nova/sidebar-13.json的设置弹层结构，以官方Tabs替代演示Sidebar导航，保留应用既有Dialog。页面业务组合使用上述Field/Item等组件。ReUI未取得可采用的具体源码，本轮未采用。
+
+上游MIT许可：`Copyright (c) 2023 shadcn`。
+
+```text
+MIT License
+
+Copyright (c) 2023 shadcn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## react-markdown / remark-gfm
 

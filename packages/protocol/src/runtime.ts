@@ -84,12 +84,14 @@ export type HarnessBashStartResult =
 /** 取消用户 Shell 的结果。 */
 export type HarnessBashAbortResult = { status: 'requested' } | { status: 'idle' }
 
-/** 模型目录刷新输入：必须显式指定会话或固定起始目录。 */
+/** 模型目录刷新输入：显式指定会话、固定起始目录或已有共享注册表。 */
 export type HarnessModelRefreshInput = {
   /** 会话 ID：使用该会话固定的 live cwd。 */
   threadId?: string
   /** 空白页的固定起始目录（绝对路径）。 */
   workspacePath?: string
+  /** 只刷新已有共享模型注册表，不解析会话或目录。 */
+  global?: boolean
 }
 
 /** 模型目录刷新结果。 */

@@ -44,6 +44,37 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await sendButton(page).click()
 }
 
+/** 顶栏唯一设置入口。 */
+export const settingsTrigger = (page: Page) => page.locator('[data-slot="huan-settings-trigger"]')
+
+/** 统一设置对话框。 */
+export const settingsDialog = (page: Page) =>
+  page.getByRole('dialog', { name: '设置', exact: true })
+
+/** 统一设置左侧垂直页签。 */
+export const settingsTab = (page: Page, name: string) =>
+  settingsDialog(page).getByRole('tab', { name, exact: true })
+
+/** 打开统一设置；可指定页签并等待其选中。 */
+export async function openSettings(page: Page, tab?: string): Promise<void> {
+  await settingsTrigger(page).click()
+  const dialog = settingsDialog(page)
+  await expect(dialog).toBeVisible()
+  if (tab) {
+    const target = settingsTab(page, tab)
+    await target.click()
+    await expect(target).toHaveAttribute('aria-selected', 'true')
+  }
+}
+
+/** 项目/会话资源设置弹层（由会话或工作区成员入口打开）。 */
+export const contextSettingsDialog = (page: Page) =>
+  page.getByRole('dialog', { name: '项目设置与资源', exact: true })
+
+/** 项目/会话 MCP 弹层（由会话或工作区成员入口打开）。 */
+export const contextMcpDialog = (page: Page) =>
+  page.getByRole('dialog', { name: 'MCP 服务器', exact: true })
+
 /** 会话上下文条的单一操作菜单入口。 */
 export const sessionActionsTrigger = (page: Page) =>
   page

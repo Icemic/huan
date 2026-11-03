@@ -7,6 +7,8 @@ import {
   openApp,
   selectModel,
   sendMessage,
+  settingsDialog,
+  settingsTab,
   startNewSession,
   threadListItem,
   workspaceGroup,
@@ -102,5 +104,6 @@ test('工作区自定义范围约束新会话候选，旧模型继续显示与�
   await expect(modelPopup(page).getByRole('button', { name: '打开设置' })).toBeVisible()
   await expect(modelPopup(page).getByRole('button', { name: '管理认证' })).toBeVisible()
   await modelPopup(page).getByRole('button', { name: '打开设置' }).click()
-  await expect(page.getByRole('dialog', { name: '设置与资源' })).toBeVisible()
+  await expect(settingsDialog(page)).toBeVisible()
+  await expect(settingsTab(page, '模型与服务商')).toHaveAttribute('aria-selected', 'true')
 })

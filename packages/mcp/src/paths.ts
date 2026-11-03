@@ -40,14 +40,16 @@ export interface McpConfigPaths {
 
 /**
  * 计算固定路径。只接受 agentDir/cwd，不接受任意文件路径。
+ *
+ * `cwd` 缺省表示仅用户作用域：项目路径为空串，调用方不得读写项目配置。
  */
-export function mcpConfigPaths(agentDir: string, cwd: string): McpConfigPaths {
+export function mcpConfigPaths(agentDir: string, cwd?: string): McpConfigPaths {
   const userRoot = resolve(agentDir)
-  const projectRoot = resolve(cwd)
   const stateDir = join(userRoot, MCP_STATE_DIR)
   return {
     user: join(userRoot, MCP_CONFIG_FILE_NAME),
-    project: join(projectRoot, MCP_PROJECT_CONFIG_DIR, MCP_CONFIG_FILE_NAME),
+    project:
+      cwd === undefined ? '' : join(resolve(cwd), MCP_PROJECT_CONFIG_DIR, MCP_CONFIG_FILE_NAME),
     auth: join(stateDir, MCP_AUTH_FILE_NAME),
     log: join(stateDir, MCP_LOG_FILE_NAME),
   }

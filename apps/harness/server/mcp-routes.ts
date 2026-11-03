@@ -46,24 +46,38 @@ const isExposure = (value: unknown): value is HarnessMcpExposure =>
 const isDetailSection = (value: unknown): value is HarnessMcpDetailSection =>
   value === 'tools' || value === 'resources' || value === 'resource-templates'
 
-/** 解析 query/body 中的目标：threadId 与 workspacePath 恰好一个。 */
+/** 解析 query/body 中的目标：threadId、workspacePath、global 恰好一个。 */
 function parseTarget(
   threadId: string | undefined,
   workspacePath: string | undefined,
+  global: string | undefined,
+  allowGlobal = false,
 ): HarnessMcpTargetInput | undefined {
+  const wantsGlobal = global === 'true'
+  if (global !== undefined && !wantsGlobal) return undefined
   const hasThread = typeof threadId === 'string' && threadId.trim().length > 0
   const hasPath = typeof workspacePath === 'string' && workspacePath.trim().length > 0
+  if (wantsGlobal) {
+    if (!allowGlobal || hasThread || hasPath) return undefined
+    return { global: true }
+  }
   if (hasThread === hasPath) return undefined
   return hasThread ? { threadId: threadId?.trim() } : { workspacePath: workspacePath?.trim() }
 }
 
-function parseTargetObject(value: unknown): HarnessMcpTargetInput | undefined {
+function parseTargetObject(value: unknown, allowGlobal = false): HarnessMcpTargetInput | undefined {
   if (value === null || typeof value !== 'object') return undefined
-  const target = value as { threadId?: unknown; workspacePath?: unknown }
+  const target = value as { threadId?: unknown; workspacePath?: unknown; global?: unknown }
   if (target.threadId !== undefined && typeof target.threadId !== 'string') return undefined
   if (target.workspacePath !== undefined && typeof target.workspacePath !== 'string')
     return undefined
-  return parseTarget(target.threadId, target.workspacePath)
+  if (target.global !== undefined && typeof target.global !== 'boolean') return undefined
+  return parseTarget(
+    target.threadId,
+    target.workspacePath,
+    target.global === true ? 'true' : undefined,
+    allowGlobal,
+  )
 }
 
 function parseManageAction(value: unknown): HarnessMcpManageAction | undefined {
@@ -194,9 +208,10 @@ function parseSaveInput(value: unknown): HarnessMcpConfigSaveInput | undefined {
     content?: unknown
     expectedRevision?: unknown
   }
-  const target = parseTargetObject(body.target)
+  const target = parseTargetObject(body.target, true)
   if (
     !target ||
+    (target.global === true && body.scope !== 'user') ||
     (body.scope !== 'user' && body.scope !== 'project') ||
     typeof body.content !== 'string' ||
     (body.expectedRevision !== null && typeof body.expectedRevision !== 'string')
@@ -243,7 +258,11 @@ export function registerMcpRoutes(app: Hono, client: McpRouteClient): void {
   )
 
   app.get('/api/pi/mcp', async (c) => {
-    const target = parseTarget(c.req.query('threadId'), c.req.query('workspacePath'))
+    const target = parseTarget(
+      c.req.query('threadId'),
+      c.req.query('workspacePath'),
+      c.req.query('global'),
+    )
     if (!target) return c.json({ error: 'invalid-mcp-target' }, 400)
     return c.json(await client.getMcp(target))
   })
@@ -259,7 +278,12 @@ export function registerMcpRoutes(app: Hono, client: McpRouteClient): void {
   })
 
   app.get('/api/pi/mcp/config', async (c) => {
-    const target = parseTarget(c.req.query('threadId'), c.req.query('workspacePath'))
+    const target = parseTarget(
+      c.req.query('threadId'),
+      c.req.query('workspacePath'),
+      c.req.query('global'),
+      true,
+    )
     if (!target) return c.json({ error: 'invalid-mcp-target' }, 400)
     return c.json(await client.getMcpConfig(target))
   })

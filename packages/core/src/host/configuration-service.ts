@@ -21,8 +21,10 @@ import type {
   HarnessReloadTrigger,
   HarnessResourceQueryInput,
   HarnessResourceSnapshot,
+  HarnessSettingsApplyState,
   HarnessSettingsSaveInput,
   HarnessSettingsSaveResult,
+  HarnessSettingsScope,
   HarnessSettingsSnapshot,
   HarnessSettingsTarget,
   HarnessSettingsTargetInput,
@@ -134,7 +136,8 @@ export class ConfigurationService {
   /**
    * 解析设置/资源查询目标。
    *
-   * 只接受会话 ID 或绝对起始目录，且两者互斥；不接受任意配置文件路径。
+   * 只接受会话 ID、绝对起始目录或 global 三选一；不接受任意配置文件路径。
+   * global 不探测目录、不进入装配或项目信任。
    * 冷会话只按会话头解析 cwd，不构造 AgentSession。
    */
   async resolveConfigTarget(
@@ -142,6 +145,12 @@ export class ConfigurationService {
   ): Promise<{ target: HarnessSettingsTarget; cwd: string; record?: ThreadRecord }> {
     const threadId = typeof input.threadId === 'string' ? input.threadId.trim() : ''
     const requestedPath = typeof input.workspacePath === 'string' ? input.workspacePath.trim() : ''
+    if (input.global === true) {
+      if (threadId || requestedPath) {
+        throw new Error('全局配置目标不能同时指定会话或起始目录')
+      }
+      return { target: { kind: 'global', workspacePath: '' }, cwd: '' }
+    }
     if (threadId.length > 0 === requestedPath.length > 0) {
       throw new Error('配置查询需要且只能指定会话或起始目录')
     }
@@ -262,10 +271,11 @@ export class ConfigurationService {
    * - 先校验 JSON/schema/原型污染键，再检查 revision（乐观并发）；
    * - 与自动压缩/模型范围写入共用 settingsWrites 队列；
    * - 原子写入 + 回读校验，失败如实报告；
-   * - 不触碰任何 live SettingsManager 缓存（保存不等于应用）。
+   * - 不触碰任何 live SettingsManager 缓存（自动压缩除外，见下）。
    */
   async saveSettings(input: HarnessSettingsSaveInput): Promise<HarnessSettingsSaveResult> {
     this.deps.assertActive()
+    if (input.target.global === true) return this.saveGlobalSettings(input)
     const resolved = await this.resolveConfigTarget(input.target)
     const trust = await this.configTrustOf(resolved.cwd, resolved.record)
     const trusted = trust.decision === 'trusted'
@@ -279,108 +289,235 @@ export class ConfigurationService {
         message: '项目未取得信任：不读取也不写入项目设置；用户设置仍可编辑。',
       }
     }
-    if (typeof input.content !== 'string') {
+    const persisted = await this.persistSettingsContent(
+      input.scope,
+      path,
+      input.content,
+      input.expectedRevision,
+    )
+    if (!persisted.ok) return persisted.result
+    if (input.scope === 'user') await this.afterUserSettingsSaved(persisted.changed)
+    const snapshot = await this.settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
+    return {
+      status: 'saved',
+      scope: input.scope,
+      path,
+      revision: settingsRevision(input.content),
+      bytes: persisted.bytes,
+      snapshot,
+      apply: this.settingsApplyStateOf(persisted.changed),
+    }
+  }
+
+  /**
+   * 全局设置查询：只读取用户文件，项目文件保持不可读。
+   *
+   * 不需要会话、启动目录存在或项目信任，也不进入装配；有效值只来自用户文件。
+   */
+  async globalSettingsSnapshot(
+    input: HarnessSettingsTargetInput,
+  ): Promise<HarnessSettingsSnapshot> {
+    this.deps.assertActive()
+    this.assertGlobalTarget(input)
+    const user = await readSettingsFile(join(this.deps.agentDir, 'settings.json'), 'user')
+    const project = await readSettingsFile('', 'project', { readable: false })
+    const effective = mergeSettingsFromDisk({
+      cwd: '',
+      agentDir: this.deps.agentDir,
+      projectTrusted: false,
+      files: { user, project },
+    })
+    return {
+      target: { kind: 'global', workspacePath: '' },
+      agentDir: this.deps.agentDir,
+      projectTrusted: false,
+      trust: { decision: 'untrusted', requiresTrust: false, origin: 'global' },
+      files: { user, project },
+      effective,
+    }
+  }
+
+  /** 全局目标只允许单独出现，不能借用会话或目录。 */
+  private assertGlobalTarget(input: HarnessSettingsTargetInput): void {
+    if (input.global !== true) throw new Error('全局配置目标必须显式声明 global')
+    const threadId = typeof input.threadId === 'string' ? input.threadId.trim() : ''
+    const workspacePath = typeof input.workspacePath === 'string' ? input.workspacePath.trim() : ''
+    if (threadId || workspacePath) {
+      throw new Error('全局配置目标不能同时指定会话或起始目录')
+    }
+  }
+
+  /** 保存全局用户设置；复用同一文件校验、revision 与原子写入实现。 */
+  private async saveGlobalSettings(
+    input: HarnessSettingsSaveInput,
+  ): Promise<HarnessSettingsSaveResult> {
+    this.deps.assertActive()
+    this.assertGlobalTarget(input.target)
+    if (input.scope !== 'user') {
       return {
-        status: 'invalid',
+        status: 'failed',
         scope: input.scope,
-        path,
-        issues: [{ kind: 'parse', path: '/', message: '设置内容必须是字符串。' }],
-        message: '设置未保存：内容形状无效。',
+        path: '',
+        message: '全局设置只能保存用户配置；项目设置需要明确项目目标。',
       }
     }
-    const bytes = byteLengthOf(input.content)
+    const path = join(this.deps.agentDir, 'settings.json')
+    const persisted = await this.persistSettingsContent(
+      'user',
+      path,
+      input.content,
+      input.expectedRevision,
+    )
+    if (!persisted.ok) return persisted.result
+    await this.afterUserSettingsSaved(persisted.changed)
+    const snapshot = await this.globalSettingsSnapshot({ global: true })
+    return {
+      status: 'saved',
+      scope: 'user',
+      path,
+      revision: settingsRevision(input.content),
+      bytes: persisted.bytes,
+      snapshot,
+      apply: this.settingsApplyStateOf(persisted.changed),
+    }
+  }
+
+  /** 用户设置保存后的既有缓存同步：范围推进目录，自动压缩刷新 live 设置。 */
+  private async afterUserSettingsSaved(changed: readonly string[]): Promise<void> {
+    // 用户全局 enabledModels 是两层模型范围的底层；保存后推进既有目录代数，
+    // 让已打开窗口通过既有的快照广播重新读取候选（不重设旧会话模型）。
+    if (changed.includes('enabledModels')) this.deps.modelService.notifyScopeChanged()
+    // 自动压缩的用户值变化后沿用既有 live 设置缓存同步；项目覆盖仍由
+    // 各会话自己的设置合并结果保留。
+    if (changed.includes('compaction')) await this.syncSettingsCaches()
+  }
+
+  /** 保存结果中的生效说明（保存不等于应用其他字段）。 */
+  private settingsApplyStateOf(changed: readonly string[]): HarnessSettingsApplyState {
+    const restartKeys = restartRequiredKeys(changed)
+    const reloadRequired = changed.length > 0
+    return {
+      persisted: true,
+      reloadRequired,
+      restartRequiredKeys: restartKeys,
+      message: !reloadRequired
+        ? '内容未变化；已确认磁盘文件与提交一致。'
+        : restartKeys.length > 0
+          ? `已保存到磁盘；需重启宿主后生效：${restartKeys.join('、')}。当前会话仍使用已加载的设置。`
+          : '已保存到磁盘；常用运行设置与资源需重载宿主后才会被会话使用。当前会话未被静默修改。',
+    }
+  }
+
+  /**
+   * 校验并写入一份设置原文；调用方负责目标/信任与保存后的快照。
+   */
+  private async persistSettingsContent(
+    scope: HarnessSettingsScope,
+    path: string,
+    content: unknown,
+    expectedRevision: string | null,
+  ): Promise<
+    | { ok: true; changed: string[]; bytes: number }
+    | { ok: false; result: Exclude<HarnessSettingsSaveResult, { status: 'saved' }> }
+  > {
+    if (typeof content !== 'string') {
+      return {
+        ok: false,
+        result: {
+          status: 'invalid',
+          scope,
+          path,
+          issues: [{ kind: 'parse', path: '/', message: '设置内容必须是字符串。' }],
+          message: '设置未保存：内容形状无效。',
+        },
+      }
+    }
+    const bytes = byteLengthOf(content)
     if (bytes > SETTINGS_CONTENT_MAX_BYTES) {
       return {
-        status: 'too-large',
-        scope: input.scope,
-        path,
-        limitBytes: SETTINGS_CONTENT_MAX_BYTES,
-        message: `设置文件超过上限（${SETTINGS_CONTENT_MAX_BYTES} 字节），未保存。`,
+        ok: false,
+        result: {
+          status: 'too-large',
+          scope,
+          path,
+          limitBytes: SETTINGS_CONTENT_MAX_BYTES,
+          message: `设置文件超过上限（${SETTINGS_CONTENT_MAX_BYTES} 字节），未保存。`,
+        },
       }
     }
     // revision 检查在队列内部执行：并发保存不会相互覆盖。
-    const current = await readSettingsFile(path, input.scope)
+    const current = await readSettingsFile(path, scope)
     if (current.readError) {
-      return { status: 'failed', scope: input.scope, path, message: current.readError }
+      return { ok: false, result: { status: 'failed', scope, path, message: current.readError } }
     }
     if (current.tooLarge) {
       // 不返回不完整原文时无法可靠比较 revision；拒绝覆盖未知的大文件。
       return {
-        status: 'too-large',
-        scope: input.scope,
-        path,
-        limitBytes: SETTINGS_CONTENT_MAX_BYTES,
-        message: '现有设置文件超过读取上限；为避免覆盖未知内容，请先手动处理该文件。',
+        ok: false,
+        result: {
+          status: 'too-large',
+          scope,
+          path,
+          limitBytes: SETTINGS_CONTENT_MAX_BYTES,
+          message: '现有设置文件超过读取上限；为避免覆盖未知内容，请先手动处理该文件。',
+        },
       }
     }
-    if (current.revision !== input.expectedRevision) {
+    if (current.revision !== expectedRevision) {
       return {
-        status: 'conflict',
-        scope: input.scope,
-        path,
-        revision: current.revision,
-        message: '设置文件已被其他窗口或进程修改；请重新读取文件后再保存。',
+        ok: false,
+        result: {
+          status: 'conflict',
+          scope,
+          path,
+          revision: current.revision,
+          message: '设置文件已被其他窗口或进程修改；请重新读取文件后再保存。',
+        },
       }
     }
-    const parsed = parseSettingsContent(input.content)
+    const parsed = parseSettingsContent(content)
     if (!parsed.value || parsed.issues.length > 0) {
       return {
-        status: 'invalid',
-        scope: input.scope,
-        path,
-        issues: parsed.issues,
-        message: '设置未保存：请先修复解析或校验问题。',
+        ok: false,
+        result: {
+          status: 'invalid',
+          scope,
+          path,
+          issues: parsed.issues,
+          message: '设置未保存：请先修复解析或校验问题。',
+        },
       }
     }
     const before =
       current.issues.length === 0 ? parseSettingsContent(current.content).value : undefined
     const changed = changedTopLevelKeys(before, parsed.value)
     try {
-      await writeSettingsFileAtomic(path, input.content)
+      await writeSettingsFileAtomic(path, content)
     } catch (error) {
       this.deps.diagnose(`设置写入（${path}）：${errorText(error)}`)
       return {
-        status: 'failed',
-        scope: input.scope,
-        path,
-        message: '设置写入失败；磁盘文件保持原状。',
+        ok: false,
+        result: {
+          status: 'failed',
+          scope,
+          path,
+          message: '设置写入失败；磁盘文件保持原状。',
+        },
       }
     }
     const verify = await readFile(path, 'utf8').catch(() => undefined)
-    if (verify !== input.content) {
+    if (verify !== content) {
       return {
-        status: 'failed',
-        scope: input.scope,
-        path,
-        message: '写入后回读与提交内容不一致；请不要依赖本次保存结果。',
+        ok: false,
+        result: {
+          status: 'failed',
+          scope,
+          path,
+          message: '写入后回读与提交内容不一致；请不要依赖本次保存结果。',
+        },
       }
     }
-    const snapshot = await this.settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
-    const restartKeys = restartRequiredKeys(changed)
-    const reloadRequired = changed.length > 0
-    // 用户全局 enabledModels 是两层模型范围的底层；保存后推进既有目录代数，
-    // 让已打开窗口通过既有的快照广播重新读取候选（不重设旧会话模型）。
-    if (input.scope === 'user' && changed.includes('enabledModels')) {
-      this.deps.modelService.notifyScopeChanged()
-    }
-    return {
-      status: 'saved',
-      scope: input.scope,
-      path,
-      revision: settingsRevision(input.content),
-      bytes,
-      snapshot,
-      apply: {
-        persisted: true,
-        reloadRequired,
-        restartRequiredKeys: restartKeys,
-        message: !reloadRequired
-          ? '内容未变化；已确认磁盘文件与提交一致。'
-          : restartKeys.length > 0
-            ? `已保存到磁盘；需重启宿主后生效：${restartKeys.join('、')}。当前会话仍使用已加载的设置。`
-            : '已保存到磁盘；常用运行设置与资源需重载宿主后才会被会话使用。当前会话未被静默修改。',
-      },
-    }
+    return { ok: true, changed, bytes }
   }
 
   /**
@@ -392,6 +529,7 @@ export class ConfigurationService {
    */
   async resourceInventory(input: HarnessResourceQueryInput): Promise<HarnessResourceSnapshot> {
     this.deps.assertActive()
+    if (input.global === true) throw new Error('资源清单不支持全局设置目标')
     const resolved = await this.resolveConfigTarget(input)
     let loader: import('@earendil-works/pi-coding-agent').ResourceLoader
     let settings: SettingsManager
@@ -503,7 +641,7 @@ export class ConfigurationService {
    *
    * 每个 live session 有独立的 SettingsManager；不刷新则旧会话仍显示旧值。
    */
-  private async syncSettingsCaches(source: ThreadRecord): Promise<void> {
+  private async syncSettingsCaches(source?: ThreadRecord): Promise<void> {
     for (const other of [...this.deps.live.all()]) {
       if (other.retired) continue
       try {
@@ -515,7 +653,7 @@ export class ConfigurationService {
       }
       this.deps.events.emitSnapshot(other)
     }
-    this.deps.events.emitSnapshot(source)
+    if (source) this.deps.events.emitSnapshot(source)
   }
 
   /** 保存自动压缩开关（用户全局设置）并同步所有 live 会话的缓存。 */
@@ -559,11 +697,20 @@ export class ConfigurationService {
   /**
    * 显式刷新模型目录（共享 modelRuntime）。
    *
-   * 必须显式指定会话或固定起始目录：不使用窗口当前工作区替代 live cwd。
-   * 不重建 live session、不发起付费模型请求；失败时返回缓存目录与失败 provider。
+   * 显式指定会话/固定起始目录，或只刷新已有共享注册表（global）；
+   * 不使用窗口当前工作区替代 live cwd。不重建 live session、不发起付费模型请求；
+   * 失败时返回缓存目录与失败 provider。
    */
   async refreshModels(input: HarnessModelRefreshInput): Promise<HarnessModelRefreshResult> {
     this.deps.assertActive()
+    const threadId = input.threadId?.trim()
+    const workspacePath = input.workspacePath?.trim()
+    if (input.global === true) {
+      if (threadId || workspacePath) {
+        throw new Error('全局模型目录刷新不能同时指定会话或起始目录')
+      }
+      return this.deps.modelService.refreshExplicit()
+    }
     if (input.threadId) {
       await this.deps.live.ensureOpen(input.threadId)
     } else {
@@ -591,6 +738,10 @@ export class ConfigurationService {
     all?: boolean
   }): Promise<HarnessModelInfo[]> {
     this.deps.assertActive()
+    // 全局管理只需要已注册目录：无会话/工作区/目录时不得进入项目装配。
+    if (input?.all === true && !input.threadId && !input.workspaceId && !input.workspacePath) {
+      return listModelCatalog(this.deps.modelRuntime)
+    }
     let threadCwd: string | undefined
     let threadWorkspaceId: string | undefined
     const threadId = input?.threadId?.trim()
@@ -912,6 +1063,7 @@ export class ConfigurationService {
   /** 资源重载入口：会话与空白页目标二选一（与设置/资源查询同形）。 */
   async reloadResources(input: HarnessReloadTargetInput): Promise<HarnessReloadResult> {
     this.deps.assertActive()
+    if (input.global === true) throw new Error('资源重载不支持全局设置目标')
     const trigger = input.trigger ?? 'api'
     const resolved = await this.resolveConfigTarget(input)
     if (resolved.target.kind === 'session') {

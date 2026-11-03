@@ -55,10 +55,15 @@ export type McpConfigView = 'common' | 'json'
 /** `/mcp` 命令的种子动作；由快照就绪后一次性消费。 */
 export type McpCommandMode = 'login' | 'logout' | 'reconnect'
 
+/** MCP 目标输入；`global` 由协议定义，只用于用户配置读取/保存。 */
+export type McpTargetInput = HarnessMcpTargetInput
+
 /** 打开面板选项；target 省略时按当前窗口选择解析。 */
 export interface McpOpenOptions {
-  target?: HarnessMcpTargetInput
+  target?: McpTargetInput
   tab?: McpTab
+  /** 显式固定配置作用域；项目目标固定 project，全局目标固定 user。 */
+  scope?: McpConfigScope
   mode?: McpCommandMode
   server?: string
 }
@@ -102,7 +107,7 @@ export interface McpFeatureState {
   open: boolean
   /** 面板代次；打开/关闭/换目标推进，旧请求不得写回。 */
   targetEpoch: number
-  target: HarnessMcpTargetInput | undefined
+  target: McpTargetInput | undefined
   targetKey: string | undefined
   tab: McpTab
   scope: McpConfigScope
@@ -184,17 +189,36 @@ export interface CreateMcpFeatureStoreOptions {
 const httpCodeOf = (error: unknown): string | undefined =>
   error instanceof HarnessHttpError ? error.code : undefined
 
-/** 目标键：会话优先；同一目标内作用域草稿再分键。 */
-export const mcpTargetKey = (target: HarnessMcpTargetInput | undefined): string | undefined => {
+/** 全局用户配置的固定目标键；不与任何项目/会话草稿混用。 */
+export const MCP_GLOBAL_TARGET_KEY = 'global'
+
+/** 是否为统一设置中的全局用户配置目标。 */
+export const isGlobalMcpTarget = (target: McpTargetInput | undefined): boolean =>
+  target?.global === true
+
+/** 固定作用域：全局用户配置只写 user，项目目标只写 project。 */
+const fixedScopeOf = (target: McpTargetInput | undefined): McpConfigScope | undefined => {
   if (!target) return undefined
+  if (isGlobalMcpTarget(target)) return 'user'
+  if (target.threadId) return undefined
+  return target.workspacePath ? 'project' : undefined
+}
+
+/** 目标键：会话优先；同一目标内作用域草稿再分键。 */
+export const mcpTargetKey = (target: McpTargetInput | undefined): string | undefined => {
+  if (!target) return undefined
+  if (isGlobalMcpTarget(target)) return MCP_GLOBAL_TARGET_KEY
   if (target.threadId) return `t:${target.threadId}`
   return target.workspacePath ? `w:${target.workspacePath}` : undefined
 }
 
-const targetInputOf = (target: HarnessMcpTargetInput): HarnessMcpTargetInput => ({
-  ...(target.threadId ? { threadId: target.threadId } : {}),
-  ...(target.threadId ? {} : { workspacePath: target.workspacePath }),
-})
+const targetInputOf = (target: McpTargetInput): McpTargetInput => {
+  if (isGlobalMcpTarget(target)) return { global: true }
+  return {
+    ...(target.threadId ? { threadId: target.threadId } : {}),
+    ...(target.threadId ? {} : { workspacePath: target.workspacePath }),
+  }
+}
 
 const draftIsDirty = (draft: McpConfigDraftState | undefined): boolean =>
   draft !== undefined && draft.content !== draft.baseContent
@@ -345,7 +369,7 @@ export const createMcpFeatureStore = (
   let authRequest = 0
   let lastRuntime: string | undefined
 
-  const resolveTarget = (): HarnessMcpTargetInput | undefined => {
+  const resolveTarget = (): McpTargetInput | undefined => {
     const selection = browser.windowStore.getState().selection
     if (selection?.kind === 'thread') return { threadId: selection.threadId }
     if (selection?.kind === 'new') return { workspacePath: selection.startProjectPath }
@@ -367,9 +391,12 @@ export const createMcpFeatureStore = (
       snapshot: HarnessMcpConfigSnapshot,
       targetKey: string,
       resetScope: McpConfigScope | undefined,
+      global: boolean,
     ): Record<string, McpConfigDraftState> => {
       const drafts: Record<string, McpConfigDraftState> = { ...get().drafts }
-      for (const scope of ['user', 'project'] as const) {
+      // 全局目标只暴露用户配置；不能因为快照字段存在就生成项目草稿。
+      const scopes = global ? (['user'] as const) : (['user', 'project'] as const)
+      for (const scope of scopes) {
         const key = draftOf(targetKey, scope)
         const file = scope === 'user' ? snapshot.files.user : snapshot.files.project
         if (resetScope === scope) delete drafts[key]
@@ -462,7 +489,7 @@ export const createMcpFeatureStore = (
       await get().loadDetails(row.name)
     }
 
-    const runReload = async (target: HarnessMcpTargetInput): Promise<HarnessReloadResult> =>
+    const runReload = async (target: McpTargetInput): Promise<HarnessReloadResult> =>
       browser.client.reloadResources({ ...targetInputOf(target), trigger: 'api' })
 
     return {
@@ -500,6 +527,8 @@ export const createMcpFeatureStore = (
         if (get().disposed) return
         const target = openOptions?.target ? targetInputOf(openOptions.target) : resolveTarget()
         const targetKey = mcpTargetKey(target)
+        const global = isGlobalMcpTarget(target)
+        const fixedScope = fixedScopeOf(target)
         const epoch = ++panelEpoch
         targetRequest += 1
         configRequest += 1
@@ -513,7 +542,11 @@ export const createMcpFeatureStore = (
           targetEpoch: epoch,
           target,
           targetKey,
-          tab: openOptions?.tab ?? 'servers',
+          // 全局只展示用户配置；项目目标固定配置视图，不先请求运行快照。
+          tab: global
+            ? 'config'
+            : (openOptions?.tab ?? (target?.workspacePath ? 'config' : 'servers')),
+          scope: fixedScope ?? openOptions?.scope ?? get().scope,
           snapshot: undefined,
           configSnapshot: undefined,
           notice: undefined,
@@ -544,6 +577,11 @@ export const createMcpFeatureStore = (
         browser.setMcpAuthPanelOpen(true)
         if (!target) {
           set({ notice: '当前没有可用的会话或起始目录；请先选择工作区/项目。' })
+          return
+        }
+        if (global) {
+          // 全局目标只有配置原文；不查询 getMcp、不启动连接、不探测路径。
+          await get().loadConfig()
           return
         }
         await get().refreshLive()
@@ -593,7 +631,13 @@ export const createMcpFeatureStore = (
       },
 
       setTab: async (tab) => {
-        if (get().disposed) return
+        const state = get()
+        if (state.disposed) return
+        // 全局页只有用户配置内容，不接受运行/认证视图切换。
+        if (isGlobalMcpTarget(state.target)) {
+          if (state.tab !== 'config') set({ tab: 'config' })
+          return
+        }
         if (tab !== 'servers') detailsRequest += 1
         set({
           tab,
@@ -614,6 +658,9 @@ export const createMcpFeatureStore = (
       setScope: (scope) => {
         const state = get()
         if (state.disposed || state.scope === scope) return
+        // 全局固定 user、项目目标固定 project；不允许在同一上下文混入另一作用域。
+        const fixed = fixedScopeOf(state.target)
+        if (fixed !== undefined && scope !== fixed) return
         if (scope === 'project' && state.snapshot && !state.snapshot.projectTrusted) return
         set({
           scope,
@@ -635,6 +682,11 @@ export const createMcpFeatureStore = (
         const state = get()
         const target = state.target
         if (state.disposed || !state.open || !target) return
+        // 全局目标禁止运行快照（宿主会拒绝 getMcp）；这里直接短路。
+        if (isGlobalMcpTarget(target)) {
+          set({ targetLoading: false })
+          return
+        }
         const epoch = ++targetRequest
         const panel = state.targetEpoch
         const targetKey = state.targetKey
@@ -692,12 +744,22 @@ export const createMcpFeatureStore = (
           ) {
             return
           }
+          const fixed = fixedScopeOf(target)
           set({
             configSnapshot: snapshot,
-            drafts: withDraftsFromSnapshot(snapshot, targetKey, loadOptions?.resetScope),
+            drafts: withDraftsFromSnapshot(
+              snapshot,
+              targetKey,
+              loadOptions?.resetScope,
+              isGlobalMcpTarget(target),
+            ),
             configLoading: false,
             error: undefined,
-            ...(current.scope === 'project' && !snapshot.projectTrusted ? { scope: 'user' } : {}),
+            ...(fixed !== undefined
+              ? { scope: fixed }
+              : current.scope === 'project' && !snapshot.projectTrusted
+                ? { scope: 'user' }
+                : {}),
           })
         } catch (error) {
           const current = get()
@@ -775,11 +837,14 @@ export const createMcpFeatureStore = (
             current.open && current.targetEpoch === panel && current.targetKey === targetKey
           if (result.status === 'saved') {
             const editedLater = currentDraft.draftRevision !== submitted.draftRevision
-            const savedNotice = result.apply.reloadRequired
-              ? target.threadId
-                ? '已保存，可应用到当前会话'
-                : '已保存，可刷新项目资源'
-              : '已保存'
+            // 全局页没有应用动作，成功提示只报告保存结果。
+            const savedNotice = isGlobalMcpTarget(target)
+              ? '已保存'
+              : result.apply.reloadRequired
+                ? target.threadId
+                  ? '已保存，可应用到当前会话'
+                  : '已保存，可刷新项目资源'
+                : '已保存'
             set({
               // 保存响应只更新所属草稿基线；请求期间的新编辑保留。
               drafts: {
@@ -828,6 +893,11 @@ export const createMcpFeatureStore = (
         const state = get()
         const target = state.target
         if (state.disposed || !state.open || !target || state.busy) return
+        // 全局目标不建立连接，也不探测路径；应用动作只能从会话/项目上下文发起。
+        if (isGlobalMcpTarget(target)) {
+          set({ notice: '全局 MCP 配置保存后不自动应用；请从会话或项目资源中应用。' })
+          return
+        }
         const panel = state.targetEpoch
         const targetKey = state.targetKey
         const request = ++saveRequest

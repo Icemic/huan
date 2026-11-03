@@ -19,6 +19,8 @@ import {
   GitForkIcon,
   InfoIcon,
   Loader2Icon,
+  ServerIcon,
+  Settings2Icon,
   TerminalIcon,
   Trash2Icon,
 } from 'lucide-react'
@@ -27,7 +29,13 @@ import { SessionRecoveredQueue } from '@/components/session-tree-dialog'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu'
 import { useRestoreFocusOnClose } from '@/hooks/use-restore-trigger-focus'
-import { useRuntimeStore, useSessionsStore, useWorkspaceStore } from '@/state/app-context'
+import {
+  useMcpStore,
+  useRuntimeStore,
+  useSessionsStore,
+  useSettingsStore,
+  useWorkspaceStore,
+} from '@/state/app-context'
 
 /** 菜单条目；打开弹层的动作在关闭后由入口侧标记焦点回退。 */
 interface SessionAction {
@@ -108,6 +116,10 @@ export function SessionContextBar() {
   const formOpen = useWorkspaceStore((state) => state.form.open)
   const openPanel = useRuntimeStore((state) => state.openPanel)
   const runtimeOpen = useRuntimeStore((state) => state.open)
+  const openContextSettings = useSettingsStore((state) => state.openPanel)
+  const contextSettingsOpen = useSettingsStore((state) => state.open)
+  const openContextMcp = useMcpStore((state) => state.openPanel)
+  const contextMcpOpen = useMcpStore((state) => state.open)
   const openTree = useSessionsStore((state) => state.openTree)
   const openFork = useSessionsStore((state) => state.openFork)
   const openDetails = useSessionsStore((state) => state.openDetails)
@@ -124,7 +136,15 @@ export function SessionContextBar() {
   // 只有经菜单打开的弹层才在关闭时把焦点还给入口，别处打开的表单不受影响。
   const restoreMenuFocus = useRef(false)
   useRestoreFocusOnClose(
-    formOpen || runtimeOpen || treeOpen || detailsOpen || deleteOpen || assignOpen || forkOpen,
+    formOpen ||
+      runtimeOpen ||
+      treeOpen ||
+      detailsOpen ||
+      deleteOpen ||
+      assignOpen ||
+      forkOpen ||
+      contextSettingsOpen ||
+      contextMcpOpen,
     menuTriggerRef,
     restoreMenuFocus,
   )
@@ -188,6 +208,24 @@ export function SessionContextBar() {
       onSelect: () => {
         restoreMenuFocus.current = true
         void openPanel()
+      },
+    },
+    {
+      key: 'resources',
+      label: <Trans>资源</Trans>,
+      icon: Settings2Icon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        void openContextSettings({ threadId })
+      },
+    },
+    {
+      key: 'mcp',
+      label: <Trans>MCP</Trans>,
+      icon: ServerIcon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        void openContextMcp({ target: { threadId } })
       },
     },
     {

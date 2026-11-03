@@ -1,7 +1,7 @@
 # 幻（huan）— 技术架构文档
 
 **最后更新**：2026-11-02
-**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 16。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
+**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 17。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
 ---
@@ -28,7 +28,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 16；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
+**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 17；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
 
 **UI 依赖边界（2026-11-02）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；聊天展示源码在应用内维护，不保留 assistant-ui 运行时。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -127,7 +127,9 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 ### 3.2.7 设置与资源清单
 
-设置接口仅接受会话 ID 或起始 cwd，配置路径由服务端固定为 agentDir/settings.json 和 cwd/.pi/settings.json。项目原文需要通过信任检查；旧的“无受保护资源”缓存不能授权后来新增的配置。原文有界读取，经公开分发的 Pi settings schema 校验，SDK SettingsManager.fromStorage 只合并本次安全读取的原文。未知字段保留，SHA-256 revision 防止旧窗口覆盖；与既有设置操作共用串行写队列，同目录临时文件原子替换并回读确认。保存只改磁盘，不静默替换 live 模型、设置或资源；重载/重启要求单独说明。
+设置接口接受显式global目标、会话ID或起始cwd。global只读取/保存agentDir/settings.json，不查询项目路径或信任；项目/会话配置路径固定为cwd/.pi/settings.json。项目原文需要通过信任检查；旧的“无受保护资源”缓存不能授权后来新增的配置。原文有界读取，经公开分发的Pi settings schema校验，SDK SettingsManager.fromStorage只合并本次安全读取的原文。未知字段保留，SHA-256 revision防止旧窗口覆盖；与既有设置操作共用串行写队列，同目录临时文件原子替换并回读确认。全局模型范围保存推进候选目录，自动压缩保存复用live设置缓存同步并保留项目覆盖；其余字段继续按重载/重启要求生效，live模型保持原选择。
+
+应用settings-ui-store仅保存统一设置open/page，组合根编排按页加载与认证短期清理。七个垂直页签共用一个Dialog；用户JSON草稿仍由settings feature持有，MCP配置草稿由mcp feature持有。项目配置和会话实际资源分别通过明确目标入口读取，global MCP配置不创建连接。基础视觉组合直接采用官方base-nova源码，必要路径、方向选择器和token适配记录在应用第三方说明。
 
 资源清单来自当前 live loader 或已装配缓存的公开 getters，展示来源、指令、系统提示片段、扩展/skill/模板/主题与 packages；配置全文不进入普通消息/快照。文本仅显式请求返回。具体设计见[设置与资源迭代](iteration/2026-11/2026-11-01-feat-settings-resources.md)。
 
@@ -162,7 +164,7 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
   - 命令通过类型化方法与 HTTP 请求/响应对应，无统一命令 `requestId`；Host UI 响应中的 `requestId` 只关联交互请求。
   - 会话事件信封为 `threadId + seq`，工具事件按需携带 `toolCallId/parentToolCallId`；无统一 `sessionId/runId` 事件信封。
   - 重连与首次订阅采用同一机制：订阅入口先交付带 `seq` 的权威快照，再在同一连接上接续实时事件。`seq` 可用于发现序号遗漏，但不依赖事件重放。
-  - 协议常量为 16；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
+  - 协议常量为 17；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
   - Host UI 为四种交互及安全投影；版本化应用自定义 `kind` 尚未实现。
 - 传输可替换：首期 HTTP/SSE；Electron 主进程共置、Tauri sidecar 或未来本地 IPC 都实现同一 `HarnessClient` 接口。
 

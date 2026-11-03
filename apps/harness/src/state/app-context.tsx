@@ -17,6 +17,7 @@ import type { ModelFeatureState } from './model-store'
 import type { RuntimeFeatureState } from './runtime-store'
 import type { SessionsFeatureState } from './sessions-store'
 import type { SettingsFeatureState } from './settings-store'
+import type { SettingsUiState } from './settings-ui-store'
 import type { ThemeStoreState } from './theme-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
@@ -59,6 +60,10 @@ export const useComposerStore = <T,>(selector: (state: ComposerFeatureState) => 
 /** 订阅设置与资源 feature 状态。 */
 export const useSettingsStore = <T,>(selector: (state: SettingsFeatureState) => T): T =>
   useStore(useHarnessApp().settingsStore, selector)
+
+/** 订阅统一设置导航状态（唯一 open/page）。 */
+export const useSettingsUiStore = <T,>(selector: (state: SettingsUiState) => T): T =>
+  useStore(useHarnessApp().settingsUiStore, selector)
 
 /** 订阅 provider 认证 feature 状态。 */
 export const useAuthStore = <T,>(selector: (state: AuthFeatureState) => T): T =>

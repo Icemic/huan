@@ -1,11 +1,12 @@
 /**
- * provider 认证 feature Zustand 状态：面板视图、短期回填与操作忙状态。
+ * provider 认证 feature Zustand 状态：页内定位、短期回填与操作忙状态。
  *
  * 安全边界（见 R1 §3.2/§5.4）：
  * - 认证权威快照只在公共 serviceStore；本 store 不保存凭据或快照副本；
  * - 回填值只按 operationId+promptId 保存在内存，提交时先清空再请求，
- *   关闭面板、提示切换、操作结束都会清空；不持久化、不写日志；
- * - 关闭面板不取消远端登录；只有显式“取消认证”才发送取消；
+ *   离开设置页、提示切换、操作结束都会清空；不持久化、不写日志；
+ * - 面板开关由统一设置导航持有；离开页面不取消远端登录，只有显式
+ *   “取消认证”才发送取消；
  * - 授权链接由用户点击打开，不自动拉起浏览器；退出只移除本地已存凭据。
  */
 
@@ -19,7 +20,7 @@ import type {
 import type { HarnessBrowser } from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 
-/** 认证面板打开方式；由 `/login`、`/logout` 与手动入口共用。 */
+/** 认证页定位方式；由 `/login`、`/logout` 与手动入口共用。 */
 export type AuthPanelMode = 'login' | 'logout'
 
 export interface AuthOpenOptions {
@@ -29,8 +30,7 @@ export interface AuthOpenOptions {
 
 /** provider 认证 feature 状态。 */
 export interface AuthFeatureState {
-  open: boolean
-  /** 打开时聚焦的 provider；仅展示用，不构成权限。 */
+  /** 最近一次命令定位的 provider；仅展示用，不构成权限。 */
   focusedProvider: string | undefined
   mode: AuthPanelMode | undefined
   notice: string | undefined
@@ -44,8 +44,10 @@ export interface AuthFeatureState {
   cancelling: Readonly<Record<string, boolean>>
   disposed: boolean
 
-  openPanel: (options?: AuthOpenOptions) => Promise<void>
-  closePanel: () => void
+  /** 定位到认证页并聚焦 provider；由统一设置导航的一次性动作调用。 */
+  focusProvider: (options?: AuthOpenOptions) => Promise<void>
+  /** 清空定位、提示与秘密回填；不取消远端操作。 */
+  resetView: () => void
   refresh: () => Promise<void>
   startLogin: (providerId: string, method: HarnessProviderAuthMethod) => Promise<void>
   logout: (providerId: string) => Promise<void>
@@ -135,7 +137,6 @@ export const createAuthFeatureStore = (
       browser.serviceStore.getState().providerAuth
 
     return {
-      open: false,
       focusedProvider: undefined,
       mode: undefined,
       notice: undefined,
@@ -145,11 +146,10 @@ export const createAuthFeatureStore = (
       cancelling: {},
       disposed: false,
 
-      openPanel: async (openOptions) => {
+      focusProvider: async (openOptions) => {
         if (get().disposed) return
         const mode = openOptions?.mode
         set({
-          open: true,
           focusedProvider: openOptions?.providerId,
           mode,
           notice:
@@ -165,11 +165,10 @@ export const createAuthFeatureStore = (
         await get().refresh()
       },
 
-      closePanel: () => {
+      resetView: () => {
         if (get().disposed) return
-        // 关闭不取消远端操作；只清空本窗口短期输入与提示。
+        // 离开页面或关闭设置不取消远端操作；只清空本窗口短期输入与定位。
         set({
-          open: false,
           focusedProvider: undefined,
           mode: undefined,
           notice: undefined,
@@ -314,7 +313,6 @@ export const createAuthFeatureStore = (
         unsubscribe?.()
         unsubscribe = undefined
         set({
-          open: false,
           focusedProvider: undefined,
           mode: undefined,
           notice: undefined,

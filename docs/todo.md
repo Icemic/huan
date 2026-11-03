@@ -13,6 +13,7 @@
 
 - **已完成**：M0 骨架（迭代①）、M1 最小可用应用（迭代②）、M1.5 Node运行时自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
 - **当前状态**：`refactor` 分支的 R0～R9 开发整改已完成，并按用户确认本地快进合并到main（`377a60a`）：R3～R8 完成 Zustand 浏览器状态、Node/协议、业务动作、管理面板、最终展示与测试迁移，R9 完成文档与证据核对。浏览器业务状态为 Zustand，assistant-ui 运行依赖已移除，协议为 15。R9 主 agent 最终执行 993 项通过、2 项平台跳过、85 条 Chromium、build 与生产预览性能通过；43 项 AR 全部关闭，其中 AR-34 由用户按开发环境/系统问题决定关闭，锁持有者与历史工具异常原因保持未确定。整改总阻塞已解除，G1.5为下一阶段但未启动，未push；详细状态见[整改子路线图](architecture-remediation-roadmap.md)，证据见[R9](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)。
+- **当前UI状态**：统一设置已接入官方base-nova组件，协议17，七页全局设置与项目/会话入口分离；类型、188项相关单测及39条不同浏览器流程已通过。截图已生成，工具未提供可读取图像，视觉审阅未完成；本轮未运行全套测试/构建，未提交。执行事实见[UI调整迭代](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#恢复实施与定向验证)，计划见roadmap §2.3。
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 

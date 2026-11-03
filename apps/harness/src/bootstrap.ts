@@ -18,6 +18,7 @@ import { createModelFeatureStore, type ModelFeatureState } from './state/model-s
 import { createRuntimeFeatureStore, type RuntimeFeatureState } from './state/runtime-store'
 import { createSessionsFeatureStore, type SessionsFeatureState } from './state/sessions-store'
 import { createSettingsFeatureStore, type SettingsFeatureState } from './state/settings-store'
+import { createSettingsUiStore, type SettingsUiState } from './state/settings-ui-store'
 import { createThemeStore, type ThemeStoreState } from './state/theme-store'
 import { createWorkspaceFeatureStore, type WorkspaceFeatureState } from './state/workspace-store'
 
@@ -27,6 +28,7 @@ export interface HarnessApp {
   workspaceStore: StoreApi<WorkspaceFeatureState>
   sessionsStore: StoreApi<SessionsFeatureState>
   settingsStore: StoreApi<SettingsFeatureState>
+  settingsUiStore: StoreApi<SettingsUiState>
   authStore: StoreApi<AuthFeatureState>
   hostStore: StoreApi<HostFeatureState>
   mcpStore: StoreApi<McpFeatureState>
@@ -122,15 +124,56 @@ export const createHarnessApp = (): HarnessApp => {
   const mcpStore = createMcpFeatureStore({ browser, fallbackWorkspacePath })
   const runtimeStore = createRuntimeFeatureStore({ browser, fallbackWorkspacePath })
   const modelStore = createModelFeatureStore({ browser, fallbackWorkspacePath })
+
+  // 统一设置导航只保存开关/页签；页面数据加载与短期清理集中在这里，
+  // 避免各页签组件并行维护业务加载或秘密输入生命周期。
+  const settingsUiStore = createSettingsUiStore({
+    onChange: (page, previous, context) => {
+      const leavingModels = context.wasOpen && previous === 'models' && page !== 'models'
+      if (leavingModels) authStore.getState().resetView()
+      switch (page) {
+        case 'models': {
+          if (context.focus) {
+            void authStore.getState().focusProvider(context.focus)
+          } else {
+            if (!context.wasOpen || previous !== 'models') authStore.getState().resetView()
+            void authStore.getState().refresh()
+          }
+          // 全局设置不依赖当前会话/目录；具体页签内容由 GlobalSettingsContent 展示。
+          void settingsStore.getState().openPanel({ global: true })
+          break
+        }
+        case 'conversation':
+        case 'tools':
+        case 'advanced':
+          void settingsStore.getState().openPanel({ global: true })
+          break
+        case 'mcp':
+          void mcpStore.getState().openPanel({ target: { global: true } })
+          break
+        case 'service':
+          void hostStore.getState().refreshHostInfo()
+          break
+        case 'appearance':
+          break
+      }
+    },
+    onClose: (page) => {
+      // 关闭设置只清短期视图与秘密回填；进行中的认证/写入继续。
+      if (page === 'models') authStore.getState().resetView()
+      settingsStore.getState().close()
+      mcpStore.getState().close()
+    },
+  })
   const composerStore = createComposerFeatureStore({
     browser,
     workspaceStore,
     sessionsStore,
     settingsStore,
-    authStore,
     mcpStore,
     runtimeStore,
     modelStore,
+    settingsUiStore,
   })
   composerRef.current = composerStore
   composerStore
@@ -193,6 +236,7 @@ export const createHarnessApp = (): HarnessApp => {
     workspaceStore,
     sessionsStore,
     settingsStore,
+    settingsUiStore,
     authStore,
     hostStore,
     mcpStore,

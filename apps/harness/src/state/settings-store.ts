@@ -2,14 +2,15 @@
  * 设置与资源 feature Zustand 状态：目标捕获、作用域草稿、保存冲突、资源读取、
  * 同会话重载与全局模型范围目录读取。
  *
- * 业务边界（见 R1 §5.4）：
- * - 目标在打开面板时固定（会话或空白页起始目录），迟到读取/保存不串到新目标；
+ * 业务边界（见 R1 §5.4、G1.5 §5.8）：
+ * - 目标在打开面板时固定（会话、空白页起始目录或仅用户配置的全局目标），迟到读取/保存
+ *   不串到新目标；全局目标不要求 cwd，也不读取资源；
  * - 用户/项目作用域各保留一份原文草稿；关闭面板不丢 dirty 草稿，显式“重新读取文件”
  *   才丢弃当前作用域（dirty 时先确认）；保存失败/冲突保留草稿，保存回执不覆盖后来的编辑；
  * - 保存只写磁盘，不自动应用到 live 会话；“应用到当前会话/刷新项目资源”是独立动作，
  *   未保存草稿不受影响；
- * - 模型页固定用户作用域并编辑用户 JSON 的 enabledModels；完整目录从 serviceStore
- *   按 cwd 读取，本 store 只保留加载/刷新忙状态与错误，不缓存 models；
+ * - 模型页固定用户作用域并编辑用户 JSON 的 enabledModels；全局目标按 all=true 读取
+ *   完整目录，普通目标按 cwd 读取，本 store 只保留加载/刷新忙状态与错误，不缓存 models；
  * - 资源正文只在显式请求时读取，隐藏即清除正文，不持久化。
  */
 
@@ -25,10 +26,12 @@ import type {
 import { type HarnessBrowser, HarnessHttpError } from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 
-/** 设置目标：会话或空白页固定起始目录二选一。 */
+/** 设置目标：会话、空白页固定起始目录，或仅用户文件/目录的全局目标。 */
 export interface SettingsTarget {
   threadId?: string
   workspacePath?: string
+  /** true 表示只编辑用户设置；不需要 cwd，也不提供项目/资源内容。 */
+  global?: boolean
 }
 
 /** 设置视图标签页；`models` 固定编辑用户作用域的 enabledModels。 */
@@ -87,11 +90,11 @@ export interface SettingsFeatureState {
   close: () => void
   setTab: (tab: SettingsTab) => void
   setScope: (scope: HarnessSettingsScope) => void
-  /** 读取设置原文与资源清单。 */
+  /** 读取设置原文；项目目标另读资源清单。 */
   loadSettings: (options?: { resetScope?: HarnessSettingsScope }) => Promise<void>
   /** 读取资源清单；`withText` 显式请求正文。 */
   loadResources: (withText: boolean) => Promise<void>
-  /** 重新读取磁盘设置并刷新资源；当前作用域 dirty 时首次只要求确认。 */
+  /** 重新读取磁盘设置；项目目标同时刷新资源，当前作用域 dirty 时首次只要求确认。 */
   reloadFromDisk: () => Promise<void>
   /** 读取模型完整目录；结果留在 serviceStore，不在设置 store 缓存。 */
   loadModelCatalog: () => Promise<void>
@@ -134,9 +137,24 @@ const errorText = (error: unknown): string =>
 /** 目标键：会话优先；同一目标内作用域草稿再分键。 */
 export const settingsTargetKey = (target: SettingsTarget | undefined): string => {
   if (!target) return 'none'
+  if (target.global === true) return 'g'
   if (target.threadId) return `t:${target.threadId}`
   return `w:${target.workspacePath ?? ''}`
 }
+
+/** 宿主快照目标转回设置目标；全局目标不带 cwd。 */
+export const settingsTargetFromSnapshot = (snapshot: HarnessSettingsSnapshot): SettingsTarget =>
+  snapshot.target.kind === 'global'
+    ? { global: true }
+    : snapshot.target.kind === 'session'
+      ? { threadId: snapshot.target.threadId }
+      : { workspacePath: snapshot.target.workspacePath }
+
+/** 快照目标对应的草稿目标键；用于确认当前草稿仍属于该快照。 */
+export const settingsSnapshotTargetKey = (
+  snapshot: HarnessSettingsSnapshot | undefined,
+): string | undefined =>
+  snapshot ? settingsTargetKey(settingsTargetFromSnapshot(snapshot)) : undefined
 
 const emptyFileContent = (): string => `${JSON.stringify({}, null, 2)}\n`
 
@@ -157,10 +175,13 @@ const draftIsDirty = (draft: SettingsDraftState | undefined): boolean =>
 const draftKeyOf = (targetKey: string, scope: HarnessSettingsScope): string =>
   `${targetKey}|${scope}`
 
-const targetInputOf = (target: SettingsTarget): SettingsTarget => ({
-  ...(target.threadId ? { threadId: target.threadId } : {}),
-  ...(target.threadId ? {} : { workspacePath: target.workspacePath }),
-})
+const targetInputOf = (target: SettingsTarget): SettingsTarget =>
+  target.global
+    ? { global: true }
+    : {
+        ...(target.threadId ? { threadId: target.threadId } : {}),
+        ...(target.threadId ? {} : { workspacePath: target.workspacePath }),
+      }
 
 /** 读取宿主快照中的目标路径（用于展示/资源重载结果）。 */
 const targetPathOf = (snapshot: HarnessSettingsSnapshot | undefined): string | undefined =>
@@ -209,6 +230,7 @@ const saveResultMessage = (
   result: Extract<HarnessSettingsSaveResult, { status: 'saved' }>,
   context: {
     session: boolean
+    global: boolean
     scope: HarnessSettingsScope
     baseContent: string
     content: string
@@ -230,9 +252,11 @@ const saveResultMessage = (
       changed.some((key) => !restartKeys.includes(key)))
   const lines = [
     applicable
-      ? context.session
-        ? '已保存，可应用到当前会话'
-        : '已保存，可刷新项目资源'
+      ? context.global
+        ? '已保存，新会话将使用；已有会话可在资源页重新加载'
+        : context.session
+          ? '已保存，可应用到当前会话'
+          : '已保存，可刷新项目资源'
       : '已保存',
   ]
   if (restartKeys.length > 0) lines.push(`以下设置需重启服务：${restartKeys.join('、')}`)
@@ -262,15 +286,19 @@ export const createSettingsFeatureStore = (
   let modelRequest = 0
 
   return createStore<SettingsFeatureState>()((set, get) => {
-    /** 模型页固定用户作用域，不产生项目级第三层范围。 */
+    /** 模型页与全局目标固定用户作用域，不产生项目级第三层范围。 */
     const effectiveScopeOf = (state: SettingsFeatureState): HarnessSettingsScope =>
-      state.tab === 'models' ? 'user' : state.scope
+      state.target?.global === true || state.tab === 'models' ? 'user' : state.scope
 
     const keyNow = (): string => draftKeyOf(get().targetKey, effectiveScopeOf(get()))
 
-    /** 全局模型目录目标：会话目标使用其固定起始目录。 */
+    /**
+     * 模型目录目标：会话目标使用其固定起始目录；全局目标按协议使用空路径，
+     * 让客户端只发送 all=true 而不带 cwd。
+     */
     const modelWorkspacePathNow = (): string | undefined => {
       const state = get()
+      if (state.target?.global === true) return ''
       const threadWorkspace =
         state.target?.threadId !== undefined
           ? browser.serviceStore.getState().threadsById[state.target.threadId]?.workspacePath
@@ -377,9 +405,13 @@ export const createSettingsFeatureStore = (
             })()
           : undefined
         const target = targetInput ?? fallbackTarget
-        const tab = optionsInput?.tab ?? get().tab
-        // 模型页只编辑用户作用域；不接受项目作用域作为第三层范围。
-        const scope = tab === 'models' ? 'user' : (optionsInput?.scope ?? get().scope)
+        const wasOpen = get().open
+        // 会话入口是“资源”；项目入口是“设置”。显式 tab 始终优先，打开期间保持当前页。
+        const defaultTab = target?.threadId !== undefined && !wasOpen ? 'resources' : get().tab
+        const tab = optionsInput?.tab ?? defaultTab
+        const global = target?.global === true
+        // 全局目标与模型页只编辑用户作用域；不接受项目作用域作为第三层范围。
+        const scope = global || tab === 'models' ? 'user' : (optionsInput?.scope ?? get().scope)
         const epoch = ++panelEpoch
         modelRequest += 1
         set({
@@ -408,6 +440,11 @@ export const createSettingsFeatureStore = (
           modelError: undefined,
         })
         if (!target) return
+        // 全局设置只读取用户设置原文；资源清单只在显式需要时读取。
+        if (global) {
+          await get().loadSettings()
+          return
+        }
         await Promise.all([get().loadSettings(), get().loadResources(false)])
       },
 
@@ -445,8 +482,8 @@ export const createSettingsFeatureStore = (
       setScope: (scope) => {
         const state = get()
         if (state.disposed || state.scope === scope) return
-        // 模型页不允许切到项目作用域，避免出现第三层全局范围。
-        if (state.tab === 'models') return
+        // 全局目标与模型页不允许切到项目作用域，避免出现第三层全局范围。
+        if (state.target?.global === true || state.tab === 'models') return
         if (scope === 'project' && state.snapshot && !state.snapshot.projectTrusted) return
         set({ scope, notice: undefined, error: undefined, reloadConfirm: false })
       },
@@ -502,7 +539,8 @@ export const createSettingsFeatureStore = (
       loadResources: async (withText) => {
         const state = get()
         const target = state.target
-        if (state.disposed || !state.open || !target) return
+        // 全局设置没有会话/项目资源；资源正文保持按需且不在此目标加载。
+        if (state.disposed || !state.open || !target || target.global === true) return
         const epoch = ++resourceRequest
         const panel = state.targetEpoch
         const targetKey = state.targetKey
@@ -546,7 +584,7 @@ export const createSettingsFeatureStore = (
       loadModelCatalog: async () => {
         const state = get()
         const workspacePath = modelWorkspacePathNow()
-        if (state.disposed || !state.open || !workspacePath) return
+        if (state.disposed || !state.open || workspacePath === undefined) return
         const panel = state.targetEpoch
         const targetKey = state.targetKey
         const request = ++modelRequest
@@ -575,7 +613,9 @@ export const createSettingsFeatureStore = (
       refreshModelCatalog: async () => {
         const state = get()
         const workspacePath = modelWorkspacePathNow()
-        if (state.disposed || !state.open || !workspacePath || state.modelRefreshing) return
+        const global = state.target?.global === true
+        if (state.disposed || !state.open || workspacePath === undefined || state.modelRefreshing)
+          return
         const panel = state.targetEpoch
         const targetKey = state.targetKey
         const request = ++modelRequest
@@ -586,7 +626,9 @@ export const createSettingsFeatureStore = (
           error: undefined,
         })
         try {
-          const result = await browser.client.refreshModels({ workspacePath })
+          const result = global
+            ? await browser.client.refreshModels({ global: true })
+            : await browser.client.refreshModels({ workspacePath })
           // 刷新后重读完整目录；目录正文仍留在 serviceStore。
           await browser.serviceStore.getState().loadModelCatalog({
             workspacePath,
@@ -630,6 +672,7 @@ export const createSettingsFeatureStore = (
         const state = get()
         if (state.disposed || !state.open || !state.target) return
         const scope = effectiveScopeOf(state)
+        const global = state.target.global === true
         // 当前作用域有未保存草稿时先要求确认；读取失败仍保留草稿。
         if (
           draftIsDirty(state.drafts[draftKeyOf(state.targetKey, scope)]) &&
@@ -640,7 +683,7 @@ export const createSettingsFeatureStore = (
         }
         set({ reloadConfirm: false, notice: undefined })
         await get().loadSettings({ resetScope: scope })
-        await get().loadResources(state.showText)
+        if (!global) await get().loadResources(state.showText)
       },
 
       updateDraft: (content) => {
@@ -740,6 +783,7 @@ export const createSettingsFeatureStore = (
                 ? {
                     notice: saveResultMessage(result, {
                       session: target.threadId !== undefined,
+                      global: target.global === true,
                       scope,
                       baseContent: submitted.baseContent,
                       content: submitted.content,
@@ -776,7 +820,9 @@ export const createSettingsFeatureStore = (
       applyResourceReload: async () => {
         const state = get()
         const target = state.target
-        if (state.disposed || !state.open || !target || state.reloading) return
+        // 全局设置没有可应用到具体会话/项目的资源；动作由会话资源入口承担。
+        if (state.disposed || !state.open || !target || target.global === true || state.reloading)
+          return
         const targetKey = state.targetKey
         const panel = state.targetEpoch
         const request = ++reloadRequest
@@ -811,6 +857,9 @@ export const createSettingsFeatureStore = (
 
       reloadTarget: async (target) => {
         if (get().disposed) return { status: 'ignored', message: '实例已销毁。' }
+        if (target.global === true) {
+          return { status: 'ignored', message: '全局设置没有可重载的资源。' }
+        }
         const outcome = await reload(target)
         if (outcome.status === 'reloaded') {
           // 会话目标的快照更新由宿主事件广播；这里只推进面板观察版本。

@@ -11,7 +11,7 @@ import type {
 import { createHarnessBrowser, type HarnessBrowser, HarnessHttpError } from '@huan/react'
 import { describe, expect, it, vi } from 'vitest'
 import { mcpDraftKey } from './mcp-config'
-import { createMcpFeatureStore, selectMcpServerRows } from './mcp-store'
+import { createMcpFeatureStore, type McpTargetInput, selectMcpServerRows } from './mcp-store'
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void
@@ -23,10 +23,14 @@ const deferred = <T>() => {
   return { promise, resolve, reject }
 }
 
+const isGlobalTarget = (input: HarnessMcpTargetInput): boolean => input.global === true
+
 const resolvedTarget = (input: HarnessMcpTargetInput): HarnessMcpSnapshot['target'] =>
-  input.threadId
-    ? { kind: 'session', threadId: input.threadId, workspacePath: '/workspace' }
-    : { kind: 'workspace', workspacePath: input.workspacePath ?? '/workspace' }
+  isGlobalTarget(input)
+    ? { kind: 'global', workspacePath: '' }
+    : input.threadId
+      ? { kind: 'session', threadId: input.threadId, workspacePath: '/workspace' }
+      : { kind: 'workspace', workspacePath: input.workspacePath ?? '/workspace' }
 
 const configFile = (scope: 'user' | 'project', content: string): HarnessMcpConfigFile => ({
   scope,
@@ -45,6 +49,7 @@ const configSnapshotOf = (
   options?: { user?: string; project?: string; projectTrusted?: boolean },
 ): HarnessMcpConfigSnapshot => {
   const projectTrusted = options?.projectTrusted ?? true
+  const global = isGlobalTarget(input)
   return {
     target: resolvedTarget(input),
     projectTrusted,
@@ -59,7 +64,15 @@ const configSnapshotOf = (
         options?.user ??
           '{\n  "mcpServers": {\n    "demo": { "command": "node" }\n  },\n  "unknown": 1\n}\n',
       ),
-      project: configFile('project', options?.project ?? '{\n  "mcpServers": {}\n}\n'),
+      project: global
+        ? {
+            ...configFile('project', ''),
+            readable: false,
+            exists: false,
+            revision: null,
+            bytes: 0,
+          }
+        : configFile('project', options?.project ?? '{\n  "mcpServers": {}\n}\n'),
     },
     effective: {
       servers: [],
@@ -128,11 +141,11 @@ const detailsOf = (input: {
 
 const createStore = () => {
   const client = {
-    getMcp: vi.fn(async (input: HarnessMcpTargetInput) => liveSnapshotOf(input)),
-    getMcpConfig: vi.fn(async (input: HarnessMcpTargetInput) => configSnapshotOf(input)),
+    getMcp: vi.fn(async (input: McpTargetInput) => liveSnapshotOf(input)),
+    getMcpConfig: vi.fn(async (input: McpTargetInput) => configSnapshotOf(input)),
     saveMcpConfig: vi.fn(),
     getMcpDetails: vi.fn(
-      async (input: { target: HarnessMcpTargetInput; server: string }) =>
+      async (input: { target: McpTargetInput; server: string }) =>
         ({
           status: 'ok',
           details: detailsOf({
@@ -395,6 +408,86 @@ describe('MCP feature：配置草稿、dirty 与目标保护', () => {
     expect(client.manageMcp).toHaveBeenCalledTimes(1)
     expect(store.getState().notice).toContain('runtime 已变化')
     expect(vi.mocked(client.getMcp).mock.calls.length).toBeGreaterThan(before)
+  })
+})
+
+describe('MCP feature：全局用户配置', () => {
+  it('全局目标只读取用户配置，不查询 live、不探测路径', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({ target: { global: true }, tab: 'servers' })
+
+    expect(client.getMcp).not.toHaveBeenCalled()
+    expect(client.getMcpConfig).toHaveBeenCalledWith({ global: true })
+    expect(store.getState().targetKey).toBe('global')
+    expect(store.getState().tab).toBe('config')
+    expect(store.getState().scope).toBe('user')
+    expect(store.getState().snapshot).toBeUndefined()
+    expect(draftOf(store, 'global', 'user')?.content).toContain('"unknown": 1')
+    expect(draftOf(store, 'global', 'project')).toBeUndefined()
+
+    await store.getState().refreshLive()
+    await store.getState().applyReload()
+    expect(client.getMcp).not.toHaveBeenCalled()
+    expect(client.reloadResources).not.toHaveBeenCalled()
+  })
+
+  it('全局保存只写 user 作用域并报告已保存，不提示应用', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({ target: { global: true } })
+    const content = '{\n  "mcpServers": { "demo": { "command": "node" } }\n}\n'
+    store.getState().updateDraft(content)
+    vi.mocked(client.saveMcpConfig).mockResolvedValueOnce({
+      status: 'saved',
+      scope: 'user',
+      path: '/agent/mcp.json',
+      revision: 'rev-global-2',
+      bytes: content.length,
+      snapshot: configSnapshotOf({ global: true }, { user: content }),
+      apply: { persisted: true, reloadRequired: true, message: '已保存 MCP 配置' },
+    })
+
+    await store.getState().saveConfig()
+
+    expect(client.saveMcpConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { global: true }, scope: 'user' }),
+    )
+    expect(store.getState().notice).toBe('已保存')
+    expect(store.getState().error).toBeUndefined()
+    expect(client.reloadResources).not.toHaveBeenCalled()
+  })
+
+  it('全局配置冲突保留草稿且不回显秘密', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({ target: { global: true } })
+    store
+      .getState()
+      .updateDraft('{\n  "mcpServers": { "demo": { "env": { "TOKEN": "secret-token" } } }\n}\n')
+    vi.mocked(client.saveMcpConfig).mockRejectedValueOnce(
+      new HarnessHttpError('conflict', 409, 'mcp-config-conflict'),
+    )
+
+    await store.getState().saveConfig()
+
+    expect(store.getState().error).toContain('保存冲突')
+    expect(draftOf(store, 'global', 'user')?.content).toContain('secret-token')
+    expect(
+      JSON.stringify({ error: store.getState().error, notice: store.getState().notice }),
+    ).not.toContain('secret-token')
+  })
+
+  it('项目目标固定 project 作用域，不混入用户配置', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({
+      target: { workspacePath: '/workspace' },
+      tab: 'config',
+      scope: 'user',
+    })
+
+    expect(store.getState().scope).toBe('project')
+    expect(store.getState().tab).toBe('config')
+    expect(client.getMcpConfig).toHaveBeenCalledWith({ workspacePath: '/workspace' })
+    store.getState().setScope('user')
+    expect(store.getState().scope).toBe('project')
   })
 })
 

@@ -31,12 +31,12 @@ import {
   findAppCommand,
   mergeCommandCatalog,
 } from '../components/pi-builtin-commands'
-import type { AuthFeatureState } from './auth-store'
 import type { McpFeatureState } from './mcp-store'
 import type { ModelFeatureState } from './model-store'
 import type { RuntimeFeatureState } from './runtime-store'
 import type { SessionsFeatureState } from './sessions-store'
 import type { SettingsFeatureState, SettingsTarget } from './settings-store'
+import type { SettingsUiState } from './settings-ui-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
 const THINKING_LEVELS: readonly HarnessThinkingLevel[] = [
@@ -160,7 +160,7 @@ export interface CreateComposerFeatureStoreOptions {
   workspaceStore: StoreApi<WorkspaceFeatureState>
   sessionsStore: StoreApi<SessionsFeatureState>
   settingsStore: StoreApi<SettingsFeatureState>
-  authStore: StoreApi<AuthFeatureState>
+  settingsUiStore: StoreApi<SettingsUiState>
   mcpStore: StoreApi<McpFeatureState>
   runtimeStore: StoreApi<RuntimeFeatureState>
   modelStore: StoreApi<ModelFeatureState>
@@ -239,7 +239,7 @@ export const createComposerFeatureStore = (
     workspaceStore,
     sessionsStore,
     settingsStore,
-    authStore,
+    settingsUiStore,
     mcpStore,
     runtimeStore,
     modelStore,
@@ -351,8 +351,8 @@ export const createComposerFeatureStore = (
   }
 
   /**
-   * `/login` 与 `/logout` 打开同一认证面板；带参数时先按权威 provider 快照
-   * 验证。未知 ID 只作提示，不发送给模型。
+   * `/login` 与 `/logout` 定位模型与服务商页；带参数时先按权威 provider
+   * 快照验证。未知 ID 只作提示，不发送给模型；页内聚焦由导航一次性动作消费。
    */
   const runProviderAuthCommand = async (
     mode: 'login' | 'logout',
@@ -376,7 +376,7 @@ export const createComposerFeatureStore = (
         return false
       }
     }
-    await authStore.getState().openPanel({
+    settingsUiStore.getState().openPage('models', {
       mode,
       ...(providerId ? { providerId } : {}),
     })
@@ -384,7 +384,8 @@ export const createComposerFeatureStore = (
   }
 
   const runSettingsCommand = async (): Promise<boolean> => {
-    await settingsStore.getState().openPanel(settingsTargetNow())
+    // 保留上次页签；命令只负责打开统一设置，不固定当前会话/目录。
+    settingsUiStore.getState().openPage(settingsUiStore.getState().page)
     return true
   }
 
@@ -819,10 +820,8 @@ export const createComposerFeatureStore = (
         })
         return true
       case 'scoped-models':
-        // 全局模型范围固定在设置面板的模型页与用户作用域；不再打开运行面板。
-        await settingsStore
-          .getState()
-          .openPanel(settingsTargetNow(), { tab: 'models', scope: 'user' })
+        // 全局模型范围固定在统一设置的模型页；不再打开运行面板或上下文设置。
+        settingsUiStore.getState().openPage('models')
         return true
       case 'mcp': {
         const trimmed = args.trim()

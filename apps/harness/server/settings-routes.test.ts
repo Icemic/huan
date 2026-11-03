@@ -149,6 +149,17 @@ describe('设置查询路由', () => {
     expect(ok.status).toBe(200)
     expect(await ok.json()).toEqual(settingsSnapshot)
     expect(client.getSettings).toHaveBeenCalledWith({ threadId: 't1' })
+
+    const global = await app.request('/api/pi/settings?global=true', { headers })
+    expect(global.status).toBe(200)
+    expect(client.getSettings).toHaveBeenLastCalledWith({ global: true })
+    expect(
+      (
+        await app.request('/api/pi/settings?global=true&threadId=t1', {
+          headers,
+        })
+      ).status,
+    ).toBe(400)
   })
 
   it('资源查询转发 includeText，且目标同样互斥', async () => {
@@ -162,6 +173,7 @@ describe('设置查询路由', () => {
       workspacePath: '/workspace',
       includeText: true,
     })
+    expect((await app.request('/api/pi/resources?global=true', { headers })).status).toBe(400)
   })
 })
 
@@ -197,6 +209,26 @@ describe('设置保存路由', () => {
     })
     expect(ok.status).toBe(200)
     expect(await ok.json()).toEqual(savedResult)
+
+    const globalSaved = await postSettings(saved.app, {
+      target: { global: true },
+      scope: 'user',
+      content: '{}',
+      expectedRevision: null,
+    })
+    expect(globalSaved.status).toBe(200)
+    expect(saved.client.saveSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ target: { global: true }, scope: 'user' }),
+    )
+
+    const blockedGlobalProject = await postSettings(saved.app, {
+      target: { global: true },
+      scope: 'project',
+      content: '{}',
+      expectedRevision: null,
+    })
+    expect(blockedGlobalProject.status).toBe(400)
+    expect(await blockedGlobalProject.json()).toEqual({ error: 'invalid-settings-input' })
 
     const invalid = setup({
       saveSettings: vi.fn(async () => invalidResult),

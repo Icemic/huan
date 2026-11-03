@@ -117,7 +117,10 @@ export type McpConfigSaveResult =
 /** 创建存储的固定输入。 */
 export interface McpConfigStoreOptions {
   agentDir: string
-  cwd: string
+  /** 项目配置根；`userOnly` 时可省略且不会读取项目文件。 */
+  cwd?: string
+  /** 只管理用户配置：项目路径为空串，项目读写均按不可用拒绝。 */
+  userOnly?: boolean
 }
 
 /** MCP 配置存储；方法不接受任意文件路径。 */
@@ -200,9 +203,11 @@ async function projectContextIssues(
  */
 export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigStore {
   const agentDir = resolve(options.agentDir)
-  const cwd = resolve(options.cwd)
+  const userOnly = options.userOnly === true
+  const cwd = options.cwd === undefined ? undefined : resolve(options.cwd)
+  if (!userOnly && !cwd) throw new TypeError('MCP 配置存储需要 cwd，或显式声明 userOnly。')
   // 内部路径不对外暴露可变引用；写操作只使用这个封闭对象。
-  const configPaths = mcpConfigPaths(agentDir, cwd)
+  const configPaths = mcpConfigPaths(agentDir, userOnly ? undefined : cwd)
 
   const read = async (
     scope: McpConfigScope,
@@ -212,10 +217,10 @@ export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigS
       throw new TypeError('MCP 配置 scope 必须是 user 或 project。')
     }
     const path = scope === 'user' ? configPaths.user : configPaths.project
-    if (scope === 'project' && readOptions.projectTrusted !== true) {
+    if (scope === 'project' && (userOnly || readOptions.projectTrusted !== true)) {
       return untrustedState(scope, path)
     }
-    const root = scope === 'user' ? agentDir : cwd
+    const root = scope === 'user' ? agentDir : (cwd as string)
     try {
       const raw = await readMcpConfigText(path, root)
       const document = configDocumentFromRead(scope, path, raw)
@@ -242,7 +247,7 @@ export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigS
       throw new TypeError('MCP 配置 scope 必须是 user 或 project。')
     }
     const path = scope === 'user' ? configPaths.user : configPaths.project
-    if (scope === 'project' && input.projectTrusted !== true) {
+    if (scope === 'project' && (userOnly || input.projectTrusted !== true)) {
       return {
         status: 'untrusted',
         scope,
@@ -291,7 +296,7 @@ export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigS
       }
     }
 
-    const root = scope === 'user' ? agentDir : cwd
+    const root = scope === 'user' ? agentDir : (cwd as string)
     try {
       return await withMcpConfigPathQueue(path, async (): Promise<McpConfigSaveResult> => {
         // 队列内部重新读取：并发保存以磁盘 revision 为准。
@@ -379,12 +384,18 @@ export function createMcpConfigStore(options: McpConfigStoreOptions): McpConfigS
   return {
     paths: Object.freeze({ ...configPaths }),
     read,
-    load: (loadOptions) =>
-      loadMcpConfig({
+    load: async (loadOptions) => {
+      if (userOnly) {
+        const userRead = await readMcpConfigText(configPaths.user, agentDir)
+        const user = configDocumentFromRead('user', configPaths.user, userRead)
+        return mergeMcpConfigDocuments(user)
+      }
+      return loadMcpConfig({
         agentDir,
-        cwd,
+        cwd: cwd as string,
         projectTrusted: loadOptions.projectTrusted === true,
-      }),
+      })
+    },
     save,
   }
 }

@@ -7,10 +7,12 @@ import {
   disconnectClients,
   finishStream,
   openApp,
+  openSettings,
   releaseSegment,
   resetStream,
   selectModel,
   sendMessage,
+  settingsDialog,
   startNewSession,
   streamState,
   subscriptions,
@@ -48,9 +50,9 @@ test('空白页显示默认模型错误、目录及来源，选有效模型后�
   const info = await controlInfo(request)
   await openApp(page)
 
-  await page.getByRole('button', { name: '宿主状态' }).click()
-  const hostStatus = page.getByRole('dialog', { name: '宿主状态' })
-  await expect(hostStatus.getByText('默认模型缺少凭据')).toBeVisible()
+  await openSettings(page, '服务与诊断')
+  const hostStatus = settingsDialog(page)
+  await expect(hostStatus).toContainText('默认模型缺少凭据，请登录或选择其他模型')
   await expect(hostStatus.getByText(info.workspacePath)).toBeVisible()
   await expect(hostStatus.getByText(`${info.agentDir} (显式参数)`)).toBeVisible()
   await expect(hostStatus.getByText('huan-auth-test / auth-model')).toBeVisible()

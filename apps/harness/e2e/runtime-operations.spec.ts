@@ -1,12 +1,9 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import {
   assistantMessages,
   chooseSessionAction,
   configureStream,
-  controlInfo,
   createProject,
   createWorkspaceApi,
   DEFAULT_REPLY,
@@ -65,15 +62,6 @@ async function prepareWorkspace(request: APIRequestContext, label: string): Prom
 async function sendLongMessage(page: Page, text: string): Promise<void> {
   await sendMessage(page, `${text} ${'上下文历史'.repeat(24)}`)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
-}
-
-/** 读取隔离用户空间里的 settings.json（临时目录，仅供断言保存结果）。 */
-async function readAgentSettings(request: APIRequestContext) {
-  const info = await controlInfo(request)
-  return JSON.parse(await readFile(join(info.agentDir, 'settings.json'), 'utf8')) as {
-    compaction?: { enabled?: boolean }
-    enabledModels?: string[]
-  }
 }
 
 test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, request }) => {
@@ -175,7 +163,7 @@ test('Shell 双窗实时、断线重连与独立取消', async ({ page, context,
   await second.close()
 })
 
-test('手动压缩成功、自动压缩保存与取消后恢复', async ({ page, request }) => {
+test('手动压缩成功与取消后恢复', async ({ page, request }) => {
   const run = Date.now().toString(36)
   const workspaceName = await prepareWorkspace(request, '压缩')
   await openApp(page)
@@ -191,23 +179,6 @@ test('手动压缩成功、自动压缩保存与取消后恢复', async ({ page,
   await expect(dialog.getByRole('status')).toContainText('压缩完成')
   await closePanel(page)
   await expect(page.locator('[data-slot="huan-compaction-summary"]').last()).toBeVisible()
-
-  // 自动压缩默认开启（隔离 settings.json），切换后写入用户设置并影响新会话。
-  const autoDialog = await openPanel(page)
-  await expect(autoDialog.getByRole('button', { name: '自动压缩' })).toContainText('开')
-  await autoDialog.getByRole('button', { name: '自动压缩' }).click()
-  await expect(autoDialog.getByRole('button', { name: '自动压缩' })).toContainText('关')
-  await closePanel(page)
-  expect((await readAgentSettings(request)).compaction?.enabled).toBe(false)
-
-  await startNewSession(page, workspaceName)
-  await selectModel(page)
-  const secondTitle = `自动压缩继承-${run}`
-  await sendMessage(page, secondTitle)
-  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
-  const inherited = await openPanel(page)
-  await expect(inherited.getByRole('button', { name: '自动压缩' })).toContainText('关')
-  await closePanel(page)
 
   // 手动压缩取消：新会话凑够可压缩历史，再挂起摘要请求后取消。
   await startNewSession(page, workspaceName)
@@ -231,10 +202,4 @@ test('手动压缩成功、自动压缩保存与取消后恢复', async ({ page,
   await expect(page.locator('[data-slot="huan-message"][data-role="user"]').last()).toContainText(
     recovery,
   )
-
-  // 还原用户设置，避免影响后续浏览器用例。
-  const restore = await openPanel(page)
-  await restore.getByRole('button', { name: '自动压缩' }).click()
-  await expect(restore.getByRole('button', { name: '自动压缩' })).toContainText('开')
-  await closePanel(page)
 })

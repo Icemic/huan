@@ -15,6 +15,7 @@ import {
   resetStream,
   selectModel,
   sendMessage,
+  settingsDialog,
   startNewSession,
   streamState,
   threadListItem,
@@ -51,11 +52,11 @@ test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普
   await expect(messageInput(page)).toHaveValue('')
   await page.keyboard.press('Escape')
 
-  // 已实施内置命令打开同一设置面板，不发送给模型；完成后回到输入框。
+  // 已实施内置命令打开同一统一设置，不发送给模型；完成后回到输入框。
   await messageInput(page).fill('/settings')
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
-  const settings = page.getByRole('dialog', { name: '设置与资源' })
+  const settings = settingsDialog(page)
   await expect(settings).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
   await page.keyboard.press('Escape')

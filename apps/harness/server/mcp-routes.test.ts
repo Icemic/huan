@@ -210,12 +210,15 @@ describe('MCP 路由安全与输入边界', () => {
 
     const invalid = await app.request('/api/pi/mcp', { headers })
     expect(invalid.status).toBe(400)
+    expect((await app.request('/api/pi/mcp?global=true', { headers })).status).toBe(400)
   })
 
   it('配置读取/保存与详情/管理/认证均经 typed 结果返回', async () => {
     const { app, client } = setup()
     const http = httpClient(app)
     expect(await http.getMcpConfig({ threadId: 't1' })).toEqual(configSnapshot)
+    expect(await http.getMcpConfig({ global: true })).toEqual(configSnapshot)
+    expect(client.getMcpConfig).toHaveBeenLastCalledWith({ global: true })
     const saved = await http.saveMcpConfig({
       target: { threadId: 't1' },
       scope: 'user',
@@ -223,6 +226,15 @@ describe('MCP 路由安全与输入边界', () => {
       expectedRevision: 'rev-1',
     })
     expect(saved.status).toBe('saved')
+    const blockedGlobalProject = await http
+      .saveMcpConfig({
+        target: { global: true },
+        scope: 'project',
+        content: '{}',
+        expectedRevision: null,
+      })
+      .catch((error: unknown) => error)
+    expect(blockedGlobalProject).toMatchObject({ status: 400, code: 'invalid-mcp-config-input' })
     expect(
       await http.getMcpDetails({
         target: { threadId: 't1' },

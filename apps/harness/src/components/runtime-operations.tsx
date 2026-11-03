@@ -118,7 +118,6 @@ export function RuntimeOperationsDialog() {
   const abortShell = useRuntimeStore((state) => state.abortShell)
   const compact = useRuntimeStore((state) => state.compact)
   const abortCompaction = useRuntimeStore((state) => state.abortCompaction)
-  const toggleAutoCompaction = useRuntimeStore((state) => state.toggleAutoCompaction)
 
   const threadId = target?.threadId
   const workspacePath = target?.workspacePath
@@ -287,26 +286,16 @@ export function RuntimeOperationsDialog() {
                 <Trans>取消压缩</Trans>
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant={autoCompaction ? 'secondary' : 'outline'}
-                aria-pressed={autoCompaction === true}
-                aria-label="自动压缩"
-                disabled={!threadId || autoCompaction === undefined || busy === 'auto'}
-                onClick={() => void toggleAutoCompaction()}
-              >
-                <Trans>自动压缩：{autoCompaction ? '开' : '关'}</Trans>
-              </Button>
+            {threadId && autoCompaction !== undefined && (
               <StatusLine tone="muted">
                 <Trans>
-                  开关保存到当前 agentDir 用户设置，对所有会话生效；项目设置若覆盖会如实提示。
+                  当前自动压缩：{autoCompaction ? '开' : '关'}。可在全局设置的“对话”页修改。
                 </Trans>
               </StatusLine>
-            </div>
+            )}
             {!threadId && (
               <StatusLine tone="muted">
-                <Trans>先建立或打开会话，才能压缩或修改自动压缩。</Trans>
+                <Trans>先建立或打开会话，才能压缩。</Trans>
               </StatusLine>
             )}
           </section>

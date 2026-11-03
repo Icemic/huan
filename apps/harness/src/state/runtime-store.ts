@@ -1,5 +1,5 @@
 /**
- * 运行管理 feature Zustand 状态：用户 Shell、上下文压缩与自动压缩开关。
+ * 运行管理 feature Zustand 状态：用户 Shell 与上下文压缩。
  *
  * 业务边界（见 R1 §5.2、R2 §7）：
  * - 面板打开时固定会话 target 与 panelEpoch；关闭后迟到结果只更新原对象事实，
@@ -58,7 +58,6 @@ export interface RuntimeFeatureState {
   abortShell: () => Promise<void>
   compact: () => Promise<void>
   abortCompaction: () => Promise<void>
-  toggleAutoCompaction: () => Promise<void>
   clearNotice: () => void
   clearError: () => void
   dispose: () => void
@@ -305,46 +304,6 @@ export const createRuntimeFeatureStore = (
           if (samePanel(panel, targetKey) && result.status === 'idle') {
             set({ notice: '当前没有进行中的压缩。' })
           }
-        } catch (error) {
-          const current = get()
-          if (current.disposed || request !== actionRequest) return
-          if (samePanel(panel, targetKey)) set({ error: errorText(error) })
-        } finally {
-          const current = get()
-          if (!current.disposed && request === actionRequest) set({ busy: undefined })
-        }
-      },
-
-      toggleAutoCompaction: async () => {
-        const state = get()
-        const target = state.target
-        if (state.disposed || !target?.threadId || state.busy) return
-        const metadata = browser.serviceStore.getState().threadsById[target.threadId]
-        const currentValue = metadata?.autoCompactionEnabled
-        if (currentValue === undefined) {
-          set({ error: '会话尚未就绪，暂时无法修改自动压缩设置。' })
-          return
-        }
-        const panel = state.targetEpoch
-        const targetKey = state.targetKey
-        const request = ++actionRequest
-        set({ busy: 'auto', notice: undefined, error: undefined })
-        try {
-          const result = await browser.client.setAutoCompaction(target.threadId, !currentValue)
-          const current = get()
-          if (current.disposed || request !== actionRequest) return
-          if (!samePanel(panel, targetKey)) return
-          if (result.status === 'failed') {
-            set({ error: result.message })
-            return
-          }
-          set({
-            notice:
-              result.message ??
-              `自动压缩已${result.enabled ? '开启' : '关闭'}（已保存到当前用户设置）${
-                result.overridden ? '。' : ''
-              }`,
-          })
         } catch (error) {
           const current = get()
           if (current.disposed || request !== actionRequest) return

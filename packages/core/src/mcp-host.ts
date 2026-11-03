@@ -65,9 +65,12 @@ import type {
 /** 宿主解析目标后的结果；record 为宿主内部会话对象，broker 不解释其结构。 */
 export type McpHostResolvedTarget = {
   target: HarnessMcpTarget
+  /** 全局目标为空串；该项目路径不得被读取。 */
   cwd: string
   trust: HarnessMcpTrust
   record?: unknown
+  /** 只管理用户配置；不读取项目文件、不提供运行连接。 */
+  global?: boolean
 }
 
 /** 同步占用 idle 结构闸门的租约；release 必须幂等。 */
@@ -552,6 +555,9 @@ export function createMcpHost(options: McpHostOptions): McpHost {
     input: HarnessMcpAuthStartInput,
   ): Promise<HarnessMcpAuthStartResult> => {
     if (disposed) return { status: 'unavailable', message: '宿主已停止。' }
+    if (input.target.global === true) {
+      return { status: 'unavailable', message: '全局 MCP 配置不提供运行连接。' }
+    }
     if (typeof input.server !== 'string' || !input.server.trim()) {
       return { status: 'invalid', message: 'MCP 服务器名无效。' }
     }
@@ -794,13 +800,15 @@ export function createMcpHost(options: McpHostOptions): McpHost {
     }
   }
 
-  const configStoreFor = (cwd: string): McpConfigStore =>
-    createMcpConfigStore({ agentDir: options.agentDir, cwd })
+  const configStoreFor = (resolved: McpHostResolvedTarget): McpConfigStore =>
+    resolved.global === true
+      ? createMcpConfigStore({ agentDir: options.agentDir, userOnly: true })
+      : createMcpConfigStore({ agentDir: options.agentDir, cwd: resolved.cwd })
 
   const configSnapshotOf = async (
     resolved: McpHostResolvedTarget,
   ): Promise<HarnessMcpConfigSnapshot> => {
-    const store = configStoreFor(resolved.cwd)
+    const store = configStoreFor(resolved)
     const projectTrusted = resolved.trust.decision === 'trusted'
     const [user, project] = await Promise.all([
       store.read('user'),
@@ -842,7 +850,7 @@ export function createMcpHost(options: McpHostOptions): McpHost {
   const snapshotFromConfig = async (
     resolved: McpHostResolvedTarget,
   ): Promise<HarnessMcpSnapshot> => {
-    const store = configStoreFor(resolved.cwd)
+    const store = configStoreFor(resolved)
     const projectTrusted = resolved.trust.decision === 'trusted'
     const loaded: LoadedMcpConfig = await store.load({ projectTrusted })
     return {
@@ -931,6 +939,9 @@ export function createMcpHost(options: McpHostOptions): McpHost {
 
   const getMcpDetails = async (input: HarnessMcpDetailsInput): Promise<HarnessMcpDetailsResult> => {
     if (disposed) return { status: 'unavailable', message: '宿主已停止。' }
+    if (input.target.global === true) {
+      return { status: 'unavailable', message: '全局 MCP 配置不提供运行连接。' }
+    }
     if (typeof input.server !== 'string' || !input.server.trim()) {
       return { status: 'invalid', message: 'MCP 服务器名无效。' }
     }
@@ -1008,6 +1019,9 @@ export function createMcpHost(options: McpHostOptions): McpHost {
 
   const manageMcp = async (input: HarnessMcpManageInput): Promise<HarnessMcpManageResult> => {
     if (disposed) return { status: 'unavailable', message: '宿主已停止。' }
+    if (input.target.global === true) {
+      return { status: 'unavailable', message: '全局 MCP 配置不提供运行连接。' }
+    }
     if (typeof input.server !== 'string' || !input.server.trim()) {
       return { status: 'invalid', message: 'MCP 服务器名无效。' }
     }
@@ -1132,6 +1146,7 @@ export function createMcpHost(options: McpHostOptions): McpHost {
   return {
     async getMcp(input) {
       if (disposed) throw new Error('MCP host is disposed')
+      if (input.global === true) throw new Error('全局 MCP 配置不提供运行连接')
       const resolved = await options.resolveTarget(input)
       return snapshotOfResolved(resolved)
     },
@@ -1158,8 +1173,16 @@ export function createMcpHost(options: McpHostOptions): McpHost {
           message: 'MCP 配置 scope 无效。',
         }
       }
+      if (input.target.global === true && input.scope !== 'user') {
+        return {
+          status: 'failed',
+          scope: input.scope,
+          path: '',
+          message: '全局 MCP 配置只能写入用户配置；项目配置需要明确项目目标。',
+        }
+      }
       const resolved = await options.resolveTarget(input.target)
-      const store = configStoreFor(resolved.cwd)
+      const store = configStoreFor(resolved)
       const result = await store.save({
         scope: input.scope,
         content: input.content,

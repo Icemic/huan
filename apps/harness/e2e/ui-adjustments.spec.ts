@@ -17,11 +17,13 @@ import {
   messageInput,
   openApp,
   openSessionActions,
+  openSettings,
   releaseSegment,
   resetStream,
   selectModel,
   sendMessage,
   sessionActionsTrigger,
+  settingsDialog,
   startNewSession,
   streamState,
 } from './helpers.js'
@@ -131,11 +133,11 @@ test('聊天输入取消粗 ring，保留 border 加深、按钮焦点与拖入�
   })
   await expect(composer).not.toHaveAttribute('data-dragging')
 
-  // 局部覆盖不能影响其他表单：设置面板里的普通 Input 仍保留键盘焦点 ring。
-  await page.getByRole('button', { name: '设置与资源', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: '设置与资源' })
+  // 局部覆盖不能影响其他表单：统一设置里的普通 Input 仍保留键盘焦点 ring。
+  await openSettings(page, '模型与服务商')
+  const settings = settingsDialog(page)
   await expect(settings).toBeVisible()
-  const otherInput = settings.getByRole('textbox', { name: '默认 provider' })
+  const otherInput = settings.getByRole('textbox', { name: '默认服务商' })
   await otherInput.click()
   await expect
     .poll(async () => otherInput.evaluate((element) => getComputedStyle(element).boxShadow))

@@ -13,17 +13,20 @@
 /** MCP exposure；与 Pi 配置保持同名语义，但协议不导入 Pi SDK 类型。 */
 export type HarnessMcpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden'
 
-/** 管理/认证目标：会话或空白页固定起始目录二选一。 */
+/** MCP 目标：会话、空白页固定起始目录或用户全局配置三选一。 */
 export type HarnessMcpTargetInput = {
   /** 活/冷会话 ID：使用该会话固定的 cwd。 */
   threadId?: string
   /** 空白页的固定起始目录（绝对路径）。 */
   workspacePath?: string
+  /** 只管理用户 MCP 配置，不需要会话、目录或项目信任。 */
+  global?: boolean
 }
 
 /** 解析后的目标；runtimeId 只在目标存在 live manager 时由快照单独提供。 */
 export type HarnessMcpTarget = {
-  kind: 'session' | 'workspace'
+  kind: 'session' | 'workspace' | 'global'
+  /** 全局目标使用空串，不伪造启动目录。 */
   workspacePath: string
   threadId?: string
 }

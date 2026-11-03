@@ -1,5 +1,5 @@
 /**
- * G1.4b 浏览器验收：/reload、设置面板应用重载、双窗口资源版本与启动交互接管。
+ * G1.4b 浏览器验收：/reload、项目/会话资源弹层应用重载、双窗口资源版本与启动交互接管。
  *
  * 真实宿主/路由 + 隔离临时用户空间；扩展探针经测试控制面写入临时目录。
  * 重载不替换消息与分支，也不覆盖设置面板的未保存草稿。
@@ -8,10 +8,15 @@ import { type APIRequestContext, expect, type Page, test } from '@playwright/tes
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
+  chooseSessionAction,
+  contextSettingsDialog,
+  createProject,
+  createWorkspaceApi,
   DEFAULT_REPLY,
   openApp,
   selectModel,
   sendMessage,
+  startNewSession,
   threadListItem,
   userMessages,
 } from './helpers.js'
@@ -19,10 +24,28 @@ import {
 test.describe.configure({ mode: 'serial' })
 
 const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
-const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置与资源' })
-const settingsNotice = (page: Page) =>
-  settingsDialog(page).locator('[data-slot="huan-settings-notice"]')
 const composerNotice = (page: Page) => page.locator('[data-slot="huan-composer-notice"]')
+
+/** 项目设置写盘结果与控制面读取（隔离临时项目内）。 */
+async function readSettingsFile(
+  request: APIRequestContext,
+  scope: 'user' | 'project' = 'user',
+  projectPath?: string,
+): Promise<string | null> {
+  const response = await request.get(`${E2E_HOST_URL}/__e2e__/settings-file`, {
+    params: { scope, ...(projectPath ? { projectPath } : {}) },
+  })
+  expect(response.ok()).toBe(true)
+  return ((await response.json()) as { content: string | null }).content
+}
+
+/** 项目含 settings.json 时需要信任；记住决定以便保存后仍能重载资源。 */
+async function trustProject(request: APIRequestContext, path: string): Promise<void> {
+  const response = await request.post(`${E2E_HOST_URL}/api/pi/projects/trust`, {
+    data: { path, trusted: true, remember: true },
+  })
+  expect(response.ok()).toBe(true)
+}
 
 /** 在临时用户空间/工作区写文件（测试控制面，仅测试启动器注册）。 */
 async function writeTestFile(
@@ -100,32 +123,52 @@ test('会话内 /reload 重载资源、刷新命令目录且不新增消息', as
   await expect(palette).toHaveCount(0)
 })
 
-test('设置保存后可应用资源重载，保留未保存草稿', async ({ page }) => {
-  await openSessionWithTurn(page)
-  await page.getByRole('button', { name: '设置与资源' }).click()
-  const dialog = settingsDialog(page)
+test('项目设置保存后可应用到当前会话，保留未保存草稿', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const project = await createProject(request, `reload-settings-${run}`, {
+    settings: {
+      compaction: { enabled: true, keepRecentTokens: 40, reserveTokens: 1_000 },
+    },
+  })
+  await trustProject(request, project.path)
+  const workspaceName = `重载设置工作区-${run}`
+  await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendMessage(page, `设置重载会话-${run}`)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+
+  // 应用到当前会话是项目/会话资源弹层的动作，不来自统一全局设置。
+  await chooseSessionAction(page, '资源')
+  const dialog = contextSettingsDialog(page)
   await expect(dialog).toBeVisible()
   await dialog.getByRole('tab', { name: 'JSON 原文' }).click()
 
   const editor = dialog.getByRole('textbox', { name: '设置 JSON' })
+  const notice = dialog.locator('[data-slot="huan-settings-notice"]')
   const original = await editor.inputValue()
   const next = original.replace('"keepRecentTokens": 40', '"keepRecentTokens": 50')
   expect(next).not.toBe(original)
   await editor.fill(next)
-  await dialog.getByRole('button', { name: '保存' }).click()
-  await expect(settingsNotice(page)).toContainText('已保存')
-  await expect(settingsNotice(page)).toContainText('可应用到当前会话')
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(notice).toContainText('已保存')
+  await expect(notice).toContainText('可应用到当前会话')
+  expect(await readSettingsFile(request, 'project', project.path)).toContain(
+    '"keepRecentTokens": 50',
+  )
   // 磁盘值与会话值不同：面板如实提示需要重载。
   await dialog.getByRole('tab', { name: '常用项' }).click()
   await expect(dialog).toContainText('与当前会话使用的设置不同')
 
   // 制造未保存草稿：应用资源重载不得覆盖它。
   await dialog.getByRole('tab', { name: 'JSON 原文' }).click()
-  const draft = `${next.trimEnd()}\n// 草稿标记\n`
-  await editor.fill(draft.replace('// 草稿标记', '"draftMarker": 1,'))
+  const draft = `${JSON.stringify({ ...JSON.parse(next), draftMarker: 1 }, null, 2)}\n`
+  await editor.fill(draft)
   const unsaved = await editor.inputValue()
   await dialog.getByRole('button', { name: '应用到当前会话' }).click()
-  await expect(settingsNotice(page)).toContainText('已应用到当前会话')
+  await expect(notice).toContainText('已应用到当前会话')
   await expect(editor).toHaveValue(unsaved)
   await dialog.getByRole('tab', { name: '常用项' }).click()
   await expect(dialog).not.toContainText('与当前会话使用的设置不同')
@@ -141,10 +184,14 @@ test('双窗口共享资源版本：另一窗口重载后本窗口命令目录�
   await threadListItem(second, '双窗口会话').click()
   await expect(second.locator('[data-slot="huan-message"][data-role="user"]')).toHaveCount(1)
 
-  // 第二窗口的资源面板此时看到的还是自己的 loader（尚未加载新扩展）。
-  await second.getByRole('button', { name: '设置与资源' }).click()
-  const secondDialog = settingsDialog(second)
-  await secondDialog.getByRole('tab', { name: '资源清单' }).click()
+  // 第二窗口的资源弹层此时看到的还是自己的 loader（尚未加载新扩展）。
+  await chooseSessionAction(second, '资源')
+  const secondDialog = contextSettingsDialog(second)
+  await expect(secondDialog).toBeVisible()
+  await expect(secondDialog.getByRole('tab', { name: '资源清单' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await expect(secondDialog).not.toContainText('reload-shared.js')
 
   await messageInput(page).fill('/reload')
