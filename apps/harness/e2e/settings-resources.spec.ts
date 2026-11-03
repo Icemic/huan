@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
-import { E2E_HOST_URL, E2E_UNASSIGNED_TITLE } from './config.js'
+import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
   chooseSessionAction,
@@ -75,6 +75,21 @@ async function openSessionResources(page: Page, title?: string) {
   const dialog = contextSettingsDialog(page)
   await expect(dialog).toBeVisible()
   return dialog
+}
+
+/** 创建只属于当前用例的外部 Pi 会话，并刷新宿主扫描缓存使其可见。 */
+async function createIsolatedSession(request: APIRequestContext, label: string): Promise<string> {
+  const title = `${label}-${Date.now().toString(36)}`
+  const created = await request.post(`${E2E_HOST_URL}/__e2e__/sessions`, {
+    data: { text: title, name: title },
+  })
+  expect(created.ok()).toBe(true)
+  const { id } = (await created.json()) as { id: string }
+  expect(id).toBeTruthy()
+  // 新文件不在宿主启动时的缓存中；显式 refresh 只刷新扫描缓存，不改变发现逻辑。
+  const refreshed = await request.get(`${E2E_HOST_URL}/api/pi/threads?refresh=true`)
+  expect(refreshed.ok()).toBe(true)
+  return title
 }
 
 /** 按标题读取当前会话 ID（显式刷新作用域缓存）。 */
@@ -150,6 +165,7 @@ test('顶栏与 /settings 打开同一统一设置；会话资源弹层来自真
   page,
   request,
 }) => {
+  const sessionTitle = await createIsolatedSession(request, '资源加载')
   await openApp(page)
   await openSettings(page, '高级')
   const dialog = settingsDialog(page)
@@ -170,7 +186,7 @@ test('顶栏与 /settings 打开同一统一设置；会话资源弹层来自真
   await expect(messageInput(page)).toHaveValue('')
 
   // 真实会话资源在项目/会话资源弹层：默认进入资源清单。
-  const resources = await openSessionResources(page, E2E_UNASSIGNED_TITLE)
+  const resources = await openSessionResources(page, sessionTitle)
   await expect(resources.getByRole('tab', { name: '资源清单' })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -361,10 +377,11 @@ test('外部修改导致保存冲突，重新加载后可继续', async ({ page,
   }
 })
 
-test('全局设置切页保留草稿，项目草稿留在资源弹层', async ({ page }) => {
+test('全局设置切页保留草稿，项目草稿留在资源弹层', async ({ page, request }) => {
+  const sessionTitle = await createIsolatedSession(request, '设置草稿')
   await openApp(page)
   // 项目草稿与全局草稿相互独立：先由会话资源入口写入项目草稿。
-  let context = await openSessionResources(page, E2E_UNASSIGNED_TITLE)
+  let context = await openSessionResources(page, sessionTitle)
   await context.getByRole('tab', { name: 'JSON 原文' }).click()
   await contextJsonEditor(page).fill('{\n  "projectDraft": 1\n}\n')
   await expect(context.locator('[data-slot="huan-settings-unsaved"]')).toBeVisible()

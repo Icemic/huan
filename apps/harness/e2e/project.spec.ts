@@ -113,7 +113,9 @@ test('管理工作区动态增删成员，已有会话保持起始目录', async
   const response = await request.get(`${E2E_HOST_URL}/api/pi/threads?refresh=true`)
   expect(response.ok()).toBe(true)
   const threads = (await response.json()) as HarnessThreadMetadata[]
-  expect(threads.find((thread) => thread.title === `成员消息-${run}`)?.workspaceAppliedRevision).toBe(3)
+  expect(
+    threads.find((thread) => thread.title === `成员消息-${run}`)?.workspaceAppliedRevision,
+  ).toBe(3)
   await expect(bar).not.toContainText(/实际生效|本轮仍使用|下次运行生效|成员变更将在/)
 })
 

@@ -272,7 +272,7 @@ describe('workspace-store：目录变化与工作区表单', () => {
     expect(store.getState().form.workspaceId).toBe('w1')
   })
 
-  it('管理时读取完整目录，输入成员/名称/patterns 不逐字请求', async () => {
+  it('继承打开不读目录，切到自定义才读取并生成初选', async () => {
     const { client } = createClient()
     vi.mocked(client.getAvailableModels).mockResolvedValue([
       { provider: 'provider', modelId: 'model' },
@@ -282,21 +282,26 @@ describe('workspace-store：目录变化与工作区表单', () => {
     const store = createStore(browser, memoryStorage())
     await store.getState().refresh()
     store.getState().openWorkspaceForm('w1')
-    await vi.waitFor(() => expect(client.getAvailableModels).toHaveBeenCalledTimes(1))
-    expect(client.getAvailableModels).toHaveBeenCalledWith({
-      workspacePath: '/a',
-      workspaceId: 'w1',
-      all: true,
-    })
+    expect(store.getState().form.modelScopeMode).toBe('inherit')
+    await store.getState().loadWorkspaceModels()
+    expect(client.getAvailableModels).not.toHaveBeenCalled()
 
     store.getState().setWorkspaceFormName('改名')
     const member = store.getState().form.members[0]
     if (!member) throw new Error('缺少成员')
     store.getState().setWorkspaceMember(member.key, { alias: 'renamed' })
-    expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+    expect(client.getAvailableModels).not.toHaveBeenCalled()
 
     store.getState().setWorkspaceModelScopeMode('custom')
-    expect(store.getState().form.modelPatterns).toEqual(['provider/model', 'other/second'])
+    await vi.waitFor(() =>
+      expect(store.getState().form.modelPatterns).toEqual(['provider/model', 'other/second']),
+    )
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/a',
+      workspaceId: 'w1',
+      all: true,
+    })
     store.getState().setWorkspaceFormModelPatterns(['provider/model'])
     expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
 
@@ -304,6 +309,37 @@ describe('workspace-store：目录变化与工作区表单', () => {
     expect(client.refreshModels).toHaveBeenCalledWith({ workspacePath: '/a' })
     expect(client.getAvailableModels).toHaveBeenCalledTimes(2)
     expect(store.getState().form.modelRefreshing).toBe(false)
+  })
+
+  it('打开既有自定义工作区保留 patterns，目录按需读取', async () => {
+    const { client, setWorkspaceCatalog } = createClient()
+    setWorkspaceCatalog(
+      catalog([
+        workspace('w1', '工作区一', '/a', ['provider/model']),
+        workspace('w2', '工作区二', '/b'),
+      ]),
+    )
+    vi.mocked(client.getAvailableModels).mockResolvedValue([
+      { provider: 'provider', modelId: 'model' },
+      { provider: 'other', modelId: 'second' },
+    ])
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+
+    store.getState().openWorkspaceForm('w1')
+    expect(store.getState().form.modelScopeMode).toBe('custom')
+    expect(store.getState().form.modelPatterns).toEqual(['provider/model'])
+    expect(client.getAvailableModels).not.toHaveBeenCalled()
+
+    // 表单按当前自定义范围读取完整目录；已有 patterns 不被全量初选覆盖。
+    await store.getState().loadWorkspaceModels()
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/a',
+      workspaceId: 'w1',
+      all: true,
+    })
+    expect(store.getState().form.modelPatterns).toEqual(['provider/model'])
   })
 
   it('编辑自定义范围保存 patterns，跟随全局传 null 清除覆盖', async () => {

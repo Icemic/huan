@@ -48,7 +48,7 @@ SOFTWARE.
 | empty、field、input、input-group、item、label、message、popover、radio-group、scroll-area | 同上 |
 | select、separator、skeleton、switch、tabs、textarea、tooltip、trace、combobox、dropdown-menu | 同上 |
 
-registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装`src/hooks/use-highlighted-code.ts`、`src/lib/highlighter.tsx`及Shiki依赖；当前消息代码块没有启用高亮。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
+registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装`src/hooks/use-highlighted-code.ts`、`src/lib/highlighter.tsx`及Shiki依赖；当前消息代码块没有启用高亮。两份附带源码在Biome配置中按明确路径排除，与ui目录相同保留CLI生成内容，不以项目格式规则改写。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
 
 原自写`menu.tsx`、`model-selector.tsx`与`model-selection.ts`已删除。模型/Thinking在`pi-model-selector.tsx`组合官方Combobox与RadioGroup；TooltipIconButton移至业务组件目录。ScrollArea在调用处组合Select、DropdownMenu、Combobox、CodeBlock和AttachmentGroup，不在上游文件内插入滚动结构。设置弹层业务布局继续参考官方sidebar-13示例；ReUI尚未采用。
 

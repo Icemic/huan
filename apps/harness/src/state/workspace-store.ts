@@ -142,7 +142,7 @@ export interface WorkspaceFeatureState {
   setWorkspaceFormName: (name: string) => void
   setWorkspaceModelScopeMode: (mode: WorkspaceModelScopeMode) => void
   setWorkspaceFormModelPatterns: (patterns: readonly string[]) => void
-  /** 读取表单所需的完整模型目录（all: true）；不复制 models。 */
+  /** 按需读取表单完整模型目录（all: true）；只服务自定义范围，不复制 models。 */
   loadWorkspaceModels: () => Promise<void>
   /** 显式刷新完整模型目录；供表单按钮使用。 */
   refreshWorkspaceModels: () => Promise<void>
@@ -441,7 +441,8 @@ export const createWorkspaceFeatureStore = (
     /** 完整目录只在服务 store；表单只保留查询、范围模式与 patterns 草稿。 */
     const loadModels = async (seedCustom: boolean): Promise<void> => {
       const state = get()
-      if (state.disposed || !state.form.open) return
+      // 继承全局不需要模型目录；此时查询会进入项目装配并可能返回信任未决。
+      if (state.disposed || !state.form.open || state.form.modelScopeMode !== 'custom') return
       const target = workspaceModelCatalogTarget(state.form)
       if (!target) return
       const epoch = formEpoch
@@ -776,9 +777,8 @@ export const createWorkspaceFeatureStore = (
             ),
           }
           set({ form })
-          // 打开既有工作区时重新检查成员路径与只读信任摘要。
+          // 打开既有工作区时重新检查成员路径与只读信任摘要；模型目录由表单按范围读取。
           for (const member of form.members) void get().inspectWorkspaceMember(member.key)
-          void loadModels(false)
           return
         }
         set({
@@ -799,7 +799,6 @@ export const createWorkspaceFeatureStore = (
             busy: false,
           },
         })
-        void loadModels(false)
       },
 
       inspectWorkspaceMember: async (key) => {

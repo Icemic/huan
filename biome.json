@@ -2,6 +2,8 @@
   "files": {
     "includes": [
       "**",
+      "!apps/harness/src/hooks/use-highlighted-code.ts",
+      "!apps/harness/src/lib/highlighter.tsx",
       "!**/src/locales",
       "!**/dist",
       "!**/node_modules",

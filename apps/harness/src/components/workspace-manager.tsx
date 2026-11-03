@@ -220,10 +220,11 @@ export function WorkspaceManagerDialog() {
     closeWorkspaceForm()
   }
 
-  // 打开表单时读取完整目录；版本变化重新读取。成员/名称/patterns 输入不触发请求。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 目录版本是 serviceStore 查询键
+  // 完整目录只服务自定义范围；打开表单或版本变化时读取。继承全局不查询，
+  // 避免信任未决的项目装配被目录请求触发。范围切换由 store 动作读取，不重复触发。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 目录版本是 serviceStore 查询键，范围切换由动作触发
   useEffect(() => {
-    if (!form.open) return
+    if (!form.open || form.modelScopeMode !== 'custom') return
     void loadWorkspaceModels()
   }, [
     form.open,

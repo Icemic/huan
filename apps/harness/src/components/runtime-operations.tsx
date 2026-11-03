@@ -10,10 +10,16 @@
 import type { HarnessBashRun } from '@huan/protocol'
 import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon } from 'lucide-react'
+import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon, XIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import {
   Select,
@@ -143,6 +149,7 @@ export function RuntimeOperationsDialog() {
       }}
     >
       <DialogContent
+        showCloseButton={false}
         data-slot="huan-runtime-operations"
         data-active-section={section}
         className="max-w-xl"
@@ -315,6 +322,14 @@ export function RuntimeOperationsDialog() {
             )}
           </div>
         </ScrollArea>
+        <DialogClose
+          render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
+        >
+          <XIcon aria-hidden />
+          <span className="sr-only">
+            <Trans>关闭</Trans>
+          </span>
+        </DialogClose>
       </DialogContent>
     </Dialog>
   )
