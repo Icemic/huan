@@ -22,7 +22,7 @@ export interface ModelTarget {
   workspaceId?: string
 }
 
-/** 打开焦点：`/model` 与 `/thinking` 共用同一选择器。 */
+/** 打开目标：`/model` 与 `/thinking` 分别展开模型或思考强度菜单。 */
 export type ModelFocus = 'model' | 'thinking'
 
 /** 打开选项；target 省略时按当前窗口选择解析。 */
@@ -243,8 +243,8 @@ export const createModelFeatureStore = (
             return
           }
           browser.windowStore.getState().setDraftThinkingLevel(draftId, level)
-          if (samePanel(epoch))
-            set({ notice: `新会话 Thinking 级别：${level}。`, error: undefined })
+          // Thinking 成功不写冗余提示；错误仍走下方 catch。
+          if (samePanel(epoch)) set({ notice: undefined, error: undefined })
           return
         }
         const threadId = target.threadId
@@ -254,8 +254,7 @@ export const createModelFeatureStore = (
           await browser.sessionActions.setThinkingLevel(threadId, level)
           const current = get()
           if (current.disposed || request !== actionRequest) return
-          if (samePanel(epoch))
-            set({ notice: `Thinking 级别已设置为 ${level}。`, error: undefined })
+          if (samePanel(epoch)) set({ notice: undefined, error: undefined })
         } catch (error) {
           const current = get()
           if (current.disposed || request !== actionRequest) return

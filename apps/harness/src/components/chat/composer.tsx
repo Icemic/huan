@@ -3,7 +3,7 @@
  *
  * 文字/附件/模型/提交全部走 windowStore、composer/model feature store；组件
  * 只保留拖拽高亮与组合输入时间等瞬时 UI 状态。IME、Shift/Ctrl
- * Enter、历史、补全、粘贴/拖入和长输入都在这里收口。
+ * Enter、历史、补全和粘贴/拖入都在这里收口。
  */
 
 import type { HarnessSubmission } from '@huan/react'
@@ -30,17 +30,16 @@ import {
 } from 'react'
 import {
   ComposerCompletionMenu,
-  ComposerExpandButton,
   ComposerNotice,
   ComposerQueue,
   ComposerQueueMode,
   ComposerSendButton,
   ComposerStopButton,
   focusTextareaAt,
-  PiComposerDialogs,
 } from '@/components/pi-composer-tools'
 import { PiModelSelector } from '@/components/pi-model-selector'
 import { PiComposerHostUi, PiComposerWidgets } from '@/components/pi-thread-host-ui'
+import { ComposerSessionActions } from '@/components/session-actions-menu'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -48,12 +47,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupTextarea,
-} from '@/components/ui/input-group'
+import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group'
 import { cn } from '@/lib/utils'
 import {
   useChatStore,
@@ -229,8 +223,6 @@ export function ChatComposer() {
   const onInputSelect = useComposerStore((state) => state.onInputSelect)
   const historyUp = useComposerStore((state) => state.historyUp)
   const historyDown = useComposerStore((state) => state.historyDown)
-  const openLongInput = useComposerStore((state) => state.openLongInput)
-  const closeLongInput = useComposerStore((state) => state.closeLongInput)
   const retrieveQueue = useComposerStore((state) => state.retrieveQueue)
 
   const focusToken = useChatStore((state) => state.composerFocusToken)
@@ -411,7 +403,6 @@ export function ChatComposer() {
       }
       case 'dismiss': {
         clearCompletion()
-        closeLongInput()
         break
       }
     }
@@ -429,7 +420,6 @@ export function ChatComposer() {
       <RecoveredQueueBanner />
       <ComposerQueue queue={queue} onRetrieve={retrieveQueue} />
       <LocalPendingList submissions={localPending} />
-      <ComposerCompletionMenu inputRef={textareaRef} />
       <form
         onSubmit={onFormSubmit}
         onDragOver={(event) => {
@@ -446,11 +436,23 @@ export function ChatComposer() {
         onDrop={onDrop}
         data-dragging={dragging || undefined}
         data-slot="huan-composer"
-        className="w-full"
+        className="relative w-full"
       >
+        <ComposerCompletionMenu inputRef={textareaRef} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          tabIndex={-1}
+          onChange={onFileInput}
+        />
         <InputGroup
           className={cn(
-            'h-auto flex-col items-stretch gap-0 rounded-md bg-background',
+            'h-auto flex-col items-stretch gap-0 rounded-md bg-background dark:bg-background has-disabled:bg-background dark:has-disabled:bg-background',
+            // 发送按钮禁用会让整组命中 has-disabled：沿用背景覆盖并保持整组不透明。
+            'has-disabled:opacity-100',
             // 仅聊天输入区去掉焦点粗 ring，保留 input-group 的聚焦 border 加深；
             // 按钮、其他表单与下方拖入高亮不受影响。
             'has-[[data-slot=input-group-control]:focus-visible]:ring-0',
@@ -492,20 +494,20 @@ export function ChatComposer() {
               if (!readOnly && !browser.windowStore.getState().selection) ensureTarget()
             }}
           />
-          <InputGroupAddon align="block-end" className="flex-wrap gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="sr-only"
-              tabIndex={-1}
-              onChange={onFileInput}
-            />
+          <InputGroupAddon
+            align="block-end"
+            className="flex-wrap gap-1"
+            // 弹层事件会沿 React 树冒泡；仅点工具栏空白处时聚焦消息输入，避免误聚焦隐藏表单控件。
+            onClick={(event) => {
+              if (event.target === event.currentTarget) textareaRef.current?.focus()
+            }}
+          >
             <DropdownMenu>
               <DropdownMenuTrigger
                 disabled={!draft || readOnly}
-                render={<InputGroupButton size="icon-xs" aria-label="添加内容" />}
+                render={
+                  <Button type="button" variant="ghost" size="icon-sm" aria-label="添加内容" />
+                }
               >
                 <PlusIcon aria-hidden />
               </DropdownMenuTrigger>
@@ -517,14 +519,14 @@ export function ChatComposer() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <PiModelSelector />
+            <ComposerSessionActions />
             <ComposerQueueMode
               isRunning={running}
               queueMode={queueMode}
               onQueueModeChange={setQueueMode}
             />
-            <ComposerExpandButton onExpand={openLongInput} />
             <div className="ms-auto flex min-w-0 items-center gap-1">
-              <PiModelSelector />
               <ComposerSendButton
                 isRunning={running}
                 queueMode={queueMode}
@@ -542,7 +544,6 @@ export function ChatComposer() {
         <PiComposerHostUi inputRef={textareaRef} />
         <PiComposerWidgets placement="belowEditor" />
       </form>
-      <PiComposerDialogs inputRef={textareaRef} />
     </div>
   )
 }

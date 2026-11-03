@@ -75,11 +75,9 @@ export const contextSettingsDialog = (page: Page) =>
 export const contextMcpDialog = (page: Page) =>
   page.getByRole('dialog', { name: 'MCP 服务器', exact: true })
 
-/** 会话上下文条的单一操作菜单入口。 */
+/** 输入区的单一会话操作菜单入口。 */
 export const sessionActionsTrigger = (page: Page) =>
-  page
-    .locator('[data-slot="huan-session-context"]')
-    .getByRole('button', { name: '会话操作', exact: true })
+  page.locator('[data-slot="huan-composer"]').getByRole('button', { name: '会话操作', exact: true })
 
 /** 打开会话操作菜单并返回弹层。 */
 export async function openSessionActions(page: Page) {

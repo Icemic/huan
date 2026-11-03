@@ -310,13 +310,18 @@ test('全局模型页读取完整目录、刷新并保存用户范围', async ({
     await page.keyboard.press('Escape')
 
     // Thinking max 仍来自真实模型能力（不再依赖运行面板的范围分段）。
-    await composer.getByRole('combobox').click()
-    await page.getByRole('radio', { name: 'max', exact: true }).click()
-    await page.keyboard.press('Escape')
+    const thinkingTrigger = composer.getByRole('button', { name: '选择思考强度' })
+    await thinkingTrigger.click()
+    const thinkingMenu = page.locator('[data-slot="thinking-selector-content"]')
+    await expect(thinkingMenu).toBeVisible()
+    await thinkingMenu.getByRole('menuitemradio', { name: 'max', exact: true }).click()
+    await expect(thinkingTrigger).toContainText('max')
     await sendMessage(page, `thinking-max-${run}`)
     await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
-    await composer.getByRole('combobox').click()
-    await expect(page.getByRole('radio', { name: 'max', exact: true })).toBeChecked()
+    await thinkingTrigger.click()
+    await expect(
+      thinkingMenu.getByRole('menuitemradio', { name: 'max', exact: true }),
+    ).toBeChecked()
     await page.keyboard.press('Escape')
 
     // 工作区覆盖可以选全局范围外的模型，清除覆盖后重新跟随全局。

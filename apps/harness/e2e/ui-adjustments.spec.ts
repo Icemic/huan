@@ -462,7 +462,7 @@ test('顶部提示为固定 toast：不改变布局，自动消失，悬停与�
   await expect(toast).toHaveCount(0, { timeout: 7_000 })
 })
 
-test('会话操作收进单一菜单：模型只在输入区，操作/确认/焦点与新目标适用项', async ({
+test('会话操作收进输入区单一菜单：模型只在输入区，操作/确认/焦点与新目标适用项', async ({
   page,
   request,
 }) => {
@@ -482,6 +482,9 @@ test('会话操作收进单一菜单：模型只在输入区，操作/确认/焦
   await expect(context.getByRole('combobox')).toHaveCount(0)
   const composer = page.locator('[data-slot="huan-composer"]')
   await expect(composer.getByRole('combobox')).toHaveCount(1)
+  // 会话操作入口只存在于输入区，上下文条不再保留旧按钮。
+  await expect(context.getByRole('button', { name: '会话操作', exact: true })).toHaveCount(0)
+  await expect(composer.getByRole('button', { name: '会话操作', exact: true })).toHaveCount(1)
 
   // 新会话目标只提供适用动作：运行操作与管理当前目标工作区。
   const newMenu = await openSessionActions(page)

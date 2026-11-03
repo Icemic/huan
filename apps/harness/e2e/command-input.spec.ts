@@ -1,6 +1,6 @@
 /**
  * G1.3b 浏览器验收：命令目录/内置路由、扩展命令与参数补全、@ 文件引用、
- * 图片能力拒绝、草稿/长输入/历史与显式队列。
+ * 图片能力拒绝、草稿/历史与显式队列。
  *
  * 使用真实 HTTP/SSE、真实 Pi SDK 与隔离临时用户空间；不访问个人空间或
  * 付费模型。模型流由测试控制端点显式释放。
@@ -26,6 +26,42 @@ test.describe.configure({ mode: 'serial' })
 
 const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
 
+/** 输入区表单与输入框的稳定布局（补全悬浮不应改变）。 */
+async function composerGeometry(page: Page) {
+  const form = page.locator('[data-slot="huan-composer"]')
+  const input = messageInput(page)
+  const formBox = await form.boundingBox()
+  const inputBox = await input.boundingBox()
+  if (!formBox || !inputBox) throw new Error('输入区缺少可测量的布局框')
+  return { form: formBox, input: inputBox }
+}
+
+/** 补全列表绝对定位在输入区上方，出现时输入区位置与高度不变。 */
+async function expectFloatingCompletions(page: Page): Promise<void> {
+  const popup = page.locator('[data-slot="huan-composer-completions"]')
+  await expect(popup).toBeVisible()
+  await expect(popup.getByRole('listbox')).toBeVisible()
+  const geometry = await popup.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const rect = element.getBoundingClientRect()
+    return { position: style.position, bottom: rect.bottom }
+  })
+  expect(geometry.position).toBe('absolute')
+  const inputBox = await messageInput(page).boundingBox()
+  if (!inputBox) throw new Error('输入框没有布局框')
+  expect(geometry.bottom).toBeLessThanOrEqual(inputBox.y + 0.5)
+}
+
+function expectSameComposerGeometry(
+  before: Awaited<ReturnType<typeof composerGeometry>>,
+  after: Awaited<ReturnType<typeof composerGeometry>>,
+): void {
+  for (const key of ['form', 'input'] as const) {
+    expect(Math.abs(after[key].y - before[key].y)).toBeLessThan(0.5)
+    expect(Math.abs(after[key].height - before[key].height)).toBeLessThan(0.5)
+  }
+}
+
 /** 键入命令前缀，检查输入框展示的实际补全结果。 */
 async function expectCommandListed(page: Page, prefix: string, name: string): Promise<Locator> {
   await messageInput(page).fill(prefix)
@@ -45,7 +81,10 @@ test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普
   const input = messageInput(page)
 
   // 命令统一从输入框的 / 补全发现，来源与阶段直接落在 listbox 选项上。
+  const emptyGeometry = await composerGeometry(page)
   const probe = await expectCommandListed(page, '/pro', 'probe')
+  await expectFloatingCompletions(page)
+  expectSameComposerGeometry(emptyGeometry, await composerGeometry(page))
   await expect(probe.getByText('扩展', { exact: true })).toBeVisible()
   const model = await expectCommandListed(page, '/model', 'model')
   await expect(model.getByText('内置', { exact: true })).toBeVisible()
@@ -62,8 +101,13 @@ test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普
   await expect(page.getByRole('button', { name: /引用文件/ })).toHaveCount(0)
 
   // /model 打开现有模型选择器，不创建会话、不发用户消息。
+  const beforeModel = await composerGeometry(page)
   await input.fill('/model')
+  await expect(page.getByRole('listbox', { name: '命令补全' })).toBeVisible()
+  expectSameComposerGeometry(beforeModel, await composerGeometry(page))
   await input.press('Escape')
+  await expect(page.getByRole('listbox', { name: '命令补全' })).toHaveCount(0)
+  expectSameComposerGeometry(beforeModel, await composerGeometry(page))
   await input.press('Enter')
   await expect(page.locator('[data-slot="model-selector-content"]')).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
@@ -109,15 +153,20 @@ test('扩展命令经 SDK 执行且参数补全不进入模型', async ({ page }
 
 test('@ 文件引用来自当前工作区，支持中文与空格', async ({ page }) => {
   await openApp(page)
+  const emptyGeometry = await composerGeometry(page)
   await messageInput(page).fill('@')
   const fileList = page.getByRole('listbox', { name: '文件引用补全' })
   await expect(fileList).toBeVisible()
+  await expectFloatingCompletions(page)
+  expectSameComposerGeometry(emptyGeometry, await composerGeometry(page))
   await expect(fileList.getByRole('option', { name: /main\.ts/ })).toBeVisible()
 
   await messageInput(page).fill('@指南')
   await expect(fileList.getByRole('option', { name: /指南 文件\.md/ })).toBeVisible()
   await fileList.getByRole('option', { name: /指南 文件\.md/ }).click()
   await expect(messageInput(page)).toHaveValue('@"workspace/docs/指南 文件.md" ')
+  await expect(fileList).toHaveCount(0)
+  expectSameComposerGeometry(emptyGeometry, await composerGeometry(page))
 })
 
 test('图片在不支持图像的模型下被拒绝，文字与附件保留', async ({ page }) => {
@@ -182,7 +231,7 @@ test('两个窗口的草稿互不覆盖，刷新只恢复本窗口文字', async
   await second.close()
 })
 
-test('草稿刷新恢复、长输入取消与应用、窗口历史回到空输入框', async ({ page, request }) => {
+test('草稿刷新恢复、多行草稿直接编辑、窗口历史回到空输入框', async ({ page, request }) => {
   await openApp(page)
   await selectModel(page)
   await messageInput(page).fill('刷新后恢复的草稿')
@@ -192,19 +241,12 @@ test('草稿刷新恢复、长输入取消与应用、窗口历史回到空输�
   // 模型草稿不持久化：刷新后重新选择测试模型再发送。
   await selectModel(page)
 
-  // 长输入：取消保留原草稿，确认才写回。
-  await page.getByRole('button', { name: '展开编辑长输入' }).click()
-  const longDialog = page.getByRole('dialog', { name: '展开编辑输入' })
-  await expect(longDialog).toBeVisible()
-  await longDialog.getByRole('textbox', { name: '长输入内容' }).fill('取消不应写回')
-  await page.keyboard.press('Escape')
-  await expect(longDialog).toHaveCount(0)
-  await expect(messageInput(page)).toHaveValue('刷新后恢复的草稿')
-
-  await page.getByRole('button', { name: '展开编辑长输入' }).click()
-  await longDialog.getByRole('textbox', { name: '长输入内容' }).fill('应用后的长文本')
-  await longDialog.getByRole('button', { name: '应用' }).click()
-  await expect(messageInput(page)).toHaveValue('应用后的长文本')
+  // 展开编辑入口与对话框已删除；多行草稿直接在输入框编辑。
+  await expect(page.getByRole('button', { name: '展开编辑长输入' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: '展开编辑输入' })).toHaveCount(0)
+  const multiline = '直接编辑第一行\n直接编辑第二行\n直接编辑第三行'
+  await messageInput(page).fill(multiline)
+  await expect(messageInput(page)).toHaveValue(multiline)
 
   // 发送后空框 ArrowUp 回到本窗口已提交文字。
   await messageInput(page).fill('')

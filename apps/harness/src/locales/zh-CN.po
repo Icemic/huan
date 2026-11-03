@@ -12,7 +12,7 @@ msgid "（空）"
 msgstr "（空）"
 
 #. placeholder {0}: workspace.projects.length
-#: src/components/session-context-bar.tsx:325
+#: src/components/session-context-bar.tsx:65
 msgid "{0} 个项目"
 msgstr "{0} 个项目"
 
@@ -30,7 +30,7 @@ msgstr "JSON 原文"
 msgid "JSON 解析错误"
 msgstr "JSON 解析错误"
 
-#: src/components/session-context-bar.tsx:228
+#: src/components/session-actions-menu.tsx:203
 #: src/components/settings-dialog.tsx:52
 #: src/components/settings-dialog.tsx:253
 #: src/components/workspace-manager.tsx:465
@@ -56,10 +56,6 @@ msgstr "Provider 来源"
 #: src/components/theme-selector.tsx:15
 msgid "Solarized Light"
 msgstr "Solarized Light"
-
-#: src/components/pi-model-selector.tsx:342
-msgid "Thinking"
-msgstr "Thinking"
 
 #: src/components/session-dialogs.tsx:223
 msgid "Token"
@@ -150,7 +146,7 @@ msgstr "会话名称"
 msgid "会话将保存到服务端，请确认其中没有不希望保留的敏感信息。原文件保持不变。"
 msgstr "会话将保存到服务端，请确认其中没有不希望保留的敏感信息。原文件保持不变。"
 
-#: src/components/session-context-bar.tsx:81
+#: src/components/session-actions-menu.tsx:81
 msgid "会话操作"
 msgstr "会话操作"
 
@@ -162,7 +158,7 @@ msgstr "会话文件"
 msgid "会话暂时不可用"
 msgstr "会话暂时不可用"
 
-#: src/components/session-context-bar.tsx:237
+#: src/components/session-actions-menu.tsx:212
 #: src/components/session-tree-dialog.tsx:364
 #: src/components/session-tree-dialog.tsx:367
 msgid "会话树"
@@ -281,7 +277,7 @@ msgstr "先建立或打开会话，才能执行 Shell。"
 msgid "克隆为独立会话"
 msgstr "克隆为独立会话"
 
-#: src/components/session-context-bar.tsx:246
+#: src/components/session-actions-menu.tsx:221
 msgid "克隆到新会话"
 msgstr "克隆到新会话"
 
@@ -371,7 +367,7 @@ msgid "创建独立分支"
 msgstr "创建独立分支"
 
 #: src/components/pi-mcp-panel.tsx:1188
-#: src/components/session-context-bar.tsx:272
+#: src/components/session-actions-menu.tsx:247
 msgid "删除"
 msgstr "删除"
 
@@ -411,7 +407,7 @@ msgstr "刷新项目资源"
 msgid "加入"
 msgstr "加入"
 
-#: src/components/session-context-bar.tsx:285
+#: src/components/session-actions-menu.tsx:260
 #: src/components/session-dialogs.tsx:289
 #: src/components/session-dialogs.tsx:400
 msgid "加入工作区"
@@ -460,12 +456,11 @@ msgstr "压缩预留 tokens"
 msgid "参数"
 msgstr "参数"
 
-#: src/components/pi-composer-tools.tsx:93
+#: src/components/pi-composer-tools.tsx:77
 msgid "取回全部"
 msgstr "取回全部"
 
 #: src/components/import-thread-dialog.tsx:403
-#: src/components/pi-composer-tools.tsx:345
 #: src/components/pi-host-interactions.tsx:108
 #: src/components/pi-mcp-panel.tsx:901
 #: src/components/pi-mcp-panel.tsx:1176
@@ -487,14 +482,10 @@ msgstr "取消 Shell"
 msgid "取消压缩"
 msgstr "取消压缩"
 
-#: src/components/session-context-bar.tsx:264
+#: src/components/session-actions-menu.tsx:239
 #: src/components/session-dialogs.tsx:285
 msgid "取消归档"
 msgstr "取消归档"
-
-#: src/components/pi-composer-tools.tsx:327
-msgid "取消或按 Esc 不会修改输入框中的原草稿。"
-msgstr "取消或按 Esc 不会修改输入框中的原草稿。"
 
 #: src/components/session-tree-dialog.tsx:394
 msgid "取消摘要"
@@ -539,8 +530,8 @@ msgstr "名称"
 msgid "后台扩展请求修改输入框"
 msgstr "后台扩展请求修改输入框"
 
-#: src/components/pi-composer-tools.tsx:79
-#: src/components/pi-composer-tools.tsx:214
+#: src/components/pi-composer-tools.tsx:63
+#: src/components/pi-composer-tools.tsx:194
 #: src/components/session-tree-dialog.tsx:228
 msgid "后续"
 msgstr "后续"
@@ -689,15 +680,11 @@ msgstr "尚未创建会话文件；删除后当前会话记录不会保留。"
 msgid "尚未应用"
 msgstr "尚未应用"
 
-#: src/components/pi-composer-tools.tsx:324
-msgid "展开编辑输入"
-msgstr "展开编辑输入"
-
 #: src/components/session-dialogs.tsx:173
 msgid "工作区"
 msgstr "工作区"
 
-#: src/components/session-context-bar.tsx:321
+#: src/components/session-context-bar.tsx:61
 #: src/components/session-dialogs.tsx:175
 msgid "工作区不可用"
 msgstr "工作区不可用"
@@ -773,7 +760,7 @@ msgstr "工具调用 {0}"
 msgid "已信任"
 msgstr "已信任"
 
-#: src/components/chat/composer.tsx:161
+#: src/components/chat/composer.tsx:155
 msgid "已取回队列，但输入框已有新内容"
 msgstr "已取回队列，但输入框已有新内容"
 
@@ -828,7 +815,6 @@ msgstr "常用编辑"
 msgid "常用项"
 msgstr "常用项"
 
-#: src/components/pi-composer-tools.tsx:353
 #: src/components/pi-thread-host-ui.tsx:408
 msgid "应用"
 msgstr "应用"
@@ -854,7 +840,7 @@ msgstr "开始新会话"
 msgid "引导"
 msgstr "引导"
 
-#: src/components/session-context-bar.tsx:264
+#: src/components/session-actions-menu.tsx:239
 #: src/components/session-dialogs.tsx:177
 #: src/components/session-dialogs.tsx:285
 msgid "归档"
@@ -919,7 +905,7 @@ msgstr "当前状态"
 msgid "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 msgstr "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 
-#: src/components/pi-model-selector.tsx:205
+#: src/components/pi-model-selector.tsx:215
 msgid "当前范围内没有可用模型。"
 msgstr "当前范围内没有可用模型。"
 
@@ -939,6 +925,10 @@ msgstr "思考中"
 #: src/components/chat/tool-part.tsx:338
 msgid "思考完成"
 msgstr "思考完成"
+
+#: src/components/pi-model-selector.tsx:367
+msgid "思考强度"
+msgstr "思考强度"
 
 #: src/components/pi-thread-host-ui.tsx:232
 msgid "思考折叠标签："
@@ -978,7 +968,7 @@ msgstr "打开当前会话 MCP"
 msgid "打开授权页"
 msgstr "打开授权页"
 
-#: src/components/pi-model-selector.tsx:222
+#: src/components/pi-model-selector.tsx:232
 msgid "打开设置"
 msgstr "打开设置"
 
@@ -1041,7 +1031,7 @@ msgstr "搜索会话树"
 msgid "搜索摘要、标签或 ID"
 msgstr "搜索摘要、标签或 ID"
 
-#: src/components/pi-model-selector.tsx:130
+#: src/components/pi-model-selector.tsx:138
 msgid "搜索模型"
 msgstr "搜索模型"
 
@@ -1049,7 +1039,7 @@ msgstr "搜索模型"
 msgid "搜索范围：会话名称与首条消息"
 msgstr "搜索范围：会话名称与首条消息"
 
-#: src/components/chat/composer.tsx:125
+#: src/components/chat/composer.tsx:119
 msgid "放回输入"
 msgstr "放回输入"
 
@@ -1058,7 +1048,7 @@ msgid "文件配置预览"
 msgstr "文件配置预览"
 
 #: src/components/chat/chat-view.tsx:132
-#: src/components/session-context-bar.tsx:187
+#: src/components/session-context-bar.tsx:34
 msgid "新会话"
 msgstr "新会话"
 
@@ -1172,7 +1162,7 @@ msgstr "未命名会话"
 msgid "未归属"
 msgstr "未归属"
 
-#: src/components/session-context-bar.tsx:315
+#: src/components/session-context-bar.tsx:55
 #: src/components/workspace-sidebar.tsx:500
 msgid "未归属会话"
 msgstr "未归属会话"
@@ -1238,7 +1228,7 @@ msgstr "模型与服务商"
 msgid "模型回退"
 msgstr "模型回退"
 
-#: src/components/session-context-bar.tsx:337
+#: src/components/session-context-bar.tsx:74
 msgid "模型回退："
 msgstr "模型回退："
 
@@ -1328,7 +1318,7 @@ msgid "正在读取文件…"
 msgstr "正在读取文件…"
 
 #: src/components/global-settings-content.tsx:294
-#: src/components/pi-model-selector.tsx:201
+#: src/components/pi-model-selector.tsx:211
 #: src/components/workspace-manager.tsx:333
 msgid "正在读取模型目录…"
 msgstr "正在读取模型目录…"
@@ -1357,7 +1347,7 @@ msgstr "每行一个模式，可保留 :thinking 后缀与通配符。"
 msgid "没有匹配的会话。"
 msgstr "没有匹配的会话。"
 
-#: src/components/pi-model-selector.tsx:309
+#: src/components/pi-model-selector.tsx:314
 msgid "没有匹配的模型。"
 msgstr "没有匹配的模型。"
 
@@ -1531,12 +1521,12 @@ msgstr "管理所选项目的设置，查看已加载的资源。"
 msgid "管理模型服务商的登录凭据。"
 msgstr "管理模型服务商的登录凭据。"
 
-#: src/components/pi-model-selector.tsx:232
+#: src/components/pi-model-selector.tsx:242
 msgid "管理认证"
 msgstr "管理认证"
 
-#: src/components/session-context-bar.tsx:171
-#: src/components/session-context-bar.tsx:297
+#: src/components/session-actions-menu.tsx:163
+#: src/components/session-actions-menu.tsx:272
 msgid "管理项目"
 msgstr "管理项目"
 
@@ -1648,7 +1638,7 @@ msgstr "该服务器没有可交互认证信息。"
 msgid "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 msgstr "该项目包含需要信任的本地资源。允许后项目扩展会以你的用户权限运行；拒绝仍可对话，但不会加载项目资源。"
 
-#: src/components/session-context-bar.tsx:255
+#: src/components/session-actions-menu.tsx:230
 msgid "详情"
 msgstr "详情"
 
@@ -1660,7 +1650,7 @@ msgstr "请在环境变量或 models.json 中配置凭据。"
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
 
-#: src/components/session-context-bar.tsx:219
+#: src/components/session-actions-menu.tsx:194
 msgid "资源"
 msgstr "资源"
 
@@ -1723,8 +1713,8 @@ msgstr "跳转到"
 msgid "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
 msgstr "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
 
-#: src/components/pi-composer-tools.tsx:67
-#: src/components/pi-composer-tools.tsx:225
+#: src/components/pi-composer-tools.tsx:51
+#: src/components/pi-composer-tools.tsx:205
 msgid "转向"
 msgstr "转向"
 
@@ -1756,8 +1746,8 @@ msgid "运行中"
 msgstr "运行中"
 
 #: src/components/runtime-operations.tsx:159
-#: src/components/session-context-bar.tsx:160
-#: src/components/session-context-bar.tsx:210
+#: src/components/session-actions-menu.tsx:152
+#: src/components/session-actions-menu.tsx:185
 msgid "运行操作"
 msgstr "运行操作"
 
@@ -1774,7 +1764,7 @@ msgstr "还没有工作区。"
 msgid "还没有消息"
 msgstr "还没有消息"
 
-#: src/components/chat/composer.tsx:172
+#: src/components/chat/composer.tsx:166
 msgid "追加到输入"
 msgstr "追加到输入"
 

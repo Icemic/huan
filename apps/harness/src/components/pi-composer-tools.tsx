@@ -1,31 +1,15 @@
 /**
- * 输入区附加 UI：命令/文件补全、队列、长输入与提示。
+ * 输入区附加 UI：命令/文件补全、队列与提示。
  *
  * 所有状态读取自 composer feature store；输入文字、附件、队列和提交都不在此复制。
  */
 
 import { Trans } from '@lingui/react/macro'
-import {
-  ArrowUpIcon,
-  CheckIcon,
-  ChevronUpIcon,
-  Maximize2Icon,
-  SquareIcon,
-  XIcon,
-} from 'lucide-react'
+import { ArrowUpIcon, ChevronUpIcon, SquareIcon, XIcon } from 'lucide-react'
 import { memo, type RefObject } from 'react'
 import { TooltipIconButton } from '@/components/tooltip-icon-button'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { useComposerStore } from '@/state/app-context'
 import type { ComposerCompletionItem } from '@/state/composer-store'
@@ -97,7 +81,7 @@ export const ComposerQueue = memo(function ComposerQueue({
   )
 })
 
-/** 输入上方的补全列表（role=listbox，键盘由输入框处理）。 */
+/** 悬浮在输入区上方的补全列表（role=listbox，键盘由输入框处理）。 */
 export function ComposerCompletionMenu({
   inputRef,
 }: {
@@ -111,53 +95,49 @@ export function ComposerCompletionMenu({
     if (caret !== undefined) focusTextareaAt(inputRef, caret)
   }
   return (
-    <ScrollArea
-      data-slot="huan-composer-completions"
-      className={cn(
-        'bg-popover text-popover-foreground mb-1 rounded-md border shadow-sm',
-        '*:data-[slot=scroll-area-viewport]:max-h-64',
-      )}
-    >
-      <div
-        role="listbox"
-        aria-label={
-          completion.kind === 'file'
-            ? '文件引用补全'
-            : completion.kind === 'argument'
-              ? '命令参数补全'
-              : '命令补全'
-        }
-        className="p-1"
-      >
-        {completion.items.map((item, index) => (
-          <button
-            key={item.key}
-            type="button"
-            role="option"
-            aria-selected={index === completion.index}
-            data-slot="huan-composer-completion"
-            className={cn(
-              'flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm',
-              index === completion.index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
-            )}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => apply(item)}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-mono text-xs">{item.label}</span>
-              {item.description && (
-                <span className="text-muted-foreground block truncate text-[11px]">
-                  {item.description}
-                </span>
+    <div data-slot="huan-composer-completions" className="absolute inset-x-0 bottom-full z-40 mb-2">
+      <ScrollArea className="bg-popover text-popover-foreground rounded-md border shadow-sm *:data-[slot=scroll-area-viewport]:max-h-[min(16rem,40dvh)]">
+        <div
+          role="listbox"
+          aria-label={
+            completion.kind === 'file'
+              ? '文件引用补全'
+              : completion.kind === 'argument'
+                ? '命令参数补全'
+                : '命令补全'
+          }
+          className="p-1"
+        >
+          {completion.items.map((item, index) => (
+            <button
+              key={item.key}
+              type="button"
+              role="option"
+              aria-selected={index === completion.index}
+              data-slot="huan-composer-completion"
+              className={cn(
+                'flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm',
+                index === completion.index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
               )}
-            </span>
-            {item.meta && (
-              <span className="text-muted-foreground shrink-0 text-[10px]">{item.meta}</span>
-            )}
-          </button>
-        ))}
-      </div>
-    </ScrollArea>
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => apply(item)}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-mono text-xs">{item.label}</span>
+                {item.description && (
+                  <span className="text-muted-foreground block truncate text-[11px]">
+                    {item.description}
+                  </span>
+                )}
+              </span>
+              {item.meta && (
+                <span className="text-muted-foreground shrink-0 text-[10px]">{item.meta}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
+    </div>
   )
 }
 
@@ -200,7 +180,7 @@ export const ComposerQueueMode = memo(function ComposerQueueMode({
     <fieldset
       data-slot="huan-composer-queue-mode"
       aria-label="运行中发送方式"
-      className="flex items-center rounded-full border p-0.5 text-[11px]"
+      className="flex h-7 items-center rounded-full border p-0.5 text-[11px]"
     >
       <button
         type="button"
@@ -281,88 +261,3 @@ export const ComposerStopButton = memo(function ComposerStopButton({
     </TooltipIconButton>
   )
 })
-
-/** 展开长输入编辑。 */
-export const ComposerExpandButton = memo(function ComposerExpandButton({
-  onExpand,
-}: {
-  onExpand: () => void
-}) {
-  return (
-    <TooltipIconButton
-      tooltip="展开编辑"
-      side="bottom"
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      aria-label="展开编辑长输入"
-      onClick={onExpand}
-    >
-      <Maximize2Icon aria-hidden />
-    </TooltipIconButton>
-  )
-})
-
-/** 长输入编辑：Esc/取消保留原草稿，确认才写回。 */
-function LongInputDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaElement | null> }) {
-  const longInput = useComposerStore((state) => state.longInput)
-  const setText = useComposerStore((state) => state.setLongInputText)
-  const apply = useComposerStore((state) => state.applyLongInput)
-  const close = useComposerStore((state) => state.closeLongInput)
-  return (
-    <Dialog
-      open={longInput !== undefined}
-      onOpenChange={(next) => {
-        if (next) return
-        close()
-        focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
-      }}
-    >
-      <DialogContent data-slot="huan-long-input" aria-label="长输入编辑" className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            <Trans>展开编辑输入</Trans>
-          </DialogTitle>
-          <DialogDescription>
-            <Trans>取消或按 Esc 不会修改输入框中的原草稿。</Trans>
-          </DialogDescription>
-        </DialogHeader>
-        <Textarea
-          aria-label="长输入内容"
-          autoFocus
-          rows={12}
-          value={longInput?.text ?? ''}
-          onChange={(event) => setText(event.target.value)}
-          className="min-h-48"
-        />
-        {longInput?.conflict ? (
-          <p role="alert" className="text-destructive text-xs">
-            {longInput.conflict}
-          </p>
-        ) : null}
-        <DialogFooter>
-          <Button variant="outline" onClick={close}>
-            <Trans>取消</Trans>
-          </Button>
-          <Button
-            onClick={() => {
-              if (apply()) focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
-            }}
-          >
-            <CheckIcon aria-hidden className="size-4" />
-            <Trans>应用</Trans>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/** 挂在输入区一次即可的弹层宿主。 */
-export function PiComposerDialogs({
-  inputRef,
-}: {
-  inputRef: RefObject<HTMLTextAreaElement | null>
-}) {
-  return <LongInputDialog inputRef={inputRef} />
-}

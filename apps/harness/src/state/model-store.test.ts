@@ -88,7 +88,8 @@ describe('model feature：目录版本与已有会话选择', () => {
 
     await store.getState().chooseThinking('max')
     expect(client.setThinkingLevel).toHaveBeenCalledWith('t1', 'max')
-    expect(store.getState().notice).toContain('max')
+    // Thinking 成功不显示冗余提示；模型提示也在开始修改时被清除。
+    expect(store.getState().notice).toBeUndefined()
 
     // 认证版本变化会得到新的目录查询键；再次读取不复用旧目标/旧版本条目。
     browser.serviceStore.getState().applyProviderAuth(authSnapshotOf(2))
@@ -113,6 +114,7 @@ describe('model feature：目录版本与已有会话选择', () => {
       workspaceId: 'w1',
     })
     await store.getState().chooseModel({ provider: 'provider', modelId: 'other' })
+    expect(store.getState().notice).toContain('新会话')
     await store.getState().chooseThinking('xhigh')
 
     const draftId = draftIdOf({
@@ -125,7 +127,27 @@ describe('model feature：目录版本与已有会话选择', () => {
     expect(draft?.thinkingLevel).toBe('xhigh')
     expect(client.setModel).not.toHaveBeenCalled()
     expect(client.setThinkingLevel).not.toHaveBeenCalled()
-    expect(store.getState().notice).toContain('新会话')
+    expect(store.getState().notice).toBeUndefined()
+  })
+
+  it('已有会话 Thinking 成功清除模型提示，失败仍保留错误', async () => {
+    const { client, store } = createStore()
+    await store.getState().openPanel({
+      target: { threadId: 't1', workspacePath: '/workspace' },
+    })
+    await store.getState().chooseModel({ provider: 'provider', modelId: 'other' })
+    expect(store.getState().notice).toContain('已切换模型')
+
+    await store.getState().chooseThinking('max')
+    expect(client.setThinkingLevel).toHaveBeenCalledWith('t1', 'max')
+    expect(store.getState().notice).toBeUndefined()
+    expect(store.getState().error).toBeUndefined()
+
+    vi.mocked(client.setThinkingLevel).mockRejectedValueOnce(new Error('级别不可用'))
+    await store.getState().chooseThinking('high')
+    expect(store.getState().error).toBe('级别不可用')
+    expect(store.getState().notice).toBeUndefined()
+    expect(store.getState().busy).toBeUndefined()
   })
 
   it('关闭重开后迟到失败不写新面板', async () => {

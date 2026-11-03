@@ -1,6 +1,6 @@
 /**
- * Composer feature Zustand 状态：内置 slash/Shell 路由、补全、长输入、历史、
- * 队列取回入口与提交提示。
+ * Composer feature Zustand 状态：内置 slash/Shell 路由、补全、历史、队列取回
+ * 入口与提交提示。
  *
  * 输入文字、附件与选择只来自公共 windowStore；本 store 不复制草稿，也不保存
  * 服务端队列。真正的创建/发送/停止/取回由 `browser.sessionActions` 完成，
@@ -72,14 +72,6 @@ export interface ComposerCompletionState {
   index: number
 }
 
-/** 长输入编辑状态；打开时固定草稿版本。 */
-export interface ComposerLongInputState {
-  text: string
-  draftId: string
-  draftRevision: number
-  conflict: string | undefined
-}
-
 /** 历史浏览状态。 */
 export interface ComposerHistoryBrowseState {
   cursor: number
@@ -107,7 +99,6 @@ export interface ComposerFeatureState {
   busy: string | undefined
   completion: ComposerCompletionState | undefined
   queueMode: 'followUp' | 'steer'
-  longInput: ComposerLongInputState | undefined
   historyBrowse: ComposerHistoryBrowseState | undefined
   recoveredQueue: ComposerRecoveredQueueState | undefined
   disposed: boolean
@@ -137,11 +128,6 @@ export interface ComposerFeatureState {
   setCompletionIndex: (index: number) => void
   chooseCompletion: (item?: ComposerCompletionItem) => number | undefined
   clearCompletion: () => void
-
-  openLongInput: () => void
-  setLongInputText: (text: string) => void
-  applyLongInput: () => boolean
-  closeLongInput: () => void
 
   historyUp: (value: string) => number | undefined
   historyDown: () => number | undefined
@@ -699,12 +685,12 @@ export const createComposerFeatureStore = (
       browser.windowStore.getState().setDraftThinkingLevel(current.draftId, level)
       const updated = browser.windowStore.getState().draftsById[current.draftId]
       if (updated) consumeCommandText(current.draftId, updated.revision)
-      setIfAlive((store) => ({ ...store, notice: `新会话 Thinking 级别：${level}。` }))
+      setIfAlive((store) => ({ ...store, notice: undefined }))
       return true
     }
     try {
       await browser.sessionActions.setThinkingLevel(current.target.threadId, level)
-      setIfAlive((store) => ({ ...store, notice: `Thinking 级别已设置为 ${level}。` }))
+      setIfAlive((store) => ({ ...store, notice: undefined }))
       return true
     } catch (error) {
       setIfAlive((store) => ({ ...store, notice: errorText(error) }))
@@ -859,7 +845,6 @@ export const createComposerFeatureStore = (
     busy: undefined,
     completion: undefined,
     queueMode: 'followUp' as const,
-    longInput: undefined,
     historyBrowse: undefined,
     recoveredQueue: undefined,
     disposed: false,
@@ -880,7 +865,6 @@ export const createComposerFeatureStore = (
         completion: undefined,
         busy: undefined,
         notice: undefined,
-        longInput: undefined,
         historyBrowse: undefined,
         recoveredQueue: undefined,
       })
@@ -1300,51 +1284,6 @@ export const createComposerFeatureStore = (
       set({ completion: undefined })
     },
 
-    openLongInput: () => {
-      const state = get()
-      if (state.disposed) return
-      const current = currentDraft()
-      if (!current?.draft) return
-      set({
-        longInput: {
-          text: current.draft.text,
-          draftId: current.draftId,
-          draftRevision: current.draft.revision,
-          conflict: undefined,
-        },
-      })
-    },
-
-    setLongInputText: (text) => {
-      const state = get()
-      if (state.disposed || !state.longInput) return
-      set({ longInput: { ...state.longInput, text, conflict: undefined } })
-    },
-
-    applyLongInput: () => {
-      const state = get()
-      if (state.disposed || !state.longInput) return false
-      const { draftId, draftRevision, text } = state.longInput
-      const draft = browser.windowStore.getState().draftsById[draftId]
-      if (!draft || draft.revision !== draftRevision) {
-        set({
-          longInput: {
-            ...state.longInput,
-            conflict: '输入已发生变化，长输入内容未覆盖新草稿。请复制后重新编辑。',
-          },
-        })
-        return false
-      }
-      browser.windowStore.getState().editDraftText(draftId, text)
-      set({ longInput: undefined })
-      return true
-    },
-
-    closeLongInput: () => {
-      if (get().disposed) return
-      set({ longInput: undefined })
-    },
-
     historyUp: (value) => {
       const state = get()
       if (state.disposed) return undefined
@@ -1414,7 +1353,6 @@ export const createComposerFeatureStore = (
         notice: undefined,
         busy: undefined,
         completion: undefined,
-        longInput: undefined,
         historyBrowse: undefined,
         recoveredQueue: undefined,
       })

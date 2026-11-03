@@ -434,7 +434,7 @@ describe('composer feature：内置命令、Shell 与普通提交', () => {
   })
 })
 
-describe('composer feature：补全、长输入、历史与取回', () => {
+describe('composer feature：补全、历史与取回', () => {
   it('命令补全与 @ 文件补全写回同一个草稿', async () => {
     const fake = createFakeClient()
     const { browser, composer } = createApp(fake.client)
@@ -453,19 +453,6 @@ describe('composer feature：补全、长输入、历史与取回', () => {
     composer.getState().chooseCompletion()
     expect(fake.searches[0]?.query).toBe('src')
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('see @src/file.ts ')
-  })
-
-  it('长输入固定打开时版本，冲突时不覆盖新草稿', () => {
-    const fake = createFakeClient()
-    const { browser, composer } = createApp(fake.client)
-    const draftId = selectThread(browser)
-    browser.windowStore.getState().editDraftText(draftId, 'one')
-    composer.getState().openLongInput()
-    browser.windowStore.getState().editDraftText(draftId, 'two')
-    composer.getState().setLongInputText('long')
-    expect(composer.getState().applyLongInput()).toBe(false)
-    expect(composer.getState().longInput?.conflict).toBeDefined()
-    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('two')
   })
 
   it('历史来自本窗输入历史并可恢复到浏览前草稿', () => {
