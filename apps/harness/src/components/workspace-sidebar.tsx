@@ -477,7 +477,7 @@ export function WorkspaceSidebar() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 pr-2">
             {visibleWorkspaces.map((workspace) => (
               <WorkspaceGroup
                 key={workspace.id}
