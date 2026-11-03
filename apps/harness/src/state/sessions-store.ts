@@ -648,6 +648,7 @@ export const createSessionsFeatureStore = (
         const form = state.treeNavigation
         const tree = state.tree.tree
         if (state.disposed || !form || !tree) return undefined
+        const epoch = state.tree.epoch
         const result = await get().navigateTree({
           targetId: form.node.entryId,
           expectedRevision: tree.revision,
@@ -661,7 +662,9 @@ export const createSessionsFeatureStore = (
           ...(form.replaceDraft ? { replaceDraft: true } : {}),
         })
         const current = get()
-        if (current.disposed) return result
+        if (current.disposed || !current.tree.open || current.tree.epoch !== epoch) {
+          return result
+        }
         if (result.status === 'applied' || result.status === 'conflict') {
           set({ treeNavigation: undefined })
         }
@@ -805,12 +808,21 @@ export const createSessionsFeatureStore = (
         const form = state.treeLabel
         const tree = state.tree.tree
         if (state.disposed || !form || !tree) return undefined
+        const epoch = state.tree.epoch
         const result = await get().setTreeLabel({
           entryId: form.entryId,
           ...(form.value.trim() ? { label: form.value.trim() } : {}),
           expectedRevision: tree.revision,
         })
-        if (!get().disposed && result?.status === 'applied') set({ treeLabel: undefined })
+        const current = get()
+        if (
+          !current.disposed &&
+          current.tree.open &&
+          current.tree.epoch === epoch &&
+          result?.status === 'applied'
+        ) {
+          set({ treeLabel: undefined })
+        }
         return result
       },
 
@@ -859,7 +871,13 @@ export const createSessionsFeatureStore = (
         try {
           const result = await client.cancelThreadTreeNavigation(threadId)
           const current = get()
-          if (!current.disposed && current.tree.threadId === threadId) {
+          // 关闭已推进 epoch；只更新仍打开且仍是同一会话的面板。
+          if (
+            !current.disposed &&
+            current.tree.open &&
+            current.tree.threadId === threadId &&
+            current.tree.epoch === state.tree.epoch
+          ) {
             set({
               tree: {
                 ...current.tree,
@@ -872,7 +890,12 @@ export const createSessionsFeatureStore = (
           }
         } catch (error) {
           const current = get()
-          if (!current.disposed) {
+          if (
+            !current.disposed &&
+            current.tree.open &&
+            current.tree.threadId === threadId &&
+            current.tree.epoch === state.tree.epoch
+          ) {
             set({ tree: { ...current.tree, error: errorText(error) } })
           }
         }
@@ -923,6 +946,7 @@ export const createSessionsFeatureStore = (
         const state = get()
         if (state.disposed) return
         importFileRead += 1
+        // 关闭只失效代次与忙碌标记；正文保留供退出动画，重开时由空面板重置。
         set({
           importPanel: {
             ...state.importPanel,
@@ -930,9 +954,6 @@ export const createSessionsFeatureStore = (
             open: false,
             busy: false,
             fileReading: false,
-            fileError: undefined,
-            error: undefined,
-            trustPath: undefined,
           },
         })
       },
@@ -1367,16 +1388,13 @@ export const createSessionsFeatureStore = (
       closeFork: () => {
         const state = get()
         if (state.disposed) return
+        // 来源与结构 revision 保留供退出动画；异步回执用 open 判断失效，重开时覆盖。
         set({
           forkPanel: {
             ...state.forkPanel,
             open: false,
-            sourceThreadId: undefined,
-            entryId: undefined,
-            expectedRevision: undefined,
             busy: false,
             stopping: false,
-            error: undefined,
           },
         })
       },
@@ -1388,7 +1406,13 @@ export const createSessionsFeatureStore = (
         set({ forkPanel: { ...state.forkPanel, stopping: true, error: undefined } })
         const outcome = await browser.sessionActions.stop(threadId)
         const current = get()
-        if (current.disposed || current.forkPanel.sourceThreadId !== threadId) return
+        if (
+          current.disposed ||
+          !current.forkPanel.open ||
+          current.forkPanel.sourceThreadId !== threadId
+        ) {
+          return
+        }
         set({
           forkPanel: {
             ...current.forkPanel,
@@ -1415,15 +1439,22 @@ export const createSessionsFeatureStore = (
           ...(panel.expectedRevision ? { expectedRevision: panel.expectedRevision } : {}),
         })
         const current = get()
-        if (current.disposed || current.forkPanel.sourceThreadId !== threadId) return result
+        if (
+          current.disposed ||
+          !current.forkPanel.open ||
+          current.forkPanel.sourceThreadId !== threadId ||
+          current.forkPanel.position !== panel.position ||
+          current.forkPanel.entryId !== panel.entryId ||
+          current.forkPanel.expectedRevision !== panel.expectedRevision
+        ) {
+          return result
+        }
         if (result.status === 'created') {
+          // 保留来源供退出动画继续展示，重开时由 openFork 覆盖。
           set({
             forkPanel: {
               ...current.forkPanel,
               open: false,
-              sourceThreadId: undefined,
-              entryId: undefined,
-              expectedRevision: undefined,
               busy: false,
               stopping: false,
               error: undefined,
@@ -1733,13 +1764,19 @@ export const createSessionsFeatureStore = (
         const state = get()
         if (state.disposed) return
         detailsRequest += 1
+        // 关闭立即失效请求并停掉忙碌态；会话 ID 与详情正文留给退出动画，
+        // 重开时 openDetails 用空面板覆盖。
         set({
           details: {
-            ...emptyDetailsPanel(),
+            ...state.details,
+            open: false,
             epoch: state.details.epoch + 1,
+            loading: false,
+            renameBusy: false,
+            actionBusy: false,
           },
-          deleteConfirm: emptyDeletePanel(),
-          assign: emptyAssignPanel(),
+          deleteConfirm: { ...state.deleteConfirm, open: false, busy: false },
+          assign: { ...state.assign, open: false, busy: false },
         })
       },
 
@@ -1761,7 +1798,9 @@ export const createSessionsFeatureStore = (
           await client.renameThread(threadId, value)
           await refreshDirectory()
           const current = get()
-          if (current.disposed || current.details.threadId !== threadId) return
+          if (current.disposed || !current.details.open || current.details.threadId !== threadId) {
+            return
+          }
           set({
             details: {
               ...current.details,
@@ -1774,7 +1813,9 @@ export const createSessionsFeatureStore = (
           notify(value ? '会话已命名。' : '会话名称已清空。')
         } catch (error) {
           const current = get()
-          if (current.disposed || current.details.threadId !== threadId) return
+          if (current.disposed || !current.details.open || current.details.threadId !== threadId) {
+            return
+          }
           set({
             details: {
               ...current.details,
@@ -1796,7 +1837,8 @@ export const createSessionsFeatureStore = (
         set({ details: { ...panel, actionBusy: true, actionError: undefined } })
         await get().setThreadArchived(threadId, metadata?.archived !== true)
         const current = get()
-        if (current.disposed || current.details.threadId !== threadId) return
+        if (current.disposed || !current.details.open || current.details.threadId !== threadId)
+          return
         const failed = current.details.actionError !== undefined
         set({
           details: {
@@ -1819,7 +1861,7 @@ export const createSessionsFeatureStore = (
           if (current.disposed) return
           set({
             archiveBusy: undefined,
-            ...(current.details.threadId === threadId
+            ...(current.details.open && current.details.threadId === threadId
               ? { details: { ...current.details, actionError: undefined } }
               : {}),
           })
@@ -1833,7 +1875,7 @@ export const createSessionsFeatureStore = (
           const message = errorText(error)
           set({
             archiveBusy: undefined,
-            ...(current.details.threadId === threadId
+            ...(current.details.open && current.details.threadId === threadId
               ? { details: { ...current.details, actionError: message } }
               : {}),
           })
@@ -1850,7 +1892,8 @@ export const createSessionsFeatureStore = (
       closeDelete: () => {
         const state = get()
         if (state.disposed) return
-        set({ deleteConfirm: emptyDeletePanel() })
+        // 保留目标与错误供退出动画；异步回执用 open 判断失效，重开时覆盖。
+        set({ deleteConfirm: { ...state.deleteConfirm, open: false, busy: false } })
       },
 
       confirmDelete: async () => {
@@ -1868,17 +1911,35 @@ export const createSessionsFeatureStore = (
           await refreshDirectory()
           const current = get()
           if (current.disposed) return
+          // 只关闭与已删除会话匹配的面板；退出动画期间重开其他目标不受影响。
+          if (current.details.threadId === threadId) detailsRequest += 1
           set({
-            deleteConfirm: emptyDeletePanel(),
+            deleteConfirm:
+              current.deleteConfirm.threadId === threadId
+                ? { ...current.deleteConfirm, open: false, busy: false }
+                : current.deleteConfirm,
             details:
               current.details.threadId === threadId
-                ? { ...emptyDetailsPanel(), epoch: current.details.epoch + 1 }
+                ? {
+                    ...current.details,
+                    open: false,
+                    epoch: current.details.epoch + 1,
+                    loading: false,
+                    renameBusy: false,
+                    actionBusy: false,
+                  }
                 : current.details,
           })
           notify('会话已删除。')
         } catch {
           const current = get()
-          if (current.disposed || current.deleteConfirm.threadId !== threadId) return
+          if (
+            current.disposed ||
+            !current.deleteConfirm.open ||
+            current.deleteConfirm.threadId !== threadId
+          ) {
+            return
+          }
           set({
             deleteConfirm: {
               ...current.deleteConfirm,
@@ -1907,7 +1968,8 @@ export const createSessionsFeatureStore = (
       closeAssign: () => {
         const state = get()
         if (state.disposed) return
-        set({ assign: emptyAssignPanel() })
+        // 保留目标与表单供退出动画；异步回执用 open 判断失效，重开时覆盖。
+        set({ assign: { ...state.assign, open: false, busy: false } })
       },
 
       confirmAssign: async () => {
@@ -1926,7 +1988,13 @@ export const createSessionsFeatureStore = (
           })
           if (!result.ok) {
             const current = get()
-            if (current.disposed || current.assign.threadId !== panel.threadId) return
+            if (
+              current.disposed ||
+              !current.assign.open ||
+              current.assign.threadId !== panel.threadId
+            ) {
+              return
+            }
             set({
               assign: {
                 ...current.assign,
@@ -1942,11 +2010,19 @@ export const createSessionsFeatureStore = (
           await refreshDirectory()
           const current = get()
           if (current.disposed) return
-          set({ assign: emptyAssignPanel() })
+          if (current.assign.open && current.assign.threadId === panel.threadId) {
+            set({ assign: { ...current.assign, open: false, busy: false, error: undefined } })
+          }
           notify('会话已加入工作区。')
         } catch (error) {
           const current = get()
-          if (current.disposed || current.assign.threadId !== panel.threadId) return
+          if (
+            current.disposed ||
+            !current.assign.open ||
+            current.assign.threadId !== panel.threadId
+          ) {
+            return
+          }
           set({ assign: { ...current.assign, busy: false, error: errorText(error) } })
         }
       },

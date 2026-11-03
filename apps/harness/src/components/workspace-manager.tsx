@@ -96,7 +96,9 @@ export function TrustDecisionPanel({
   const closeTrust = useWorkspaceStore((state) => state.closeTrust)
   const rememberId = useId()
 
-  if (!trust.open || trust.path !== path) return null
+  // 是否显示由调用方按 open 决定；这里只校验路径，使关闭请求后的面板能随
+  // 对话框继续渲染到退出动画结束。
+  if (trust.path !== path) return null
   const intentMatches =
     intentKind === 'none' ? trust.intent === undefined : trust.intent?.kind === intentKind
   if (!intentMatches) return null
@@ -194,6 +196,7 @@ export function WorkspaceManagerDialog() {
     })
   })
   const closeWorkspaceForm = useWorkspaceStore((state) => state.closeWorkspaceForm)
+  const finishCloseWorkspaceForm = useWorkspaceStore((state) => state.finishCloseWorkspaceForm)
   const setWorkspaceFormName = useWorkspaceStore((state) => state.setWorkspaceFormName)
   const setWorkspaceModelScopeMode = useWorkspaceStore((state) => state.setWorkspaceModelScopeMode)
   const setWorkspaceFormModelPatterns = useWorkspaceStore(
@@ -244,6 +247,8 @@ export function WorkspaceManagerDialog() {
       }}
       onOpenChangeComplete={(open) => {
         if (open) return
+        // 退出动画完成后再清空表单并执行关闭后打开动作，避免退出时正文变空。
+        finishCloseWorkspaceForm()
         const action = pendingOpen.current
         pendingOpen.current = undefined
         action?.()
@@ -515,6 +520,7 @@ export function NewSessionDialog() {
   )
   const workspaceState = useServiceStore((state) => state.workspaceState)
   const closeNewSession = useWorkspaceStore((state) => state.closeNewSession)
+  const finishCloseNewSession = useWorkspaceStore((state) => state.finishCloseNewSession)
   const setNewSessionPath = useWorkspaceStore((state) => state.setNewSessionPath)
   const startNewSession = useWorkspaceStore((state) => state.startNewSession)
   const trust = useWorkspaceStore((state) => state.trust)
@@ -525,9 +531,13 @@ export function NewSessionDialog() {
 
   return (
     <Dialog
-      open={Boolean(newSession.workspaceId)}
+      open={newSession.open}
       onOpenChange={(open) => {
         if (!open) closeNewSession()
+      }}
+      onOpenChangeComplete={(open) => {
+        // 退出动画完成后再清空面板，避免关闭时内容立即消失。
+        if (!open) finishCloseNewSession()
       }}
     >
       <DialogContent aria-label="新建会话">
@@ -624,9 +634,18 @@ export function NewSessionDialog() {
 export function TrustDecisionDialog() {
   const trust = useWorkspaceStore((state) => state.trust)
   const closeTrust = useWorkspaceStore((state) => state.closeTrust)
-  if (!trust.open || trust.intent?.kind !== 'standalone') return null
+  const finishCloseTrust = useWorkspaceStore((state) => state.finishCloseTrust)
+  // 只按来源判断是否挂载：关闭请求后 store 保留面板内容，供退出动画渲染。
+  if (trust.intent?.kind !== 'standalone') return null
   return (
-    <Dialog open onOpenChange={(open) => !open && closeTrust()}>
+    <Dialog
+      open={trust.open}
+      onOpenChange={(open) => !open && closeTrust()}
+      onOpenChangeComplete={(open) => {
+        // 退出动画完成后再清空独立信任状态。
+        if (!open) finishCloseTrust()
+      }}
+    >
       <DialogContent data-slot="huan-command-trust" aria-label="项目信任">
         <DialogHeader>
           <DialogTitle>

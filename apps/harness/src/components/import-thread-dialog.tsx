@@ -57,8 +57,6 @@ export function ImportThreadDialog() {
   const trust = useWorkspaceStore((state) => state.trust)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  if (!panel.open) return null
-
   const workspaces = workspaceIds.flatMap((id) => {
     const workspace = workspacesById[id]
     return workspace ? [workspace] : []
@@ -75,7 +73,7 @@ export function ImportThreadDialog() {
 
   return (
     <Dialog
-      open
+      open={panel.open}
       onOpenChange={(next) => {
         if (!next) closeImport()
       }}

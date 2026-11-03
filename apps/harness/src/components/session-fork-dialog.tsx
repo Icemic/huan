@@ -34,13 +34,12 @@ export function ForkThreadDialog() {
       : undefined,
   )
 
-  if (!panel.open || !panel.sourceThreadId) return null
   const running = metadata?.status === 'running'
   const before = panel.position === 'before'
 
   return (
     <Dialog
-      open
+      open={panel.open}
       onOpenChange={(next) => {
         if (!next) closeFork()
       }}

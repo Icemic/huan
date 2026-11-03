@@ -186,6 +186,30 @@ describe('settings feature：原文、dirty 与目标保护', () => {
     expect(draftOf(store, 't:t1', 'project')?.content).toContain('defaultProvider')
   })
 
+  it('关闭请求保留资源视图供退出动画使用，完成后才清理且重开不清理', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+
+    await store.getState().openPanel({ threadId: 't1' })
+    await store.getState().loadResources(true)
+    store.getState().close()
+    // 关闭请求立即失效在途读取，但正文仍保留到退出动画完成。
+    expect(store.getState().open).toBe(false)
+    expect(store.getState().resources).toBeDefined()
+    expect(store.getState().showText).toBe(true)
+
+    // 退出动画期间重新打开时，旧关闭的完成回调不得清理新视图。
+    await store.getState().openPanel({ threadId: 't1' })
+    store.getState().finishClose()
+    expect(store.getState().resources).toBeDefined()
+
+    store.getState().close()
+    store.getState().finishClose()
+    expect(store.getState().resources).toBeUndefined()
+    expect(store.getState().showText).toBe(false)
+    expect(draftOf(store, 't:t1', 'user')).toBeDefined()
+  })
+
   it('换目标后旧读取结果不覆盖新目标', async () => {
     const client = createFakeClient()
     const first = deferred<HarnessSettingsSnapshot>()

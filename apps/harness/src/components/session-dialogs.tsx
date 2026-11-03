@@ -87,8 +87,6 @@ export function SessionDetailsDialog() {
   const openDelete = useSessionsStore((state) => state.openDelete)
   const openAssign = useSessionsStore((state) => state.openAssign)
 
-  if (!panel.open || !panel.threadId) return null
-
   const details = panel.details
   const current = details?.metadata ? { ...details.metadata, ...metadata } : metadata
   const stats = details?.stats
@@ -102,7 +100,7 @@ export function SessionDetailsDialog() {
 
   return (
     <Dialog
-      open
+      open={panel.open}
       onOpenChange={(next) => {
         if (!next) closeDetails()
       }}
@@ -318,10 +316,9 @@ export function DeleteThreadDialog() {
   const closeDelete = useSessionsStore((state) => state.closeDelete)
   const confirmDelete = useSessionsStore((state) => state.confirmDelete)
 
-  if (!panel.open || !panel.threadId) return null
   return (
     <Dialog
-      open
+      open={panel.open}
       onOpenChange={(next) => {
         if (!next) closeDelete()
       }}
@@ -384,12 +381,11 @@ export function AssignWorkspaceDialog() {
     panel.threadId ? state.threadsById[panel.threadId] : undefined,
   )
 
-  if (!panel.open || !panel.threadId) return null
   const disabled = workspaceState !== undefined && workspaceState !== 'ok'
 
   return (
     <Dialog
-      open
+      open={panel.open}
       onOpenChange={(next) => {
         if (!next) closeAssign()
       }}

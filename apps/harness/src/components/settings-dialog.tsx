@@ -142,15 +142,19 @@ export function SettingsDialog() {
   const page = useSettingsUiStore((state) => state.page)
   const openPage = useSettingsUiStore((state) => state.openPage)
   const close = useSettingsUiStore((state) => state.close)
+  const finishClose = useSettingsUiStore((state) => state.finishClose)
   const themeId = useId()
 
-  if (!open) return null
-
+  // 保持受控 Root 常驻：关闭时交给 Base UI 播放退出动画并卸载 popup，
+  // 页面内容在退出完成前保持可见；清理由 finishClose 在之后触发。
   return (
     <Dialog
-      open
+      open={open}
       onOpenChange={(next) => {
         if (!next) close()
+      }}
+      onOpenChangeComplete={(next) => {
+        if (!next) finishClose()
       }}
     >
       <DialogContent

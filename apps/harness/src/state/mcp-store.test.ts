@@ -274,7 +274,7 @@ describe('MCP feature：配置草稿、dirty 与目标保护', () => {
     ).not.toContain('secret-token')
   })
 
-  it('关闭清理 raw 快照与详情；详情迟到结果不附着新面板', async () => {
+  it('关闭完成后才清理 raw 快照与详情；详情迟到结果不附着新面板', async () => {
     const { client, store } = createStore()
     const oldDetails = deferred<Awaited<ReturnType<HarnessClient['getMcpDetails']>>>()
     vi.mocked(client.getMcpDetails).mockReturnValueOnce(oldDetails.promise)
@@ -284,6 +284,11 @@ describe('MCP feature：配置草稿、dirty 与目标保护', () => {
     const selecting = store.getState().selectServer('demo')
     expect(store.getState().detailsLoading).toBe(true)
     store.getState().close()
+    // 关闭请求后快照仍保留，供对话框退出动画期间渲染；完成后才清理。
+    expect(store.getState().snapshot).toBeDefined()
+    expect(store.getState().configSnapshot).toBeDefined()
+    expect(store.getState().detailsLoading).toBe(true)
+    store.getState().finishClose()
     expect(store.getState().snapshot).toBeUndefined()
     expect(store.getState().configSnapshot).toBeUndefined()
     expect(store.getState().details).toBeUndefined()

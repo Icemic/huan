@@ -95,7 +95,10 @@ export function ComposerCompletionMenu({
     if (caret !== undefined) focusTextareaAt(inputRef, caret)
   }
   return (
-    <div data-slot="huan-composer-completions" className="absolute inset-x-0 bottom-full z-40 mb-2">
+    <div
+      data-slot="huan-composer-completions"
+      className="animate-in fade-in-0 absolute inset-x-0 bottom-full z-40 mb-2"
+    >
       <ScrollArea className="bg-popover text-popover-foreground rounded-md border shadow-sm *:data-[slot=scroll-area-viewport]:max-h-[min(16rem,40dvh)]">
         <div
           role="listbox"

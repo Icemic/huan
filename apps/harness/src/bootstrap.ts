@@ -159,10 +159,15 @@ export const createHarnessApp = (): HarnessApp => {
       }
     },
     onClose: (page) => {
-      // 关闭设置只清短期视图与秘密回填；进行中的认证/写入继续。
+      // 关闭请求立即失效在途读取与秘密回填；进行中的认证/写入继续。
       if (page === 'models') authStore.getState().resetView()
       settingsStore.getState().close()
       mcpStore.getState().close()
+    },
+    onCloseComplete: () => {
+      // 退出动画完成后才丢弃页面视图，避免关闭阶段正文突然变空。
+      settingsStore.getState().finishClose()
+      mcpStore.getState().finishClose()
     },
   })
   const composerStore = createComposerFeatureStore({

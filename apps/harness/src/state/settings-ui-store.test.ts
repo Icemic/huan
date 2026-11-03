@@ -36,4 +36,28 @@ describe('settings UI：统一设置导航', () => {
     store.getState().close()
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('退出完成才通知清理；退出期间重开不清理新页面', () => {
+    const onClose = vi.fn()
+    const onCloseComplete = vi.fn()
+    const store = createSettingsUiStore({ onClose, onCloseComplete })
+
+    const afterClose = vi.fn()
+    store.getState().openPage('mcp')
+    store.getState().close(afterClose)
+    expect(afterClose).not.toHaveBeenCalled()
+    expect(onCloseComplete).not.toHaveBeenCalled()
+    store.getState().finishClose()
+    expect(onCloseComplete).toHaveBeenCalledTimes(1)
+    expect(afterClose).toHaveBeenCalledTimes(1)
+
+    // 退出动画期间重新打开：旧关闭的完成回调不得清理新页面。
+    store.getState().openPage('models')
+    store.getState().close(afterClose)
+    store.getState().openPage('models')
+    store.getState().finishClose()
+    expect(afterClose).toHaveBeenCalledTimes(1)
+    expect(onCloseComplete).toHaveBeenCalledTimes(1)
+    expect(store.getState().open).toBe(true)
+  })
 })

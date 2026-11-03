@@ -146,8 +146,10 @@ export interface McpFeatureState {
 
   /** 打开面板并固定目标；保留同一目标未保存草稿。 */
   openPanel: (options?: McpOpenOptions) => Promise<void>
-  /** 关闭面板：使在途请求失效并丢弃 raw 快照，但保留 dirty 草稿。 */
+  /** 关闭面板：使在途请求失效并清秘密回填，视图保留到退出动画完成。 */
   close: () => void
+  /** 退出动画完成：丢弃 raw 快照与详情；重开期间不清理。 */
+  finishClose: () => void
   setTab: (tab: McpTab) => Promise<void>
   setScope: (scope: McpConfigScope) => void
   setConfigView: (view: McpConfigView) => void
@@ -591,7 +593,8 @@ export const createMcpFeatureStore = (
       },
 
       close: () => {
-        if (get().disposed) return
+        const state = get()
+        if (state.disposed || !state.open) return
         panelEpoch += 1
         targetRequest += 1
         configRequest += 1
@@ -600,10 +603,28 @@ export const createMcpFeatureStore = (
         detailsRequest += 1
         authRequest += 1
         lastRuntime = undefined
-        // 只失效本地请求与 raw 快照；dirty 草稿保留，远端认证/写入不撤销。
+        // 关闭请求仍立即失效本地请求、认证面板开关和秘密回填；raw 快照与提示
+        // 保留到 finishClose，避免对话框退出动画期间正文突然变空。dirty 草稿保留。
         set({
           open: false,
           targetEpoch: panelEpoch,
+          answers: {},
+          submitting: undefined,
+          cancelling: {},
+          editor: undefined,
+          editorError: undefined,
+          deleteName: undefined,
+          rereadConfirm: false,
+          seed: undefined,
+        })
+        browser.setMcpAuthPanelOpen(false)
+      },
+
+      finishClose: () => {
+        const state = get()
+        // 退出动画期间重新打开（含切到统一设置的全局目标）时保留新视图。
+        if (state.disposed || state.open) return
+        set({
           target: undefined,
           targetKey: undefined,
           snapshot: undefined,
@@ -618,16 +639,7 @@ export const createMcpFeatureStore = (
           details: undefined,
           detailsError: undefined,
           detailsLoading: false,
-          answers: {},
-          submitting: undefined,
-          cancelling: {},
-          editor: undefined,
-          editorError: undefined,
-          deleteName: undefined,
-          rereadConfirm: false,
-          seed: undefined,
         })
-        browser.setMcpAuthPanelOpen(false)
       },
 
       setTab: async (tab) => {

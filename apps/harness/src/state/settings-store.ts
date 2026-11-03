@@ -86,8 +86,10 @@ export interface SettingsFeatureState {
     target?: SettingsTarget,
     options?: { tab?: SettingsTab; scope?: HarnessSettingsScope },
   ) => Promise<void>
-  /** 关闭面板；使在途读取失效，但保留 dirty 草稿。 */
+  /** 关闭面板；使在途读取失效并保留视图，待退出动画完成后由 finishClose 清理。 */
   close: () => void
+  /** 退出动画完成：清理资源清单、提示与忙状态；重开期间不清理。 */
+  finishClose: () => void
   setTab: (tab: SettingsTab) => void
   setScope: (scope: HarnessSettingsScope) => void
   /** 读取设置原文；项目目标另读资源清单。 */
@@ -450,7 +452,9 @@ export const createSettingsFeatureStore = (
 
       close: () => {
         if (get().disposed) return
-        // 关闭只失效在途读取与面板视图；dirty 草稿继续留在内存供重开。
+        if (!get().open) return
+        // 关闭请求只失效在途读取，dirty 草稿与当前视图继续保留；否则对话框
+        // 退出动画期间正文会突然变空。视图在 finishClose 中清理。
         panelEpoch += 1
         loadRequest += 1
         resourceRequest += 1
@@ -458,6 +462,15 @@ export const createSettingsFeatureStore = (
         set({
           open: false,
           targetEpoch: panelEpoch,
+          reloadConfirm: false,
+        })
+      },
+
+      finishClose: () => {
+        const state = get()
+        // 退出动画期间重新打开时保留新视图。
+        if (state.disposed || state.open) return
+        set({
           resources: undefined,
           showText: false,
           loading: false,
@@ -467,7 +480,6 @@ export const createSettingsFeatureStore = (
           notice: undefined,
           error: undefined,
           resourceError: undefined,
-          reloadConfirm: false,
           modelRefreshing: false,
           modelError: undefined,
         })

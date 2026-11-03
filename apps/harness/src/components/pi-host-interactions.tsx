@@ -121,10 +121,11 @@ export function PiHostInteractions() {
 
   if (!snapshot) return null
   const notifications = snapshot.notifications.filter((item) => !dismissed.has(item.id))
-  if (snapshot.requests.length === 0 && notifications.length === 0) return null
+  // Root 保持挂载，让最后一个请求消失后仍有关闭动画；请求正文继续以服务端快照为准。
+  const open = snapshot.requests.length > 0 || notifications.length > 0
 
   return (
-    <Dialog open>
+    <Dialog open={open}>
       <DialogContent showCloseButton={false} className="z-[100] max-w-xl">
         <DialogTitle>
           <Trans>宿主交互</Trans>

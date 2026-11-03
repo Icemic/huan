@@ -161,6 +161,33 @@ describe('workspace feature：路径健康与信任', () => {
     expect(store.getState().trust.open).toBe(false)
     expect(store.getState().form.members[0]?.trust?.trust.decision).toBe('trusted')
   })
+
+  it('独立信任弹层关闭保留面板到退出完成，内嵌面板立即清空', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().refresh()
+
+    await store.getState().openTrust('/workspace', { kind: 'standalone' })
+    store.getState().closeTrust()
+    expect(store.getState().trust.open).toBe(false)
+    expect(store.getState().trust.path).toBe('/workspace')
+    expect(store.getState().trust.intent?.kind).toBe('standalone')
+
+    // 退出动画期间重新打开：旧关闭的完成回调不得清空新面板。
+    await store.getState().openTrust('/workspace', { kind: 'standalone' })
+    store.getState().finishCloseTrust()
+    expect(store.getState().trust.open).toBe(true)
+
+    store.getState().closeTrust()
+    store.getState().finishCloseTrust()
+    expect(store.getState().trust.intent).toBeUndefined()
+
+    // 内嵌面板（无独立弹层）关闭后立即清空，不保留退出视图。
+    await store.getState().openTrust('/workspace')
+    store.getState().closeTrust()
+    expect(store.getState().trust.path).toBe('')
+    expect(store.getState().trust.intent).toBeUndefined()
+  })
 })
 
 describe('workspace feature：新建会话预检', () => {
@@ -198,6 +225,10 @@ describe('workspace feature：新建会话预检', () => {
     expect(store.getState().newSession.workspaceId).toBe('w1')
 
     await store.getState().decideTrust(true)
+    // 新会话弹层以关闭状态保留内容供退出动画使用，完成后才清空。
+    expect(store.getState().newSession.open).toBe(false)
+    expect(store.getState().newSession.workspaceId).toBe('w1')
+    store.getState().finishCloseNewSession()
     expect(store.getState().newSession.workspaceId).toBeUndefined()
     expect(browser.windowStore.getState().selection).toEqual({
       kind: 'new',

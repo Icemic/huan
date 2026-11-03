@@ -175,6 +175,28 @@ describe('workspace-store：目录唯一来源与选择', () => {
     expect(store.getState().startProjectByWorkspace.w2).toBe('/b')
     expect(browser.windowStore.getState().selectionRevision).toBe(2)
   })
+
+  it('新建会话关闭请求保留面板到退出完成，重开期间不清理', async () => {
+    const { client } = createClient()
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+
+    store.getState().openNewSession('w2')
+    expect(store.getState().newSession.open).toBe(true)
+    store.getState().closeNewSession()
+    expect(store.getState().newSession.open).toBe(false)
+    expect(store.getState().newSession.workspaceId).toBe('w2')
+
+    // 退出动画期间重新打开：旧关闭的完成回调不得清空新面板。
+    store.getState().openNewSession('w2')
+    store.getState().finishCloseNewSession()
+    expect(store.getState().newSession.workspaceId).toBe('w2')
+
+    store.getState().closeNewSession()
+    store.getState().finishCloseNewSession()
+    expect(store.getState().newSession.workspaceId).toBeUndefined()
+  })
 })
 
 describe('workspace-store：存储作用域隔离', () => {
@@ -270,6 +292,29 @@ describe('workspace-store：目录变化与工作区表单', () => {
     await save
     expect(store.getState().form.open).toBe(true)
     expect(store.getState().form.workspaceId).toBe('w1')
+  })
+
+  it('工作区表单关闭请求保留内容到退出完成，重开期间不清理', async () => {
+    const { client } = createClient()
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+
+    store.getState().openWorkspaceForm('w1')
+    store.getState().setWorkspaceFormName('未保存的草稿')
+    store.getState().closeWorkspaceForm()
+    expect(store.getState().form.open).toBe(false)
+    expect(store.getState().form.name).toBe('未保存的草稿')
+
+    // 退出动画期间重新打开：旧关闭的完成回调不得清空新表单。
+    store.getState().openWorkspaceForm('w2')
+    store.getState().finishCloseWorkspaceForm()
+    expect(store.getState().form.workspaceId).toBe('w2')
+
+    store.getState().closeWorkspaceForm()
+    store.getState().finishCloseWorkspaceForm()
+    expect(store.getState().form.workspaceId).toBeUndefined()
+    expect(store.getState().form.open).toBe(false)
   })
 
   it('继承打开不读目录，切到自定义才读取并生成初选', async () => {

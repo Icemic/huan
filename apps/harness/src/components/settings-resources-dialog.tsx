@@ -64,6 +64,7 @@ export function ContextSettingsDialog() {
   const drafts = useSettingsStore((state) => state.drafts)
   const reloadConfirm = useSettingsStore((state) => state.reloadConfirm)
   const close = useSettingsStore((state) => state.close)
+  const finishClose = useSettingsStore((state) => state.finishClose)
   const setTab = useSettingsStore((state) => state.setTab)
   const setScope = useSettingsStore((state) => state.setScope)
   const loadResources = useSettingsStore((state) => state.loadResources)
@@ -116,16 +117,22 @@ export function ContextSettingsDialog() {
     syncResourceRevision(metadata?.resourceRevision)
   }, [metadata?.resourceRevision, open, syncResourceRevision])
 
-  if (!open || target?.global === true) return null
+  // 未打开且没有目标时不挂载；关闭请求后 store 保留目标与视图供退出动画渲染。
+  if (target === undefined && !open) return null
+  if (target?.global === true) return null
 
   const title = '项目设置与资源'
   const pathLabel = target?.threadId ? '会话目录' : '项目目录'
 
   return (
     <Dialog
-      open
+      open={open}
       onOpenChange={(next) => {
         if (!next) close()
+      }}
+      onOpenChangeComplete={(next) => {
+        // 退出动画完成后再丢弃资源清单与提示，避免关闭瞬间正文变空。
+        if (!next) finishClose()
       }}
     >
       <DialogContent

@@ -379,6 +379,24 @@ InputGroup的has-disabled:opacity-50会因发送禁用而降低整组透明度�
 
 实施完成：官方ButtonGroup保持安装原样，两个ghost触发器实际相邻；无思考配置时只显示模型按钮，会话操作仅图标且保留可访问名称。移除整组变淡和忙碌省略号，菜单条目仍按自身操作状态禁用。主agent亲验类型与相关代码检查、4条不同Chromium流程通过；ghost修正后重验其中3条通过，确认常态边框透明、按钮组无间隙、空输入左侧可用且透明度不变、28px高度和无思考入口隐藏。此前边框断言误包含键盘焦点高亮，改为将焦点移到消息框后核对常态透明边框，保留键盘焦点可见性。未改其他官方组件文件，未提交。
 
+### 5.16 菜单与弹窗动效缺失调查
+
+输入区调整已按用户授权提交为`02e1c5a`。用户随后要求定位菜单、弹窗立刻出现的问题，本批只读调查，尚未修复。
+
+共同原因一：官方Dialog、DropdownMenu、Popover、Select、Combobox和Tooltip已带animate-in/out、fade与zoom类；全局只导入Tailwind、shadcn/tailwind.css、tw-shimmer与字体，未安装/导入提供这些工具类的动画CSS。Tailwind核心不生成animate-in/out，shadcn/tailwind.css提供状态变体等辅助样式，不包含enter/exit动画。现有生产CSS中animate-in/out与enter/exit关键帧均为0；当前Tailwind compile对照也只生成duration-100/opacity-50，不生成animate-in/out/fade-in-0。问题是公共样式依赖缺失，应补官方安装所需动画CSS，不逐个改上游组件。
+
+共同原因二：部分业务弹窗在open=false时直接return null，例如SettingsDialog、会话详情/删除/加入工作区、项目资源与MCP弹窗。它们关闭时整个Dialog被移除，Base UI无法等待退出动画。其他正常传open的弹窗也受第一项影响。修复需由业务层保持Dialog关闭周期，按现有目标清理语义处理，不增加通用动画状态平台。
+
+另有明确例外：官方Select在alignItemWithTrigger=true时主动animate-none，属于上游定位模式；当前主要业务Select已设false。/与@补全为业务absolute列表，尚未配置自己的进入/退出动画，补齐公共CSS不会自动给它增加动画。未发现项目全局关闭动画或强制reduced-motion的代码。上述证据为源码/CSS检查，未运行应用或测试。
+
+用户随后批准实施：安装tw-animate-css并全局导入，定义fast=120ms、normal=180ms两个CSS变量。仅对官方菜单/选择/Tooltip和Dialog/遮罩的data-slot统一设置animation-duration，保留上游关键帧，不影响加载旋转；减少动态效果偏好下关闭这些动效。/与@业务补全使用同一fast时长进入动画。业务Dialog保留受控Root，由Base UI完成退出再卸载Popup；需要清理目标/正文的面板在关闭完成时清理，关闭请求仍立即失效，不新增通用动画平台或计时器。复用现有浏览器流程检查计算样式、关闭期间挂载和最终移除、焦点及菜单触发下一弹层，不修改官方UI源码。先定向验证，不全测或提交。
+
+实施完成：安装tw-animate-css 1.4.0（满足3天发布龄），全局导入其关键帧与工具类，fast/normal变量按弹层slot与dialog语义设置animation-duration，覆盖组件的duration-100；只影响界面进出，不改加载旋转。prefers-reduced-motion下这些动画和过渡关闭。/与@补全复用fast进入淡入，关闭仍立即收起，避免为输入补全额外维护退出状态。
+
+Dialog业务Root改为受控open，移除按open提前return null。设置/MCP/工作区表单在退出完成时清理视图，关闭立即使请求代次失效并清秘密回填；重开时旧关闭回调不清新面板。会话详情、删除、分配、分叉/导入保留原面板正文，下一次打开按原入口重置，未新增视图副本。设置与会话MCP的互相跳转等退出完成后再打开，避免目标替换使旧正文闪空或模态叠焦。Host交互Root也保持受控关闭，但实时请求消失后不保留已完成请求卡片副本。
+
+主agent独立review并亲验harness/server/e2e类型、15文件127项状态单测与22条不同Chromium流程通过，覆盖进出时长120/180ms、退出期间挂载与最终移除、减少动态效果、菜单/弹窗回焦、信任、MCP/OAuth、会话详情/删除/树、分叉与导入迟到结果、资源草稿。相关Biome通过，官方UI组件文件无改动；未全仓测试或构建，未提交。未读图，以上为计算样式与交互证据。
+
 ## 6. 执行记录
 
 第一批已实施，保持未提交状态；后续反馈在本文追加批次，已完成批次保留当时证据。

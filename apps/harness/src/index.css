@@ -1,10 +1,56 @@
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
+@import "tw-animate-css";
 @import "tw-shimmer";
 @import "@fontsource-variable/geist";
 
 /* 主题随 html.dark 类切换，而不是只跟随系统媒体查询。 */
 @custom-variant dark (&:is(.dark *));
+
+/* 仅控制界面进出动效；加载旋转等持续动画保留自身速度。 */
+:root {
+  --motion-duration-fast: 120ms;
+  --motion-duration-normal: 180ms;
+}
+
+:is(
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="select-content"],
+  [data-slot="combobox-content"],
+  [data-slot="model-selector-content"],
+  [data-slot="thinking-selector-content"],
+  [data-slot="popover-content"],
+  [data-slot="tooltip-content"],
+  [data-slot="huan-composer-completions"]
+) {
+  animation-duration: var(--motion-duration-fast);
+}
+
+/* 业务可覆盖 data-slot；Popup 的对话框语义仍由官方组件提供。 */
+:is([role="dialog"], [role="alertdialog"], [data-slot="dialog-overlay"]) {
+  animation-duration: var(--motion-duration-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    [data-slot="dropdown-menu-content"],
+    [data-slot="dropdown-menu-sub-content"],
+    [data-slot="select-content"],
+    [data-slot="combobox-content"],
+    [data-slot="model-selector-content"],
+    [data-slot="thinking-selector-content"],
+    [data-slot="popover-content"],
+    [data-slot="tooltip-content"],
+    [data-slot="huan-composer-completions"],
+    [role="dialog"],
+    [role="alertdialog"],
+    [data-slot="dialog-overlay"]
+  ) {
+    animation: none;
+    transition-duration: 0s;
+  }
+}
 
 /* 通用界面 tokens 参考末语工坊（shadcn base-nova / Base UI，MIT）。 */
 :root {

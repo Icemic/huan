@@ -258,10 +258,10 @@ export function SessionRecoveredQueue() {
 /** 会话树面板：由会话操作菜单打开，自身不再渲染触发按钮。 */
 export function SessionTreeDialog() {
   const { i18n } = useLingui()
-  const selection = useWindowStore((state) => state.selection)
-  const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
-  const metadata = useServiceStore((state) => (threadId ? state.threadsById[threadId] : undefined))
   const tree = useSessionsStore((state) => state.tree)
+  // 面板打开时固定会话；关闭动画期间不因选择重置而卸载或清空树。
+  const threadId = tree.threadId
+  const metadata = useServiceStore((state) => (threadId ? state.threadsById[threadId] : undefined))
   const navigation = useSessionsStore((state) => state.treeNavigation)
   const label = useSessionsStore((state) => state.treeLabel)
   const closeTree = useSessionsStore((state) => state.closeTree)
@@ -345,8 +345,6 @@ export function SessionTreeDialog() {
     }
     return rendered
   }, [tree.filter, tree.search, tree.tree])
-
-  if (!threadId) return null
 
   const filters: Array<{ value: SessionTreeFilter; label: string }> = [
     { value: 'conversation', label: i18n._(msg`对话`) },
@@ -488,13 +486,14 @@ export function SessionTreeDialog() {
                     busy={tree.busy || operation !== undefined}
                     onNavigate={() => beginNavigation(node)}
                     onEditLabel={() => beginLabel(node.entryId)}
-                    onFork={() =>
+                    onFork={() => {
+                      if (!threadId) return
                       openFork({
                         threadId,
                         position: 'before',
                         entryId: node.entryId,
                       })
-                    }
+                    }}
                   />
                   {label?.entryId === node.entryId && (
                     <div className="bg-muted/40 mb-1 flex items-center gap-1.5 rounded-md p-1.5">

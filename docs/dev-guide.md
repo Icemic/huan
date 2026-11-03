@@ -71,7 +71,13 @@ MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项�
 
 从包含components.json的应用目录运行官方shadcn CLI安装；使用满足依赖发布龄约束的明确版本，先预览生成内容和依赖变化。安装工具完成的路径与图标转换属于安装结果，后续以该结果为比较基准。主题在全局CSS tokens配置，业务组合放在`components/ui`之外。不得通过下载内部registry原始模板、手工改写占位图标和补写交互来冒充CLI安装结果。
 
-### 4.4 i18n（Lingui v6）
+### 4.4 动效速度
+
+全局样式`apps/harness/src/index.css`导入`tw-animate-css`，沿用官方组件的进入/退出动画；通过`--motion-duration-fast: 120ms`控制菜单、选择器与Tooltip，通过`--motion-duration-normal: 180ms`控制Dialog及遮罩。调整速度只改这两个变量，加载旋转等持续动画不受影响。系统偏好减少动态效果时关闭界面进出动效。
+
+业务Dialog使用受控open，避免关闭时直接return null截断退出动画。关闭请求立即失效异步读取，视图清理由官方onOpenChangeComplete触发；关闭期间重开须保留新面板。原面板数据可供退出展示，不复制一份动画缓存。
+
+### 4.5 i18n（Lingui v6）
 
 - 源语言中文，首期仅 `zh-CN` 单语言包。
 - 应用入口须用 `<I18nProvider i18n={i18n}>` 包裹根组件（Lingui v6 要求，缺了会运行时报错）。

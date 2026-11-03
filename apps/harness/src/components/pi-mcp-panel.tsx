@@ -25,7 +25,7 @@ import {
   RotateCwIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { Fragment, type ReactNode, useEffect, useId, useMemo } from 'react'
+import { Fragment, type ReactNode, useEffect, useId, useMemo, useRef } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -1235,7 +1235,6 @@ function ConfigEditor({ scope }: { scope: McpConfigScope }) {
  * 不探测路径、不显示项目/会话运行视图，也不提供“应用到当前会话”。
  */
 export function GlobalMcpContent() {
-  const open = useMcpStore((state) => state.open)
   const target = useMcpStore((state) => state.target)
   const notice = useMcpStore((state) => state.notice)
   const error = useMcpStore((state) => state.error)
@@ -1246,15 +1245,16 @@ export function GlobalMcpContent() {
   const mcpAuthError = useServiceStore((state) => state.mcpAuthError)
   const threadId = selection?.kind === 'thread' ? selection.threadId : undefined
 
-  if (!open || !isGlobalMcpTarget(target)) return null
+  // 关闭请求后 mcp store 仍保留全局目标与配置快照到统一设置退出完成，
+  // 因此这里只看目标，不再随 open 立即卸载正文。
+  if (!isGlobalMcpTarget(target)) return null
 
   const authOperations = mcpAuth?.operations ?? []
   const activeAuthCount = authOperations.filter(activeAuthOperation).length
   const openContext = () => {
     if (!threadId) return
-    // 关闭统一设置会清理短期视图；随后显式打开当前会话的 MCP 上下文，不创建临时会话。
-    closeSettings()
-    void openPanel({ target: { threadId } })
+    // 完成统一设置的退出再打开会话面板，避免改变目标使旧正文闪空或两个模态叠焦。
+    closeSettings(() => void openPanel({ target: { threadId } }))
   }
 
   return (
@@ -1337,6 +1337,7 @@ export function ContextMcpDialog() {
   const detailsError = useMcpStore((state) => state.detailsError)
   const detailsLoading = useMcpStore((state) => state.detailsLoading)
   const close = useMcpStore((state) => state.close)
+  const finishClose = useMcpStore((state) => state.finishClose)
   const openSettingsPage = useSettingsUiStore((state) => state.openPage)
   const setTab = useMcpStore((state) => state.setTab)
   const refreshLive = useMcpStore((state) => state.refreshLive)
@@ -1348,6 +1349,8 @@ export function ContextMcpDialog() {
   const mcpAuth = useServiceStore((state) => state.mcpAuth)
   const mcpAuthError = useServiceStore((state) => state.mcpAuthError)
   const sessionMode = target?.threadId !== undefined
+  // “编辑全局配置”在关闭本弹层后再打开统一设置；只暂存一次待执行动作。
+  const pendingOpen = useRef<(() => void) | undefined>(undefined)
   const effectiveTab: McpTab = sessionMode ? (tab === 'auth' ? 'auth' : 'servers') : 'config'
 
   // 只有 live 会话需要轮询运行快照；项目配置和全局配置都不启动连接。
@@ -1392,12 +1395,13 @@ export function ContextMcpDialog() {
     snapshot.runtime !== undefined &&
     !snapshot.runtime.closed
 
-  if (!open || !target || isGlobalMcpTarget(target)) return null
+  if (!target || isGlobalMcpTarget(target)) return null
 
+  // 统一设置是独立弹层：先关闭本弹层，等退出动画完成后再打开，避免两个模态叠焦。
   const openGlobal = () => {
     // 会话视图的配置入口进入统一设置 MCP 页；不要在上下文弹层里混入用户配置编辑。
+    pendingOpen.current = () => openSettingsPage('mcp')
     close()
-    openSettingsPage('mcp')
   }
 
   return (
@@ -1405,6 +1409,14 @@ export function ContextMcpDialog() {
       open={open}
       onOpenChange={(next) => {
         if (!next) close()
+      }}
+      onOpenChangeComplete={(next) => {
+        if (next) return
+        // 先丢弃视图快照，再执行关闭后打开动作（如统一设置 MCP 页）。
+        finishClose()
+        const action = pendingOpen.current
+        pendingOpen.current = undefined
+        action?.()
       }}
     >
       <DialogContent

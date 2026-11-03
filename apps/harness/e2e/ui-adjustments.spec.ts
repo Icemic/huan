@@ -24,6 +24,7 @@ import {
   sendMessage,
   sessionActionsTrigger,
   settingsDialog,
+  settingsTrigger,
   startNewSession,
   streamState,
 } from './helpers.js'
@@ -70,6 +71,70 @@ async function boxOf(locator: Locator) {
   const box = await locator.boundingBox()
   if (!box) throw new Error('元素没有可测量的布局框')
   return box
+}
+
+/** 读取公共弹层的进出动效状态。 */
+async function motionState(locator: Locator) {
+  return locator.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      open: element.hasAttribute('data-open'),
+      closed: element.hasAttribute('data-closed'),
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+    }
+  })
+}
+
+/** 等待进入动画结束；仅用于本组动效检查，不改变其他用例时序。 */
+async function waitForEnterMotion(locator: Locator): Promise<void> {
+  await locator.evaluate(async (element) => {
+    const finiteAnimations = () =>
+      element.getAnimations().filter((animation) => {
+        const timing = animation.effect?.getTiming()
+        return timing?.duration !== Infinity && timing?.iterations !== Infinity
+      })
+    // 起始状态移除后才注册进入动画，先等一帧避免把尚未开始误判为已结束。
+    await new Promise(requestAnimationFrame)
+    await Promise.all(finiteAnimations().map((animation) => animation.finished))
+  })
+}
+
+/** 同步派发 Escape 并读取退出样式，直到 Popup 真正卸载；不使用固定等待。 */
+async function closeWithEscape(locator: Locator) {
+  return locator.evaluate(async (element) => {
+    const popup = element as HTMLElement
+    const read = () => {
+      const style = getComputedStyle(popup)
+      return {
+        closed: popup.hasAttribute('data-closed'),
+        animationName: style.animationName,
+        animationDuration: style.animationDuration,
+      }
+    }
+    return await new Promise<ReturnType<typeof read> & { unmounted: boolean }>((resolve) => {
+      let closing: ReturnType<typeof read> | undefined
+      const attributeObserver = new MutationObserver(() => {
+        if (!closing && popup.hasAttribute('data-closed')) closing = read()
+      })
+      const removalObserver = new MutationObserver(() => {
+        if (popup.isConnected) return
+        attributeObserver.disconnect()
+        removalObserver.disconnect()
+        resolve({ ...(closing ?? read()), unmounted: true })
+      })
+      attributeObserver.observe(popup, { attributes: true, attributeFilter: ['data-closed'] })
+      removalObserver.observe(document.body, { childList: true, subtree: true })
+      popup.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          code: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+    })
+  })
 }
 
 /** 代码块 pre 交回内容语义，横向滚动由父级 ScrollArea 视口承担。 */
@@ -536,6 +601,68 @@ test('会话操作收进输入区单一菜单：模型只在输入区，操作/�
   await confirm.getByRole('button', { name: '取消' }).click()
   await expect(confirm).toHaveCount(0)
   await expect(sessionActionsTrigger(page)).toBeFocused()
+})
+
+test('公共菜单与设置对话框保留进出动效，减少动态效果时直接切换', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await openApp(page)
+  const menuTrigger = page.getByRole('button', { name: '添加内容', exact: true })
+  const menu = page.getByRole('menu')
+
+  // 菜单使用 fast 时长；触发入口通过真实可访问名称定位。
+  await menuTrigger.click()
+  await expect(menu).toBeVisible()
+  await expect(menu).toHaveAttribute('data-slot', 'dropdown-menu-content')
+  expect(await motionState(menu)).toMatchObject({
+    open: true,
+    animationName: 'enter',
+    animationDuration: '0.12s',
+  })
+  await waitForEnterMotion(menu)
+  expect(await closeWithEscape(menu)).toEqual({
+    closed: true,
+    animationName: 'exit',
+    animationDuration: '0.12s',
+    unmounted: true,
+  })
+  await expect(menu).toHaveCount(0)
+  await expect(menuTrigger).toBeFocused()
+
+  // 业务设置对话框沿用 Dialog 的 normal 时长；退出完成前仍保持挂载。
+  await openSettings(page)
+  const settings = settingsDialog(page)
+  const dialog = page.locator('[data-slot="huan-settings-dialog"]')
+  await expect(settings).toBeVisible()
+  expect(await motionState(dialog)).toMatchObject({
+    open: true,
+    animationName: 'enter',
+    animationDuration: '0.18s',
+  })
+  await waitForEnterMotion(dialog)
+  expect(await closeWithEscape(dialog)).toEqual({
+    closed: true,
+    animationName: 'exit',
+    animationDuration: '0.18s',
+    unmounted: true,
+  })
+  await expect(settings).toHaveCount(0)
+  await expect(settingsTrigger(page)).toBeFocused()
+
+  // 减少动态效果时，同一批公共弹层保留结构但不再播放进出动画。
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await menuTrigger.click()
+  await expect(menu).toBeVisible()
+  expect(await motionState(menu)).toMatchObject({ open: true, animationName: 'none' })
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(menuTrigger).toBeFocused()
+
+  await openSettings(page)
+  await expect(settings).toBeVisible()
+  expect(await motionState(dialog)).toMatchObject({ open: true, animationName: 'none' })
+  await page.keyboard.press('Escape')
+  await expect(settings).toHaveCount(0)
+  await expect(settingsTrigger(page)).toBeFocused()
 })
 
 /** 在已发送短消息的会话中追加长内容（测试 2 的短/长对照）。 */

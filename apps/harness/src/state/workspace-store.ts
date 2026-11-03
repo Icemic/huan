@@ -63,6 +63,8 @@ export interface WorkspaceFormState {
 
 /** 新建会话目标选择与预检状态。 */
 export interface NewSessionState {
+  /** 仅控制对话框开关；关闭请求后仍保留内容到退出动画完成。 */
+  open: boolean
   workspaceId?: string
   selectedPath: string
   /** 每次打开推进；信任回来的迟到结果只应用到同一表单代次。 */
@@ -133,12 +135,18 @@ export interface WorkspaceFeatureState {
   /** 记录新会话目标并立即写入 windowStore 选择。 */
   beginNewSession: (workspaceId: string, startProjectPath: string) => void
   openNewSession: (workspaceId: string) => void
+  /** 关闭新建会话弹层；立即失效在途预检，内容保留到退出动画完成。 */
   closeNewSession: () => void
+  /** 退出动画完成：清空新建会话面板；重开期间不清理。 */
+  finishCloseNewSession: () => void
   setNewSessionPath: (path: string) => void
   /** 路径与信任预检；需要信任时打开信任面板，完成后继续。 */
   startNewSession: () => Promise<void>
   openWorkspaceForm: (workspaceId?: string) => void
+  /** 关闭工作区表单；立即失效在途读取，内容保留到退出动画完成。 */
   closeWorkspaceForm: () => void
+  /** 退出动画完成：清空工作区表单；重开期间不清理。 */
+  finishCloseWorkspaceForm: () => void
   setWorkspaceFormName: (name: string) => void
   setWorkspaceModelScopeMode: (mode: WorkspaceModelScopeMode) => void
   setWorkspaceFormModelPatterns: (patterns: readonly string[]) => void
@@ -152,7 +160,10 @@ export interface WorkspaceFeatureState {
   /** 查询成员路径可用性与只读信任摘要；迟到结果按成员路径保护。 */
   inspectWorkspaceMember: (key: string) => Promise<void>
   openTrust: (path: string, intent?: WorkspaceTrustIntent) => Promise<void>
+  /** 关闭信任面板；独立弹层保留内容到退出动画完成，内嵌面板立即清空。 */
   closeTrust: () => void
+  /** 退出动画完成：清空独立信任弹层；重开期间不清理。 */
+  finishCloseTrust: () => void
   setTrustRemember: (remember: boolean) => void
   /** 保存本次信任决定；返回权威项目摘要供调用方继续。 */
   decideTrust: (trusted: boolean) => Promise<HarnessProjectInfo | undefined>
@@ -298,6 +309,7 @@ const seededModelPatterns = (
 }
 
 const emptyNewSession = (): NewSessionState => ({
+  open: false,
   selectedPath: '',
   epoch: 0,
   checking: false,
@@ -411,6 +423,13 @@ export const createWorkspaceFeatureStore = (
   })
 
   return createStore<WorkspaceFeatureState>()((set, get) => {
+    /** 关闭新建会话面板但保留内容，等待对话框退出动画完成后再清空。 */
+    const closeNewSessionPanel = (panel: NewSessionState): void => {
+      // 推进代次使在途预检失效；面板内容仍属于显示中的对话框。
+      newSessionEpoch += 1
+      set({ newSession: { ...panel, epoch: newSessionEpoch, open: false, checking: false } })
+    }
+
     /** 信任决定后若新会话表单仍属于同一来源，则完成预检并开始新会话。 */
     const finalizeNewSession = (
       intent: Extract<WorkspaceTrustIntent, { kind: 'new-session' }>,
@@ -425,7 +444,7 @@ export const createWorkspaceFeatureStore = (
         return false
       }
       get().beginNewSession(intent.workspaceId, intent.startProjectPath)
-      set({ newSession: emptyNewSession() })
+      closeNewSessionPanel(panel)
       return true
     }
 
@@ -652,6 +671,7 @@ export const createWorkspaceFeatureStore = (
         set({
           newSession: {
             ...emptyNewSession(),
+            open: true,
             epoch: newSessionEpoch,
             workspaceId,
             selectedPath: get().startProjectFor(workspaceId) ?? '',
@@ -663,14 +683,21 @@ export const createWorkspaceFeatureStore = (
       },
 
       closeNewSession: () => {
-        if (get().disposed) return
-        newSessionEpoch += 1
+        const state = get()
+        if (state.disposed || !state.newSession.open) return
+        closeNewSessionPanel(state.newSession)
+      },
+
+      finishCloseNewSession: () => {
+        const state = get()
+        // 退出动画期间重新打开时保留新面板。
+        if (state.disposed || state.newSession.open) return
         set({ newSession: emptyNewSession() })
       },
 
       setNewSessionPath: (path) => {
         const state = get()
-        if (state.disposed || !state.newSession.workspaceId) return
+        if (state.disposed || !state.newSession.open || !state.newSession.workspaceId) return
         // 更换起始项目即新预检来源；旧的检查状态不沿用。
         newSessionEpoch += 1
         set({
@@ -686,7 +713,8 @@ export const createWorkspaceFeatureStore = (
 
       startNewSession: async () => {
         const state = get()
-        if (state.disposed) return
+        // 关闭请求后内容只为退出动画保留，不再接受预检或开始新会话。
+        if (state.disposed || !state.newSession.open) return
         const panel = state.newSession
         const workspaceId = panel.workspaceId
         const selectedPath = panel.selectedPath
@@ -747,7 +775,7 @@ export const createWorkspaceFeatureStore = (
             return
           }
           get().beginNewSession(workspaceId, selectedPath)
-          set({ newSession: emptyNewSession() })
+          closeNewSessionPanel(get().newSession)
         } catch {
           if (get().disposed || !currentPanel()) return
           set({
@@ -966,6 +994,20 @@ export const createWorkspaceFeatureStore = (
         const state = get()
         if (state.disposed) return
         trustEpoch += 1
+        if (!state.trust.open) return
+        // 独立信任弹层需要保留面板内容完成退出动画；内嵌信任面板随 open 立即收起。
+        set({
+          trust:
+            state.trust.intent?.kind === 'standalone'
+              ? { ...state.trust, open: false, busy: false }
+              : emptyTrust(),
+        })
+      },
+
+      finishCloseTrust: () => {
+        const state = get()
+        // 退出动画期间重新打开时保留新面板。
+        if (state.disposed || state.trust.open) return
         set({ trust: emptyTrust() })
       },
 
@@ -1014,7 +1056,13 @@ export const createWorkspaceFeatureStore = (
               },
             })
           }
-          set({ trust: emptyTrust() })
+          // 独立信任弹层保留内容完成退出动画；内嵌面板直接收起。
+          set({
+            trust:
+              panel.intent?.kind === 'standalone'
+                ? { ...current.trust, open: false, busy: false, info }
+                : emptyTrust(),
+          })
           get().showNotice(
             trusted
               ? '已允许该项目加载项目资源；决定只影响当前用户空间。'
@@ -1033,8 +1081,18 @@ export const createWorkspaceFeatureStore = (
       },
 
       closeWorkspaceForm: () => {
-        if (get().disposed) return
+        const state = get()
+        if (state.disposed) return
         formEpoch += 1
+        if (!state.form.open) return
+        // 关闭请求只失效在途读写，表单内容保留到退出动画完成后再清空。
+        set({ form: { ...state.form, open: false } })
+      },
+
+      finishCloseWorkspaceForm: () => {
+        const state = get()
+        // 退出动画期间重新打开时保留新表单。
+        if (state.disposed || state.form.open) return
         set({ form: emptyForm() })
       },
 
@@ -1268,7 +1326,8 @@ export const createWorkspaceFeatureStore = (
               ),
             ],
           })
-          if (currentDraft === submittedDraft) set({ form: emptyForm() })
+          // 草稿与提交一致时自动关闭表单；保留内容完成退出动画后由 finishClose 清空。
+          if (currentDraft === submittedDraft) get().closeWorkspaceForm()
           else set({ form: { ...currentForm, busy: false } })
           get().showNotice(form.mode === 'edit' ? '工作区已更新。' : '工作区已创建。')
         } catch {

@@ -1,6 +1,7 @@
 import type {
   HarnessClient,
   HarnessProjectInfo,
+  HarnessThreadDetails,
   HarnessThreadForkResult,
   HarnessThreadImportPreview,
   HarnessThreadImportResult,
@@ -29,6 +30,20 @@ const treeOf = (threadId: string, revision = `v1:0:${threadId}`): HarnessThreadT
   revision,
   nodes: [],
   branchSummarySkipPrompt: true,
+})
+
+const detailsOf = (threadId: string): HarnessThreadDetails => ({
+  metadata: { id: threadId, status: 'idle', workspacePath: '/workspace' },
+  stats: {
+    userMessages: 0,
+    assistantMessages: 0,
+    toolResults: 0,
+    toolCalls: 0,
+    totalMessages: 0,
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: 0,
+  },
+  branchEntryCount: 0,
 })
 
 const deferred = <T>() => {
@@ -79,6 +94,7 @@ const createFakeClient = () => {
       status: 'failed',
     }),
   )
+  const details = vi.fn(async (threadId: string) => detailsOf(threadId))
 
   const client = {
     listThreads: vi.fn(async () => []),
@@ -88,6 +104,7 @@ const createFakeClient = () => {
     setThreadEntryLabel: vi.fn(async () => ({ status: 'applied' as const })),
     cancelThreadTreeNavigation: vi.fn(async () => ({ status: 'idle' as const })),
     forkThread: fork,
+    getThreadDetails: details,
     previewThreadImport: preview,
     importThread,
     getProject: vi.fn(async () => project),
@@ -144,7 +161,7 @@ const createFakeClient = () => {
     subscribeHostInteractions: vi.fn(() => () => {}),
   } as unknown as HarnessClient
 
-  return { client, tree, navigate, fork, preview, importThread, consumed }
+  return { client, tree, navigate, fork, preview, importThread, details, consumed }
 }
 
 const createBrowser = (client: HarnessClient): HarnessBrowser =>
@@ -400,6 +417,56 @@ describe('sessions feature：fork/clone 与导入', () => {
         expectedSourceFingerprint: 'new',
       }),
     )
+  })
+})
+
+describe('sessions feature：关闭保留退出内容并失效迟到回执', () => {
+  it('关闭详情立即失效在途请求并保留正文，迟到结果不写回', async () => {
+    const fake = createFakeClient()
+    const old = deferred<HarnessThreadDetails>()
+    fake.details.mockImplementationOnce(async () => old.promise)
+    const browser = createBrowser(fake.client)
+    const store = createSessionsFeatureStore({ browser })
+
+    const opening = store.getState().openDetails('t1')
+    store.getState().closeDetails()
+    expect(store.getState().details).toMatchObject({
+      open: false,
+      threadId: 't1',
+      loading: false,
+    })
+
+    old.resolve(detailsOf('t1'))
+    await opening
+    expect(store.getState().details.open).toBe(false)
+    expect(store.getState().details.details).toBeUndefined()
+
+    await store.getState().openDetails('t1')
+    store.getState().closeDetails()
+    expect(store.getState().details.open).toBe(false)
+    expect(store.getState().details.details?.metadata.id).toBe('t1')
+  })
+
+  it('关闭 fork 后保留来源供退出动画，迟到结果不写错误', async () => {
+    const fake = createFakeClient()
+    const gate = deferred<HarnessThreadForkResult>()
+    fake.fork.mockImplementationOnce(async () => gate.promise)
+    const browser = createBrowser(fake.client)
+    const store = createSessionsFeatureStore({ browser })
+
+    store.getState().openFork({ threadId: 't1', position: 'before', entryId: 'e1' })
+    const confirming = store.getState().confirmFork()
+    store.getState().closeFork()
+    gate.resolve({ status: 'cancelled', message: '迟到的取消' })
+    await confirming
+
+    expect(store.getState().forkPanel).toMatchObject({
+      open: false,
+      sourceThreadId: 't1',
+      entryId: 'e1',
+      busy: false,
+    })
+    expect(store.getState().forkPanel.error).toBeUndefined()
   })
 })
 
