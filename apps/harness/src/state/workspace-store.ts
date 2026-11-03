@@ -12,7 +12,11 @@ import type {
   HarnessWorkspace,
   HarnessWorkspaceProjectInput,
 } from '@huan/protocol'
-import type { HarnessBrowser, HarnessBrowserStorage } from '@huan/react'
+import {
+  type HarnessBrowser,
+  type HarnessBrowserStorage,
+  selectHarnessModelCatalog,
+} from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 
 /** 页面级工作区错误分类。 */
@@ -35,6 +39,9 @@ export interface WorkspaceMemberDraft {
   trustFailed?: boolean
 }
 
+/** 工作区模型范围模式：继承全局或完整替换。 */
+export type WorkspaceModelScopeMode = 'inherit' | 'custom'
+
 /** 工作区创建/编辑表单。 */
 export interface WorkspaceFormState {
   open: boolean
@@ -43,6 +50,13 @@ export interface WorkspaceFormState {
   name: string
   revision?: number
   members: readonly WorkspaceMemberDraft[]
+  modelScopeMode: WorkspaceModelScopeMode
+  /** 自定义模型 patterns 草稿；继承时保留但不提交。 */
+  modelPatterns: readonly string[]
+  /** 打开表单时固定的模型目录起始目录；不随成员输入逐字变化。 */
+  modelCatalogPath: string
+  /** 显式刷新共享模型目录中；与保存 busy 分开。 */
+  modelRefreshing: boolean
   busy: boolean
   message?: string
 }
@@ -126,6 +140,12 @@ export interface WorkspaceFeatureState {
   openWorkspaceForm: (workspaceId?: string) => void
   closeWorkspaceForm: () => void
   setWorkspaceFormName: (name: string) => void
+  setWorkspaceModelScopeMode: (mode: WorkspaceModelScopeMode) => void
+  setWorkspaceFormModelPatterns: (patterns: readonly string[]) => void
+  /** 读取表单所需的完整模型目录（all: true）；不复制 models。 */
+  loadWorkspaceModels: () => Promise<void>
+  /** 显式刷新完整模型目录；供表单按钮使用。 */
+  refreshWorkspaceModels: () => Promise<void>
   setWorkspaceMember: (key: string, patch: Partial<Omit<WorkspaceMemberDraft, 'key'>>) => void
   addWorkspaceMember: () => void
   removeWorkspaceMember: (key: string) => void
@@ -223,8 +243,59 @@ const emptyForm = (): WorkspaceFormState => ({
   mode: 'create',
   name: '',
   members: [],
+  modelScopeMode: 'inherit',
+  modelPatterns: [],
+  modelCatalogPath: '',
+  modelRefreshing: false,
   busy: false,
 })
+
+/** 默认模型目录起始目录：优先当前选择/活动工作区项目，最后回退宿主路径。 */
+const modelCatalogPathOf = (
+  browser: HarnessBrowser,
+  workspaceProjects: readonly { path: string; available?: boolean }[] | undefined,
+  activeWorkspaceId: string | undefined,
+  startProjectFor: (workspaceId: string) => string | undefined,
+): string => {
+  const firstProject =
+    workspaceProjects?.find((project) => project.available && project.path)?.path ??
+    workspaceProjects?.find((project) => project.path)?.path
+  if (firstProject) return firstProject
+  const selection = browser.windowStore.getState().selection
+  if (selection?.kind === 'thread') {
+    return (
+      browser.serviceStore.getState().threadsById[selection.threadId]?.workspacePath ??
+      browser.serviceStore.getState().host?.workspacePath ??
+      ''
+    )
+  }
+  if (selection?.kind === 'new') return selection.startProjectPath
+  const preferred = activeWorkspaceId ? startProjectFor(activeWorkspaceId) : undefined
+  return preferred ?? browser.serviceStore.getState().host?.workspacePath ?? ''
+}
+
+/** 表单的完整目录查询；revision 等版本由 serviceStore 选择器补齐。 */
+const workspaceModelCatalogTarget = (
+  form: Pick<WorkspaceFormState, 'workspaceId' | 'modelCatalogPath'>,
+): { workspacePath: string; workspaceId?: string; all: true } | undefined => {
+  if (!form.modelCatalogPath) return undefined
+  return {
+    workspacePath: form.modelCatalogPath,
+    ...(form.workspaceId ? { workspaceId: form.workspaceId } : {}),
+    all: true,
+  }
+}
+
+/** 自定义范围切换时用当前完整目录生成初始模式；已有 patterns 不覆盖。 */
+const seededModelPatterns = (
+  browser: HarnessBrowser,
+  form: Pick<WorkspaceFormState, 'workspaceId' | 'modelCatalogPath'>,
+): string[] => {
+  const target = workspaceModelCatalogTarget(form)
+  if (!target) return []
+  const entry = selectHarnessModelCatalog(browser.serviceStore.getState(), target)
+  return (entry?.models ?? []).map((model) => `${model.provider}/${model.modelId}`)
+}
 
 const emptyNewSession = (): NewSessionState => ({
   selectedPath: '',
@@ -329,6 +400,13 @@ export const createWorkspaceFeatureStore = (
       path: project.path,
       available: project.available,
     })),
+    modelScopeMode:
+      workspace.modelPatterns !== undefined && workspace.modelPatterns.length > 0
+        ? 'custom'
+        : 'inherit',
+    modelPatterns: workspace.modelPatterns ? [...workspace.modelPatterns] : [],
+    modelCatalogPath: '',
+    modelRefreshing: false,
     busy: false,
   })
 
@@ -358,6 +436,28 @@ export const createWorkspaceFeatureStore = (
       expanded.add(workspaceId)
       persistLocked(state.storageScope, workspaceId, expanded, state.startProjectByWorkspace)
       set({ activeWorkspaceId: workspaceId, expandedWorkspaceIds: expanded })
+    }
+
+    /** 完整目录只在服务 store；表单只保留查询、范围模式与 patterns 草稿。 */
+    const loadModels = async (seedCustom: boolean): Promise<void> => {
+      const state = get()
+      if (state.disposed || !state.form.open) return
+      const target = workspaceModelCatalogTarget(state.form)
+      if (!target) return
+      const epoch = formEpoch
+      await browser.serviceStore.getState().loadModelCatalog(target)
+      const current = get()
+      if (current.disposed || formEpoch !== epoch || !current.form.open) return
+      if (
+        seedCustom &&
+        current.form.modelScopeMode === 'custom' &&
+        current.form.modelPatterns.length === 0
+      ) {
+        const seeded = seededModelPatterns(browser, current.form)
+        if (seeded.length > 0) {
+          set({ form: { ...current.form, modelPatterns: seeded } })
+        }
+      }
     }
 
     return {
@@ -666,10 +766,19 @@ export const createWorkspaceFeatureStore = (
         if (workspaceId) {
           const workspace = browser.serviceStore.getState().workspacesById[workspaceId]
           if (!workspace) return
-          set({ form: formFromWorkspace(workspace) })
+          const form: WorkspaceFormState = {
+            ...formFromWorkspace(workspace),
+            modelCatalogPath: modelCatalogPathOf(
+              browser,
+              workspace.projects,
+              state.activeWorkspaceId,
+              get().startProjectFor,
+            ),
+          }
+          set({ form })
           // 打开既有工作区时重新检查成员路径与只读信任摘要。
-          const form = get().form
           for (const member of form.members) void get().inspectWorkspaceMember(member.key)
+          void loadModels(false)
           return
         }
         set({
@@ -678,9 +787,19 @@ export const createWorkspaceFeatureStore = (
             mode: 'create',
             name: '',
             members: [{ key: nextMemberKey(), alias: '', path: '' }],
+            modelScopeMode: 'inherit',
+            modelPatterns: [],
+            modelCatalogPath: modelCatalogPathOf(
+              browser,
+              undefined,
+              state.activeWorkspaceId,
+              get().startProjectFor,
+            ),
+            modelRefreshing: false,
             busy: false,
           },
         })
+        void loadModels(false)
       },
 
       inspectWorkspaceMember: async (key) => {
@@ -926,6 +1045,62 @@ export const createWorkspaceFeatureStore = (
         set({ form: { ...state.form, name } })
       },
 
+      setWorkspaceModelScopeMode: (mode) => {
+        const state = get()
+        if (state.disposed || state.form.modelScopeMode === mode) return
+        if (mode === 'inherit') {
+          set({ form: { ...state.form, modelScopeMode: mode } })
+          return
+        }
+        const seeded =
+          state.form.modelPatterns.length > 0
+            ? [...state.form.modelPatterns]
+            : seededModelPatterns(browser, state.form)
+        set({
+          form: {
+            ...state.form,
+            modelScopeMode: mode,
+            modelPatterns: seeded,
+          },
+        })
+        // 目录尚未读完时，加载完成后补一次初始全选；已有草稿不覆盖。
+        if (seeded.length === 0) void loadModels(true)
+      },
+
+      setWorkspaceFormModelPatterns: (patterns) => {
+        const state = get()
+        if (state.disposed) return
+        set({ form: { ...state.form, modelPatterns: [...patterns] } })
+      },
+
+      loadWorkspaceModels: () => loadModels(false),
+
+      refreshWorkspaceModels: async () => {
+        const state = get()
+        if (state.disposed || !state.form.open || state.form.modelRefreshing) return
+        const target = workspaceModelCatalogTarget(state.form)
+        if (!target) return
+        const epoch = formEpoch
+        set({ form: { ...state.form, modelRefreshing: true, message: undefined } })
+        try {
+          // 显式刷新共享目录；失败保留缓存，只给出受控提示。
+          await browser.client.refreshModels({ workspacePath: target.workspacePath })
+          if (get().disposed || formEpoch !== epoch || !get().form.open) return
+          await browser.serviceStore.getState().loadModelCatalog(target)
+          if (get().disposed || formEpoch !== epoch || !get().form.open) return
+          set({ form: { ...get().form, modelRefreshing: false } })
+        } catch {
+          if (get().disposed || formEpoch !== epoch || !get().form.open) return
+          set({
+            form: {
+              ...get().form,
+              modelRefreshing: false,
+              message: '模型目录刷新失败，已保留缓存目录；请检查宿主连接后重试。',
+            },
+          })
+        }
+      },
+
       setWorkspaceMember: (key, patch) => {
         const state = get()
         if (state.disposed) return
@@ -979,7 +1154,9 @@ export const createWorkspaceFeatureStore = (
 
       saveWorkspaceForm: async () => {
         const state = get()
-        if (state.disposed || state.form.busy || !state.form.open) return
+        if (state.disposed || state.form.busy || state.form.modelRefreshing || !state.form.open) {
+          return
+        }
         const workspaceState = browser.serviceStore.getState().workspaceState
         if (workspaceState !== undefined && workspaceState !== 'ok') {
           set({
@@ -999,6 +1176,20 @@ export const createWorkspaceFeatureStore = (
           set({ form: { ...form, message: '请填写工作区名称与至少一个项目成员。' } })
           return
         }
+        const modelPatterns = [
+          ...new Set(
+            form.modelPatterns
+              .map((pattern) => pattern.trim())
+              .filter((pattern) => pattern.length > 0),
+          ),
+        ]
+        const customModelPatterns = form.modelScopeMode === 'custom' ? modelPatterns : undefined
+        if (form.modelScopeMode === 'custom' && modelPatterns.length === 0) {
+          set({
+            form: { ...form, message: '自定义模型范围至少需要选择一个模型或填写一个模式。' },
+          })
+          return
+        }
         set({ form: { ...form, busy: true, message: undefined } })
         const submittedEpoch = formEpoch
         // 保存期间成员检查可能刷新路径状态；只有用户改过的草稿才阻止自动关闭。
@@ -1007,6 +1198,8 @@ export const createWorkspaceFeatureStore = (
           workspaceId: form.workspaceId ?? null,
           name,
           projects,
+          modelScopeMode: form.modelScopeMode,
+          modelPatterns,
         })
         try {
           const result =
@@ -1016,8 +1209,14 @@ export const createWorkspaceFeatureStore = (
                   expectedRevision: form.revision ?? 0,
                   name,
                   projects,
+                  // 跟随全局显式传 null 清除覆盖；自定义传完整 patterns。
+                  modelPatterns: customModelPatterns ?? null,
                 })
-              : await browser.client.createWorkspace({ name, projects })
+              : await browser.client.createWorkspace({
+                  name,
+                  projects,
+                  ...(customModelPatterns ? { modelPatterns: customModelPatterns } : {}),
+                })
           if (get().disposed) return
           if (!result.ok) {
             if (result.workspace) browser.serviceStore.getState().applyWorkspace(result.workspace)
@@ -1061,6 +1260,14 @@ export const createWorkspaceFeatureStore = (
             projects: currentForm.members
               .filter((member) => member.alias.trim() || member.path.trim())
               .map((member) => ({ alias: member.alias.trim(), path: member.path.trim() })),
+            modelScopeMode: currentForm.modelScopeMode,
+            modelPatterns: [
+              ...new Set(
+                currentForm.modelPatterns
+                  .map((pattern) => pattern.trim())
+                  .filter((pattern) => pattern.length > 0),
+              ),
+            ],
           })
           if (currentDraft === submittedDraft) set({ form: emptyForm() })
           else set({ form: { ...currentForm, busy: false } })

@@ -1,24 +1,17 @@
 /**
- * 运行操作弹层：直接 Shell、上下文压缩与模型范围。
+ * 运行操作弹层：直接 Shell 与上下文压缩。
  *
- * 由会话操作菜单或 `/compact`、`/scoped-models` 命令打开对应分段。
- * 业务状态（固定 target、表单、busy、模型范围 patterns 原文与目录查询）
- * 全部在 runtime feature Zustand；本组件只选择状态并触发动作。
+ * 由会话操作菜单或 `/compact` 命令打开对应分段。
+ * 业务状态（固定 target、表单、busy）全部在 runtime feature Zustand；
+ * 本组件只选择状态并触发动作。
  * Shell/压缩结果始终来自服务端事件，不猜测成功；取消不伪装为完成。
  */
 
 import type { HarnessBashRun } from '@huan/protocol'
-import { selectHarnessModelCatalog, useServiceStore } from '@huan/react'
+import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import {
-  BanIcon,
-  CircleStopIcon,
-  Loader2Icon,
-  PlayIcon,
-  RefreshCwIcon,
-  SlidersHorizontalIcon,
-} from 'lucide-react'
-import { type ReactNode, useEffect, useMemo } from 'react'
+import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
@@ -30,7 +23,6 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useRuntimeStore } from '@/state/app-context'
-import { scopeModelKeysForPatterns } from '@/state/runtime-store'
 
 /** Shell/压缩共用的状态行。 */
 function StatusLine({ tone, children }: { tone: 'muted' | 'error'; children: ReactNode }) {
@@ -115,27 +107,13 @@ export function RuntimeOperationsDialog() {
   const shellCommand = useRuntimeStore((state) => state.shellCommand)
   const shellExcludeFromContext = useRuntimeStore((state) => state.shellExcludeFromContext)
   const compactInstructions = useRuntimeStore((state) => state.compactInstructions)
-  const patternsText = useRuntimeStore((state) => state.patternsText)
-  const basePatternsText = useRuntimeStore((state) => state.basePatternsText)
-  const saveAsDefault = useRuntimeStore((state) => state.saveAsDefault)
   const busy = useRuntimeStore((state) => state.busy)
   const notice = useRuntimeStore((state) => state.notice)
   const error = useRuntimeStore((state) => state.error)
-  const scopeError = useRuntimeStore((state) => state.scopeError)
-  const scope = useRuntimeStore((state) => state.scope)
-  const scopeLoading = useRuntimeStore((state) => state.scopeLoading)
   const close = useRuntimeStore((state) => state.close)
   const setShellCommand = useRuntimeStore((state) => state.setShellCommand)
   const setShellExcludeFromContext = useRuntimeStore((state) => state.setShellExcludeFromContext)
   const setCompactInstructions = useRuntimeStore((state) => state.setCompactInstructions)
-  const setSaveAsDefault = useRuntimeStore((state) => state.setSaveAsDefault)
-  const loadCatalog = useRuntimeStore((state) => state.loadCatalog)
-  const refreshCatalog = useRuntimeStore((state) => state.refreshCatalog)
-  const loadScope = useRuntimeStore((state) => state.loadScope)
-  const updatePatternsText = useRuntimeStore((state) => state.updatePatternsText)
-  const resetPatternsDraft = useRuntimeStore((state) => state.resetPatternsDraft)
-  const toggleScopeModel = useRuntimeStore((state) => state.toggleScopeModel)
-  const saveScope = useRuntimeStore((state) => state.saveScope)
   const runShell = useRuntimeStore((state) => state.runShell)
   const abortShell = useRuntimeStore((state) => state.abortShell)
   const compact = useRuntimeStore((state) => state.compact)
@@ -148,34 +126,11 @@ export function RuntimeOperationsDialog() {
   const session = useServiceStore((state) =>
     threadId ? state.sessionDataById[threadId] : undefined,
   )
-  const entry = useServiceStore((state) =>
-    target
-      ? selectHarnessModelCatalog(state, {
-          workspacePath: target.workspacePath,
-          ...(target.threadId ? { threadId: target.threadId } : {}),
-        })
-      : undefined,
-  )
-  const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
-  const catalog = entry?.models ?? []
-  const catalogLoading = entry?.loading === true
-  const selectedKeys = useMemo(
-    () => scopeModelKeysForPatterns(patternsText, catalog),
-    [patternsText, catalog],
-  )
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 认证/目录版本是 serviceStore 查询键
-  useEffect(() => {
-    if (!open || !target) return
-    // 认证版本/会话目录版本变化时重新读取；serviceStore 以同一目标版本为键。
-    void loadCatalog()
-  }, [open, target, authRevision, metadata?.modelCatalogRevision, loadCatalog])
 
   const bash = session?.bash
   const compactionActive = metadata?.compactionActive === true
   const autoCompaction = metadata?.autoCompactionEnabled
   const compactionError = session?.compactionError
-  const patternsDirty = patternsText !== basePatternsText
 
   return (
     <Dialog
@@ -207,11 +162,6 @@ export function RuntimeOperationsDialog() {
           {error && (
             <p role="status" className="text-destructive text-xs">
               {error}
-            </p>
-          )}
-          {scopeError && (
-            <p role="status" className="text-destructive text-xs">
-              {scopeError}
             </p>
           )}
 
@@ -357,146 +307,6 @@ export function RuntimeOperationsDialog() {
             {!threadId && (
               <StatusLine tone="muted">
                 <Trans>先建立或打开会话，才能压缩或修改自动压缩。</Trans>
-              </StatusLine>
-            )}
-          </section>
-
-          {/* ---- 模型目录与范围 ---- */}
-          <section className="flex flex-col gap-2 border-t pt-3" aria-label="模型范围">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-medium">
-                <Trans>模型目录与范围</Trans>
-              </h3>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={busy === 'refresh' || !workspacePath}
-                onClick={() => void refreshCatalog()}
-              >
-                {busy === 'refresh' ? (
-                  <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                ) : (
-                  <RefreshCwIcon aria-hidden className="size-3" />
-                )}
-                <Trans>刷新目录</Trans>
-              </Button>
-              {threadId && (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={scopeLoading || busy !== undefined}
-                  onClick={() => void loadScope()}
-                >
-                  <Trans>{scopeLoading ? '读取范围…' : '重新读取范围'}</Trans>
-                </Button>
-              )}
-            </div>
-            <StatusLine tone="muted">
-              <Trans>
-                范围默认只作用于当前会话；勾选“保存为用户默认”才写入用户设置并影响未来会话。
-              </Trans>
-            </StatusLine>
-            {threadId ? (
-              <>
-                <div className="flex flex-col gap-1">
-                  {catalogLoading && catalog.length === 0 ? (
-                    <StatusLine tone="muted">
-                      <Loader2Icon aria-hidden className="me-1 inline size-3 animate-spin" />
-                      <Trans>正在读取模型目录…</Trans>
-                    </StatusLine>
-                  ) : (
-                    catalog.map((model) => {
-                      const key = `${model.provider}/${model.modelId}`
-                      const checked = selectedKeys.includes(key)
-                      return (
-                        <Button
-                          key={key}
-                          size="sm"
-                          variant={checked ? 'secondary' : 'outline'}
-                          aria-pressed={checked}
-                          aria-label={`会话模型 ${key}`}
-                          className="justify-start"
-                          onClick={() => toggleScopeModel(model, catalog)}
-                        >
-                          <span className="truncate">{model.name ?? model.modelId}</span>
-                          <span className="text-muted-foreground ms-auto flex items-center gap-1 text-xs">
-                            <span>{model.provider}</span>
-                            {model.input?.includes('image') && (
-                              <span className="rounded bg-muted px-1">
-                                <Trans>图像</Trans>
-                              </span>
-                            )}
-                            {model.availableThinkingLevels?.includes('max') && (
-                              <span className="rounded bg-muted px-1">max</span>
-                            )}
-                          </span>
-                        </Button>
-                      )
-                    })
-                  )}
-                  {!catalogLoading && catalog.length === 0 && (
-                    <StatusLine tone="muted">
-                      <Trans>目录为空；请先刷新模型目录。</Trans>
-                    </StatusLine>
-                  )}
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-muted-foreground text-xs">
-                    <Trans>patterns 原文（每行一个，可保留 :thinking 后缀）</Trans>
-                  </span>
-                  <Textarea
-                    aria-label="模型范围 patterns"
-                    rows={4}
-                    className="font-mono text-xs"
-                    value={patternsText}
-                    onChange={(event) => updatePatternsText(event.target.value)}
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      disabled={!patternsDirty || busy !== undefined}
-                      onClick={resetPatternsDraft}
-                    >
-                      <Trans>重置 patterns</Trans>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant={saveAsDefault ? 'secondary' : 'outline'}
-                      aria-pressed={saveAsDefault}
-                      aria-label="同时保存为用户默认"
-                      onClick={() => setSaveAsDefault(!saveAsDefault)}
-                    >
-                      <Trans>同时保存为用户默认</Trans>
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={busy === 'scope' || scopeLoading}
-                      onClick={() => void saveScope()}
-                    >
-                      <SlidersHorizontalIcon aria-hidden className="size-3.5" />
-                      <Trans>保存会话范围</Trans>
-                    </Button>
-                  </div>
-                </div>
-                {scope?.savedPatterns && (
-                  <StatusLine tone="muted">
-                    <Trans>已保存用户默认：{scope.savedPatterns.join('、')}</Trans>
-                  </StatusLine>
-                )}
-                {scope && scope.diagnostics.length > 0 && (
-                  <ul className="text-destructive list-disc ps-4 text-xs">
-                    {scope.diagnostics.map((item) => (
-                      <li key={`${item.code}:${item.pattern}`}>{item.message}</li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            ) : (
-              <StatusLine tone="muted">
-                <Trans>
-                  空白页可以刷新目录；模型范围与自动压缩需要先建立会话（使用会话固定起始目录）。
-                </Trans>
               </StatusLine>
             )}
           </section>

@@ -49,6 +49,28 @@ function parseImportSource(value: unknown): HarnessThreadImportSource | undefine
 const importTooLarge = (content: string | undefined): boolean =>
   content !== undefined && new TextEncoder().encode(content).byteLength > IMPORT_UPLOAD_MAX_BYTES
 
+/** 只接受字符串数组的工作区模型范围（null/缺失不在此处处理）。 */
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+/** 工作区成员请求体的受控投影：忽略非法项，保持既有路由的宽容行为。 */
+const workspaceProjectsOf = (value: unknown): { alias: string; path: string }[] =>
+  Array.isArray(value)
+    ? value.flatMap((project) =>
+        project !== null &&
+        typeof project === 'object' &&
+        typeof (project as { alias?: unknown }).alias === 'string' &&
+        typeof (project as { path?: unknown }).path === 'string'
+          ? [
+              {
+                alias: (project as { alias: string }).alias,
+                path: (project as { path: string }).path,
+              },
+            ]
+          : [],
+      )
+    : []
+
 /**
  * 解析设置/资源目标：threadId 与 workspacePath 必须恰好提供一个。
  * 返回的对象可直接作为宿主输入；两者都缺失或同时出现时为 undefined。
@@ -134,25 +156,13 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     const body = (await c.req.json().catch(() => ({}))) as {
       name?: unknown
       projects?: unknown
+      modelPatterns?: unknown
     }
     return c.json(
       await piClient.createWorkspace({
         name: typeof body.name === 'string' ? body.name : '',
-        projects: Array.isArray(body.projects)
-          ? body.projects.flatMap((project) =>
-              project !== null &&
-              typeof project === 'object' &&
-              typeof (project as { alias?: unknown }).alias === 'string' &&
-              typeof (project as { path?: unknown }).path === 'string'
-                ? [
-                    {
-                      alias: (project as { alias: string }).alias,
-                      path: (project as { path: string }).path,
-                    },
-                  ]
-                : [],
-            )
-          : [],
+        projects: workspaceProjectsOf(body.projects),
+        ...(isStringArray(body.modelPatterns) ? { modelPatterns: body.modelPatterns } : {}),
       }),
     )
   })
@@ -162,29 +172,19 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
       expectedRevision?: unknown
       name?: unknown
       projects?: unknown
+      modelPatterns?: unknown
     }
     return c.json(
       await piClient.updateWorkspace({
         workspaceId: c.req.param('id'),
         expectedRevision: typeof body.expectedRevision === 'number' ? body.expectedRevision : -1,
         ...(typeof body.name === 'string' ? { name: body.name } : {}),
-        ...(Array.isArray(body.projects)
-          ? {
-              projects: body.projects.flatMap((project) =>
-                project !== null &&
-                typeof project === 'object' &&
-                typeof (project as { alias?: unknown }).alias === 'string' &&
-                typeof (project as { path?: unknown }).path === 'string'
-                  ? [
-                      {
-                        alias: (project as { alias: string }).alias,
-                        path: (project as { path: string }).path,
-                      },
-                    ]
-                  : [],
-              ),
-            }
-          : {}),
+        ...(Array.isArray(body.projects) ? { projects: workspaceProjectsOf(body.projects) } : {}),
+        ...(body.modelPatterns === null
+          ? { modelPatterns: null }
+          : isStringArray(body.modelPatterns)
+            ? { modelPatterns: body.modelPatterns }
+            : {}),
       }),
     )
   })
@@ -663,33 +663,19 @@ export function createApp(piClient: HarnessClient, config: ServerConfig): Hono {
     return c.json(await piClient.setAutoCompaction(c.req.param('id'), body.enabled))
   })
 
-  app.get('/api/pi/threads/:id/model-scope', async (c) => {
-    return c.json(await piClient.getThreadModelScope(c.req.param('id')))
-  })
-
-  app.post('/api/pi/threads/:id/model-scope', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      patterns?: unknown
-      saveAsDefault?: unknown
-    }
-    if (
-      !Array.isArray(body.patterns) ||
-      !body.patterns.every((item) => typeof item === 'string') ||
-      (body.saveAsDefault !== undefined && typeof body.saveAsDefault !== 'boolean')
-    ) {
-      return c.json({ error: 'invalid-runtime-input' }, 400)
-    }
-    return c.json(
-      await piClient.setThreadModelScope(c.req.param('id'), {
-        patterns: body.patterns as string[],
-        ...(body.saveAsDefault === true ? { saveAsDefault: true } : {}),
-      }),
-    )
-  })
-
   app.get('/api/pi/models', async (c) => {
     const workspacePath = c.req.query('workspacePath') ?? undefined
-    return c.json(await piClient.getAvailableModels({ workspacePath }))
+    const workspaceId = c.req.query('workspaceId') ?? undefined
+    const threadId = c.req.query('threadId') ?? undefined
+    const all = c.req.query('all') === 'true'
+    return c.json(
+      await piClient.getAvailableModels({
+        ...(workspacePath ? { workspacePath } : {}),
+        ...(workspaceId ? { workspaceId } : {}),
+        ...(threadId ? { threadId } : {}),
+        ...(all ? { all: true } : {}),
+      }),
+    )
   })
 
   // 显式目录刷新：必须带会话或固定起始目录，不使用隐式窗口工作区。

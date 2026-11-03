@@ -139,8 +139,6 @@ function setup(overrides: Partial<HarnessClient> = {}) {
     compactThread: vi.fn(),
     abortThreadCompaction: vi.fn(),
     setAutoCompaction: vi.fn(),
-    getThreadModelScope: vi.fn(),
-    setThreadModelScope: vi.fn(),
     refreshModels: vi.fn(),
     renameThread: vi.fn(),
     archiveThread: vi.fn(),
@@ -249,11 +247,13 @@ describe('工作区路由与真实 HTTP 客户端', () => {
       await http.createWorkspace({
         name: '幻开发',
         projects: [{ alias: 'harness', path: '/projects/app' }],
+        modelPatterns: ['huan-test/test-model-a'],
       }),
     ).toEqual({ ok: true, workspace })
     expect(client.createWorkspace).toHaveBeenCalledWith({
       name: '幻开发',
       projects: [{ alias: 'harness', path: '/projects/app' }],
+      modelPatterns: ['huan-test/test-model-a'],
     })
 
     expect(
@@ -262,6 +262,7 @@ describe('工作区路由与真实 HTTP 客户端', () => {
         expectedRevision: 1,
         name: '新名字',
         projects: [{ alias: 'harness', path: '/projects/app' }],
+        modelPatterns: null,
       }),
     ).toEqual({ ok: false, error: 'conflict', workspace })
     expect(client.updateWorkspace).toHaveBeenCalledWith({
@@ -269,6 +270,7 @@ describe('工作区路由与真实 HTTP 客户端', () => {
       expectedRevision: 1,
       name: '新名字',
       projects: [{ alias: 'harness', path: '/projects/app' }],
+      modelPatterns: null,
     })
 
     expect(await http.assignThreadWorkspace({ threadId: 't1', workspaceId: 'ws_1' })).toEqual({
@@ -294,6 +296,32 @@ describe('工作区路由与真实 HTTP 客户端', () => {
         Response.json({ workspaces: [{ id: 1 }], state: 'ok' })) as typeof fetch,
     })
     await expect(invalid.listWorkspaces()).rejects.toThrow('Invalid Pi HTTP response')
+  })
+})
+
+describe('模型目录路由', () => {
+  it('会话、工作区与完整目录参数按显式查询转发', async () => {
+    const models = [{ provider: 'huan-test', modelId: 'test-model-a' }]
+    const { app, client } = setup({ getAvailableModels: vi.fn(async () => models) })
+    const http = createHarnessHttpClient({
+      baseUrl: 'http://localhost:8788/api/pi',
+      headers,
+      fetchImpl: ((input, init) => app.fetch(new Request(input, init))) as typeof fetch,
+    })
+
+    expect(
+      await http.getAvailableModels({ workspaceId: 'ws_1', threadId: 't1', all: true }),
+    ).toEqual(models)
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspaceId: 'ws_1',
+      threadId: 't1',
+      all: true,
+    })
+
+    expect(await http.getAvailableModels({ workspacePath: '/projects/app' })).toEqual(models)
+    expect(client.getAvailableModels).toHaveBeenLastCalledWith({
+      workspacePath: '/projects/app',
+    })
   })
 })
 
@@ -718,7 +746,6 @@ describe('运行操作路由', () => {
       { path: '/api/pi/threads/t1/bash', body: { command: 1 } },
       { path: '/api/pi/threads/t1/compact', body: { customInstructions: 1 } },
       { path: '/api/pi/threads/t1/auto-compaction', body: { enabled: 'yes' } },
-      { path: '/api/pi/threads/t1/model-scope', body: { patterns: 'a/b' } },
     ]
     for (const item of cases) {
       const response = await app.request(item.path, {
@@ -731,47 +758,6 @@ describe('运行操作路由', () => {
     expect(client.runThreadBash).not.toHaveBeenCalled()
     expect(client.compactThread).not.toHaveBeenCalled()
     expect(client.setAutoCompaction).not.toHaveBeenCalled()
-    expect(client.setThreadModelScope).not.toHaveBeenCalled()
-  })
-
-  it('模型范围读取与刷新按显式会话/固定目录转发', async () => {
-    const scope = {
-      patterns: ['huan-test/test-model-a'],
-      models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
-      diagnostics: [],
-    }
-    const { app, client } = setup({
-      getThreadModelScope: vi.fn(async () => scope),
-      setThreadModelScope: vi.fn(async (_id, input) => ({
-        ...scope,
-        patterns: input.patterns,
-        persistence: 'saved' as const,
-      })),
-      refreshModels: vi.fn(async () => ({ models: [], failedProviders: [] })),
-    })
-
-    expect(await (await app.request('/api/pi/threads/t1/model-scope', { headers })).json()).toEqual(
-      scope,
-    )
-
-    const updated = await app.request('/api/pi/threads/t1/model-scope', {
-      method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ patterns: ['a/b'], saveAsDefault: true }),
-    })
-    expect(await updated.json()).toMatchObject({ patterns: ['a/b'], persistence: 'saved' })
-    expect(client.setThreadModelScope).toHaveBeenCalledWith('t1', {
-      patterns: ['a/b'],
-      saveAsDefault: true,
-    })
-
-    const refresh = await app.request('/api/pi/models/refresh', {
-      method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ workspacePath: '/ws' }),
-    })
-    expect(await refresh.json()).toEqual({ models: [], failedProviders: [] })
-    expect(client.refreshModels).toHaveBeenCalledWith({ workspacePath: '/ws' })
   })
 
   it('宿主交互查询/应答与消息调用方窗口走同一鉴权路由', async () => {

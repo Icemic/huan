@@ -174,6 +174,8 @@ export type ModelSelectorValueProps = {
   placeholder?: ReactNode
   /** 在模型名旁显示当前 Thinking 级别。 */
   showEffort?: boolean
+  /** 当前值不在候选目录时仍显示旧模型的名称/ID，不把它伪装成可选择项。 */
+  fallbackLabel?: ReactNode
   className?: string
 }
 
@@ -193,14 +195,23 @@ function ModelIcon({ children, className }: { children: ReactNode; className?: s
 function ModelSelectorValue({
   placeholder = 'Select model',
   showEffort = true,
+  fallbackLabel,
   className,
 }: ModelSelectorValueProps) {
   const { selectedModel, efforts, effort } = useModelSelectorContext()
 
   if (!selectedModel) {
     return (
-      <span data-slot="model-selector-value" className={cn('text-muted-foreground', className)}>
-        {placeholder}
+      <span
+        data-slot="model-selector-value"
+        data-fallback={fallbackLabel ? 'true' : undefined}
+        className={cn(
+          'min-w-0 truncate',
+          fallbackLabel ? 'font-medium' : 'text-muted-foreground',
+          className,
+        )}
+      >
+        {fallbackLabel ?? placeholder}
       </span>
     )
   }
@@ -228,7 +239,10 @@ export type ModelSelectorContentProps = ComboboxPrimitive.Popup.Props &
   Pick<
     ComboboxPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset' | 'collisionPadding'
-  >
+  > & {
+    /** 目录本身为空时的说明与入口；搜索无匹配仍使用默认文案。 */
+    emptyContent?: ReactNode
+  }
 
 /** 模型搜索弹层：输入框位于弹层内，列表与 Thinking 控件相互独立。 */
 function ModelSelectorContent({
@@ -238,8 +252,10 @@ function ModelSelectorContent({
   side = 'bottom',
   sideOffset = 6,
   collisionPadding,
+  emptyContent,
   ...props
 }: ModelSelectorContentProps) {
+  const { models } = useModelSelectorContext()
   const { i18n } = useLingui()
   const searchLabel = i18n._(msg`搜索模型`)
 
@@ -272,7 +288,11 @@ function ModelSelectorContent({
           </div>
           <ComboboxPrimitive.Empty data-slot="model-selector-empty" className="p-0">
             <div className="text-muted-foreground px-3 py-4 text-sm">
-              <Trans>没有匹配的模型。</Trans>
+              {models.length === 0 && emptyContent ? (
+                emptyContent
+              ) : (
+                <Trans>没有匹配的模型。</Trans>
+              )}
             </div>
           </ComboboxPrimitive.Empty>
           <ComboboxPrimitive.List

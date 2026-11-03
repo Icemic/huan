@@ -31,6 +31,8 @@ export type WorkspaceStoreWorkspace = {
   name: string
   revision: number
   projects: WorkspaceStoreProject[]
+  /** 自定义模型范围；缺失表示跟随用户全局范围。 */
+  modelPatterns?: string[]
 }
 
 /** 会话树落点（未发送新消息时的活动位置）。 */
@@ -101,7 +103,8 @@ export class WorkspaceValidationError extends Error {
       | 'empty-projects'
       | 'invalid-alias'
       | 'duplicate-alias'
-      | 'invalid-path',
+      | 'invalid-path'
+      | 'invalid-model-patterns',
   ) {
     super(`工作区输入无效：${reason}`)
     this.name = 'WorkspaceValidationError'
@@ -112,6 +115,8 @@ export class WorkspaceValidationError extends Error {
 export type WorkspaceMutationInput = {
   name: string
   projects: readonly WorkspaceStoreProject[]
+  /** 自定义模型范围；null 表示清除覆盖（仅修改时使用）。 */
+  modelPatterns?: readonly string[] | null
 }
 
 /** 工作区 tick（JSON 内部形状）。 */
@@ -157,9 +162,28 @@ export function workspaceStateFile(agentDir: string): string {
 
 const ALIAS_PATTERN = /^[^\s/\\]+$/u
 
+/**
+ * 规范化自定义模型范围。
+ *
+ * 空数组不作为「继承」的表示，与缺失语义分开；去空白、去重并保持输入顺序。
+ */
+function normalizeModelPatterns(patterns: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const pattern of patterns) {
+    const value = pattern.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  if (result.length === 0) throw new WorkspaceValidationError('invalid-model-patterns')
+  return result
+}
+
 function validateMutation(input: WorkspaceMutationInput): {
   name: string
   projects: WorkspaceStoreProject[]
+  modelPatterns?: string[]
 } {
   const name = input.name.trim()
   if (!name) throw new WorkspaceValidationError('invalid-name')
@@ -177,7 +201,11 @@ function validateMutation(input: WorkspaceMutationInput): {
     if (!path || !isAbsolute(path)) throw new WorkspaceValidationError('invalid-path')
     return { alias, path: resolve(path) }
   })
-  return { name, projects }
+  const modelPatterns =
+    input.modelPatterns === undefined || input.modelPatterns === null
+      ? undefined
+      : normalizeModelPatterns(input.modelPatterns)
+  return { name, projects, ...(modelPatterns ? { modelPatterns } : {}) }
 }
 
 const sameProjects = (
@@ -189,6 +217,16 @@ const sameProjects = (
     const peer = right[index]
     return peer !== undefined && project.alias === peer.alias && project.path === peer.path
   })
+
+const samePatterns = (
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean =>
+  left === right ||
+  (left !== undefined &&
+    right !== undefined &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index]))
 
 function parseStoredFile(value: unknown): WorkspaceStoreState {
   if (value === null || typeof value !== 'object') throw new Error('state.json 不是对象')
@@ -211,7 +249,12 @@ function parseStoredFile(value: unknown): WorkspaceStoreState {
   const workspaces: WorkspaceStoreState['workspaces'] = {}
   for (const [id, raw] of Object.entries((file.workspaces ?? {}) as Record<string, unknown>)) {
     if (raw === null || typeof raw !== 'object') throw new Error(`工作区 ${id} 无效`)
-    const candidate = raw as { name?: unknown; revision?: unknown; projects?: unknown }
+    const candidate = raw as {
+      name?: unknown
+      revision?: unknown
+      projects?: unknown
+      modelPatterns?: unknown
+    }
     if (typeof candidate.name !== 'string' || !candidate.name.trim()) {
       throw new Error(`工作区 ${id} 缺少名称`)
     }
@@ -231,12 +274,25 @@ function parseStoredFile(value: unknown): WorkspaceStoreState {
       }
       return { alias: member.alias, path: member.path }
     })
+    // 自定义范围必须是字符串数组；空数组非法（继承用字段缺失表达）。
+    const modelPatterns = candidate.modelPatterns
+    if (modelPatterns !== undefined && !Array.isArray(modelPatterns)) {
+      throw new Error(`工作区 ${id} 的 modelPatterns 无效`)
+    }
+    if (modelPatterns !== undefined && !modelPatterns.every((item) => typeof item === 'string')) {
+      throw new Error(`工作区 ${id} 的 modelPatterns 包含非字符串项`)
+    }
     // 复用写入口校验，避免手改文件后产生非法别名/重复别名。
-    const normalized = validateMutation({ name: candidate.name, projects })
+    const normalized = validateMutation({
+      name: candidate.name,
+      projects,
+      ...(modelPatterns !== undefined ? { modelPatterns: modelPatterns as string[] } : {}),
+    })
     workspaces[id] = {
       name: normalized.name,
       revision: candidate.revision as number,
       projects: normalized.projects,
+      ...(normalized.modelPatterns ? { modelPatterns: normalized.modelPatterns } : {}),
     }
   }
 
@@ -307,6 +363,7 @@ function cloneState(state: WorkspaceStoreState): WorkspaceStoreState {
       name: workspace.name,
       revision: workspace.revision,
       projects: workspace.projects.map((project) => ({ ...project })),
+      ...(workspace.modelPatterns ? { modelPatterns: [...workspace.modelPatterns] } : {}),
     }
   }
   const sessionMetadata: WorkspaceStoreState['sessionMetadata'] = {}
@@ -387,6 +444,7 @@ export class WorkspaceStore {
         name: workspace.name,
         revision: workspace.revision,
         projects: workspace.projects.map((project) => ({ ...project })),
+        ...(workspace.modelPatterns ? { modelPatterns: [...workspace.modelPatterns] } : {}),
       }))
       .sort((left, right) => left.id.localeCompare(right.id))
   }
@@ -399,6 +457,7 @@ export class WorkspaceStore {
       name: workspace.name,
       revision: workspace.revision,
       projects: workspace.projects.map((project) => ({ ...project })),
+      ...(workspace.modelPatterns ? { modelPatterns: [...workspace.modelPatterns] } : {}),
     }
   }
 
@@ -459,24 +518,27 @@ export class WorkspaceStore {
         name: normalized.name,
         revision: 1,
         projects: normalized.projects,
+        ...(normalized.modelPatterns ? { modelPatterns: normalized.modelPatterns } : {}),
       }
       const next = cloneState(this.#state)
       next.workspaces[id] = {
         name: workspace.name,
         revision: workspace.revision,
         projects: workspace.projects,
+        ...(workspace.modelPatterns ? { modelPatterns: [...workspace.modelPatterns] } : {}),
       }
       await this.commit(next)
       return workspace
     })
   }
 
-  /** 修改名称/成员；携带过期 revision 时返回冲突。 */
+  /** 修改名称/成员/模型范围；携带过期 revision 时返回冲突。 */
   async updateWorkspace(input: {
     workspaceId: string
     expectedRevision: number
     name?: string
     projects?: readonly WorkspaceStoreProject[]
+    modelPatterns?: readonly string[] | null
   }): Promise<WorkspaceStoreWorkspace> {
     return this.enqueue(async () => {
       this.assertHealthy()
@@ -486,8 +548,14 @@ export class WorkspaceStore {
       const normalized = validateMutation({
         name: input.name ?? current.name,
         projects: input.projects ?? current.projects,
+        modelPatterns:
+          input.modelPatterns === null ? undefined : (input.modelPatterns ?? current.modelPatterns),
       })
-      if (normalized.name === current.name && sameProjects(normalized.projects, current.projects)) {
+      if (
+        normalized.name === current.name &&
+        sameProjects(normalized.projects, current.projects) &&
+        samePatterns(normalized.modelPatterns, current.modelPatterns)
+      ) {
         return current
       }
       const next = cloneState(this.#state)
@@ -495,6 +563,7 @@ export class WorkspaceStore {
         name: normalized.name,
         revision: current.revision + 1,
         projects: normalized.projects,
+        ...(normalized.modelPatterns ? { modelPatterns: normalized.modelPatterns } : {}),
       }
       await this.commit(next)
       return {
@@ -502,6 +571,7 @@ export class WorkspaceStore {
         name: normalized.name,
         revision: current.revision + 1,
         projects: normalized.projects,
+        ...(normalized.modelPatterns ? { modelPatterns: [...normalized.modelPatterns] } : {}),
       }
     })
   }

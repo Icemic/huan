@@ -21,7 +21,12 @@ import {
 import type { McpConnectionManager } from '@huan/mcp'
 import type { HarnessClientEvent } from '@huan/protocol'
 import type { McpHostLiveBinding } from '../mcp-host.js'
-import { resolveDefaultModel } from '../model-catalog.js'
+import {
+  globalModelPatterns,
+  type ResolvedModelScope,
+  resolveDefaultModel,
+  resolveModelScopePatterns,
+} from '../model-catalog.js'
 import { WorkspaceStateUnavailableError, type WorkspaceStore } from '../workspace-store.js'
 import type { SharedModelRuntime } from './model-service.js'
 import type { OperationCoordinator } from './operation-coordinator.js'
@@ -78,13 +83,6 @@ export type LiveSessionsDeps = {
     | 'releaseStructure'
     | 'wakeAdmissionWaiters'
   >
-  /** 解析已保存的模型范围模式；配置/模型模块提供。 */
-  resolveScopePatterns: (patterns: readonly string[]) => Promise<{
-    scopedModels: Awaited<
-      ReturnType<typeof import('@earendil-works/pi-coding-agent').resolveModelScopeWithDiagnostics>
-    >['scopedModels']
-    diagnostics: import('@huan/protocol').HarnessModelScopeDiagnostic[]
-  }>
   /** 扩展命令上下文动作（由会话操作服务提供）。 */
   commandActionsFor: (record: ThreadRecord) => ExtensionCommandContextActions
   diagnose: (message: string) => void
@@ -233,6 +231,18 @@ export class LiveSessions {
     })
   }
 
+  /** 两层模型范围：工作区自定义优先，否则用户全局 enabledModels。 */
+  private async modelScopeOf(
+    workspaceId: string | undefined,
+    settingsManager: import('@earendil-works/pi-coding-agent').SettingsManager,
+  ): Promise<ResolvedModelScope> {
+    const workspace = workspaceId ? this.deps.workspaceStore.workspace(workspaceId) : undefined
+    const patterns = workspace?.modelPatterns ?? globalModelPatterns(settingsManager)
+    return resolveModelScopePatterns(this.deps.modelRuntime, patterns, {
+      diagnose: this.deps.diagnose,
+    })
+  }
+
   /** 从既有 SessionManager 打开/创建 record；供新建、fork、命令切换复用。 */
   async openSession(
     sessionManager: SessionManager,
@@ -272,22 +282,39 @@ export class LiveSessions {
         ...(this.deps.model ? { model: this.deps.model } : {}),
         settingsManager: prepared.trust.settingsManager,
       })
-      const newSessionModel = opts.model ?? currentDefault.model
-      // 新会话/冷打开都读取已保存的用户默认范围（与 CLI 同口径）：
+      // 新会话/冷打开都读取两层范围：工作区覆盖完整替换用户全局范围。
       // 范围是会话内存状态，不写入 Pi 会话记录；影响模型循环与选择器候选。
-      const savedScopePatterns = prepared.trust.settingsManager.getEnabledModels()
-      const savedScope = savedScopePatterns?.length
-        ? await this.deps.resolveScopePatterns(savedScopePatterns)
-        : { scopedModels: [], diagnostics: [] }
-      for (const diagnostic of savedScope.diagnostics) {
+      const scope = await this.modelScopeOf(opts.workspaceId, prepared.trust.settingsManager)
+      for (const diagnostic of scope.diagnostics) {
         this.deps.diagnose(`模型范围（${projectCwd}）：${diagnostic.message}`)
+      }
+      let newSessionModel = opts.model ?? currentDefault.model
+      if (opts.isNew && scope.patterns.length > 0) {
+        // 非空范围但无匹配：新建明确报错，不默认退全部。
+        if (scope.scopedModels.length === 0) {
+          throw new Error(
+            '没有可用模型：当前模型范围没有匹配的可用模型，请调整模型范围或先刷新模型目录。',
+          )
+        }
+        if (opts.model && !scopeContains(scope, opts.model)) {
+          throw new Error(
+            `所选模型 ${opts.model.provider}/${opts.model.id} 不在当前模型范围内，请选择其他模型。`,
+          )
+        }
+        // 默认模型在范围外（或无法解析）时选第一个候选；旧会话不进入此分支。
+        if (!opts.model && (!newSessionModel || !scopeContains(scope, newSessionModel))) {
+          newSessionModel = scope.scopedModels[0]?.model
+        }
+      }
+      if (opts.isNew && scope.patterns.length === 0 && !opts.model && !newSessionModel) {
+        throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
       }
       const savedModel = sessionManager.buildSessionContext().model
       const { session, modelFallbackMessage } = await createAgentSessionFromServices({
         services,
         sessionManager,
         ...(opts.isNew && newSessionModel ? { model: newSessionModel } : {}),
-        ...(savedScope.scopedModels.length ? { scopedModels: savedScope.scopedModels } : {}),
+        ...(scope.scopedModels.length ? { scopedModels: scope.scopedModels } : {}),
         ...(opts.sessionStartEvent ? { sessionStartEvent: opts.sessionStartEvent } : {}),
       })
       // SDK 在恢复失败时会回退到其他模型；该原因必须可见（不静默）。
@@ -338,7 +365,6 @@ export class LiveSessions {
         workspaceBinding: prepared.workspaceBinding,
         lastError: undefined,
         modelFallback,
-        scopePatterns: savedScope.scopedModels.length ? [...(savedScopePatterns ?? [])] : [],
         activeTools: new Map(),
         resourceLoader: prepared.trust.resourceLoader,
         trustBinding: prepared.trustBinding,
@@ -788,6 +814,16 @@ export class LiveSessions {
     this.deps.events.clearEditorMirrors()
     if (errors.length > 0) throw errors[0]
   }
+}
+
+/** 模型是否在当前两层范围的候选中（按 provider + id 比较）。 */
+function scopeContains(
+  scope: ResolvedModelScope,
+  model: { provider: string; id: string },
+): boolean {
+  return scope.scopedModels.some(
+    (item) => item.model.provider === model.provider && item.model.id === model.id,
+  )
 }
 
 /** 把 SDK 回退信息投影为可诊断的受控字段；不携带任意路径/凭据。 */

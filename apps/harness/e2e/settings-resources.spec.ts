@@ -53,7 +53,7 @@ async function writeSettingsFile(
 }
 
 /** 打开面板并切到指定视图。 */
-async function openSettings(page: Page, tab: '常用项' | 'JSON 原文' | '资源清单') {
+async function openSettings(page: Page, tab: '常用项' | 'JSON 原文' | '模型' | '资源清单') {
   await page.getByRole('button', { name: '设置与资源' }).click()
   const dialog = settingsDialog(page)
   await expect(dialog).toBeVisible()
@@ -192,6 +192,88 @@ test('常用项与 JSON 保存写盘、保留未知字段，非法类型被拒�
     >
     expect(afterInvalid.retry).toBeUndefined()
     expect(afterInvalid.e2eUnknown).toEqual({ nested: true })
+  } finally {
+    await writeSettingsFile(request, original)
+  }
+})
+
+test('模型页读取完整目录、刷新并保存用户范围', async ({ page, request }) => {
+  const original = await readSettingsFile(request)
+  try {
+    const run = Date.now().toString(36)
+    const project = await createProject(request, `settings-models-${run}`)
+    const workspaceName = `模型设置工作区-${run}`
+    await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+    await openApp(page)
+    await startNewSession(page, workspaceName)
+    await selectModel(page)
+    const title = `模型设置-${run}`
+    await sendMessage(page, title)
+    await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+
+    const dialog = await openSettings(page, '模型')
+    // 全局模型页固定用户作用域，不出现项目设置这一层。
+    await expect(dialog.getByRole('tab', { name: /编辑项目设置/ })).toHaveCount(0)
+    // 完整目录来自 serviceStore 的 all 查询，包含未受用户范围筛选的模型。
+    await expect(dialog.getByText('Test Model A').first()).toBeVisible()
+    await expect(dialog.getByText('Test Model B').first()).toBeVisible()
+    await dialog.getByRole('button', { name: '刷新模型目录' }).click()
+    await expect(notice(page)).toContainText('模型目录已刷新')
+
+    // 通过同一份用户设置原文写入 enabledModels，保留其他字段。
+    await dialog.getByRole('tab', { name: 'JSON 原文' }).click()
+    const current = JSON.parse(await jsonEditor(page).inputValue()) as Record<string, unknown>
+    await jsonEditor(page).fill(
+      `${JSON.stringify({ ...current, enabledModels: ['huan-test/test-model-b'] }, null, 2)}\n`,
+    )
+    await dialog.getByRole('button', { name: '保存' }).click()
+    await expect(notice(page)).toContainText('已保存')
+    await expect(notice(page)).not.toContainText('可应用')
+    const saved = JSON.parse((await readSettingsFile(request)) ?? '{}') as Record<string, unknown>
+    expect(saved.enabledModels).toEqual(['huan-test/test-model-b'])
+    expect(saved.defaultProvider).toBe(current.defaultProvider)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+
+    // 用户范围立即参与新会话候选：范围外的 A 不再列出，B 可用。
+    await startNewSession(page, workspaceName)
+    const composer = page.locator('[data-slot="huan-composer"]')
+    await composer.getByRole('combobox').click()
+    await expect(page.getByRole('option', { name: 'Test Model A huan-test' })).toHaveCount(0)
+    await page.getByRole('option', { name: 'Test Model B huan-test' }).click()
+    await page.keyboard.press('Escape')
+
+    // Thinking max 仍来自真实模型能力（不再依赖运行面板的范围分段）。
+    await composer.getByRole('combobox').click()
+    await page.getByRole('radio', { name: 'max', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await sendMessage(page, `thinking-max-${run}`)
+    await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+    await composer.getByRole('combobox').click()
+    await expect(page.getByRole('radio', { name: 'max', exact: true })).toBeChecked()
+    await page.keyboard.press('Escape')
+
+    // 工作区覆盖可以选全局范围外的模型，清除覆盖后重新跟随全局。
+    const group = workspaceGroup(page, workspaceName)
+    await group.getByRole('button', { name: '管理工作区', exact: true }).click()
+    const workspaceDialog = page.getByRole('dialog', { name: '管理工作区' })
+    await workspaceDialog.getByRole('radio', { name: '自定义' }).check()
+    await workspaceDialog.getByRole('checkbox', { name: /Test Model B/ }).uncheck()
+    await workspaceDialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(workspaceDialog).toHaveCount(0)
+    await startNewSession(page, workspaceName)
+    await composer.getByRole('combobox').click()
+    await expect(page.getByRole('option', { name: 'Test Model A huan-test' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Test Model B huan-test' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await group.getByRole('button', { name: '管理工作区', exact: true }).click()
+    await workspaceDialog.getByRole('radio', { name: '跟随全局' }).check()
+    await workspaceDialog.getByRole('button', { name: '保存', exact: true }).click()
+    await expect(workspaceDialog).toHaveCount(0)
+    await composer.getByRole('combobox').click()
+    await expect(page.getByRole('option', { name: 'Test Model B huan-test' })).toBeVisible()
+    await expect(page.getByRole('option', { name: 'Test Model A huan-test' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
   } finally {
     await writeSettingsFile(request, original)
   }

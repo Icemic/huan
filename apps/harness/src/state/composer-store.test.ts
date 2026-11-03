@@ -583,14 +583,16 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 
-  it('/scoped-models 打开运行面板范围分段', async () => {
+  it('/scoped-models 打开设置面板模型页并固定用户作用域', async () => {
     const fake = createFakeClient()
-    const { browser, composer, runtime } = createApp(fake.client)
+    const { browser, composer, settings } = createApp(fake.client)
     const draftId = selectThread(browser)
     browser.windowStore.getState().editDraftText(draftId, '/scoped-models')
     await composer.getState().submit()
-    expect(runtime.getState().open).toBe(true)
-    expect(runtime.getState().section).toBe('scope')
+    expect(settings.getState().open).toBe(true)
+    expect(settings.getState().tab).toBe('models')
+    expect(settings.getState().scope).toBe('user')
+    expect(settings.getState().target).toEqual({ threadId: 't1' })
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
   })
 

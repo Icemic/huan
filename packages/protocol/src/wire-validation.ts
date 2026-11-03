@@ -868,7 +868,6 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
     value.compactionReason === 'threshold' ||
     value.compactionReason === 'overflow') &&
   isOptionalBoolean(value.autoCompactionEnabled) &&
-  (value.scopedModelKeys === undefined || isStringArray(value.scopedModelKeys)) &&
   (value.modelFallback === undefined || isModelFallback(value.modelFallback)) &&
   isOptionalNumber(value.modelCatalogRevision) &&
   isOptionalBoolean(value.retryActive) &&

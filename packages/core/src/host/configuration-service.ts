@@ -8,20 +8,12 @@
 
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import {
-  hasTrustRequiringProjectResources,
-  resolveModelScopeWithDiagnostics,
-  type SettingsManager,
-} from '@earendil-works/pi-coding-agent'
+import { hasTrustRequiringProjectResources, SettingsManager } from '@earendil-works/pi-coding-agent'
 import type {
   HarnessAutoCompactionUpdateResult,
   HarnessModelInfo,
   HarnessModelRefreshInput,
   HarnessModelRefreshResult,
-  HarnessModelScope,
-  HarnessModelScopeDiagnostic,
-  HarnessModelScopeUpdateInput,
-  HarnessModelScopeUpdateResult,
   HarnessProjectTrust,
   HarnessReloadOperation,
   HarnessReloadResult,
@@ -35,7 +27,12 @@ import type {
   HarnessSettingsTarget,
   HarnessSettingsTargetInput,
 } from '@huan/protocol'
-import { listModelCatalog } from '../model-catalog.js'
+import {
+  globalModelPatterns,
+  listModelCatalog,
+  type ResolvedModelScope,
+  resolveModelScopePatterns,
+} from '../model-catalog.js'
 import { resourceSnapshotOf } from '../resource-inventory.js'
 import { ResourceReloadTrustError } from '../resource-reload.js'
 import {
@@ -53,11 +50,11 @@ import {
   writeSettingsFileAtomic,
 } from '../settings-store.js'
 import { pathKey } from '../workspace-path.js'
-import type { WorkspaceStore } from '../workspace-store.js'
+import { WorkspaceNotFoundError, type WorkspaceStore } from '../workspace-store.js'
 import type { LiveSessions } from './live-sessions.js'
 import type { ModelCatalogService, SharedModelRuntime } from './model-service.js'
 import type { OperationCoordinator } from './operation-coordinator.js'
-import type { ProjectAssembly } from './project-assembly.js'
+import { canonicalProjectPath as canonicalPath, type ProjectAssembly } from './project-assembly.js'
 import type { SessionCatalog } from './session-catalog.js'
 import type { SessionEvents } from './session-events.js'
 import { ProjectTrustRequiredError, type ThreadRecord, ThreadStructureBusyError } from './shared.js'
@@ -107,66 +104,31 @@ export class ConfigurationService {
     return this.resourceRevisionSeq
   }
 
+  /**
+   * 解析某工作区当前的模型范围：工作区自定义优先，否则读取用户全局设置。
+   *
+   * 全局范围只读 Pi 用户 settings.json 的 enabledModels，不使用项目覆盖；
+   * 从磁盘新建只读管理器，保存用户设置后下一次查询立即生效。
+   */
+  async modelScopeFor(workspaceId?: string): Promise<ResolvedModelScope> {
+    const workspace = workspaceId ? this.deps.workspaceStore.workspace(workspaceId) : undefined
+    if (workspaceId && !workspace) throw new WorkspaceNotFoundError(workspaceId)
+    const patterns =
+      workspace?.modelPatterns ??
+      globalModelPatterns(
+        SettingsManager.create(this.deps.workspacePath, this.deps.agentDir, {
+          projectTrusted: false,
+        }),
+      )
+    return resolveModelScopePatterns(this.deps.modelRuntime, patterns, {
+      diagnose: this.deps.diagnose,
+    })
+  }
+
   withSettingsWrite<T>(action: () => Promise<T>): Promise<T> {
     const pending = this.settingsWrites.then(action)
     this.settingsWrites = pending.catch(() => {})
     return pending
-  }
-
-  /** 用公开解析器把范围模式解析为会话可用的 scoped models。 */
-  async resolveScopePatterns(patterns: readonly string[]): Promise<{
-    scopedModels: Awaited<ReturnType<typeof resolveModelScopeWithDiagnostics>>['scopedModels']
-    diagnostics: HarnessModelScopeDiagnostic[]
-  }> {
-    const cleaned = normalizePatterns(patterns)
-    if (cleaned.length === 0) return { scopedModels: [], diagnostics: [] }
-    try {
-      const result = await resolveModelScopeWithDiagnostics(cleaned, this.deps.modelRuntime, {
-        signal: AbortSignal.timeout(10_000),
-      })
-      return {
-        scopedModels: result.scopedModels,
-        diagnostics: result.diagnostics.map((diagnostic) => ({
-          code: diagnostic.code,
-          message: diagnostic.message,
-          pattern: diagnostic.pattern,
-        })),
-      }
-    } catch (error) {
-      this.deps.diagnose(`模型范围解析：${errorText(error)}`)
-      this.deps.addSafeDiagnostic('assembly-warning')
-      return {
-        scopedModels: [],
-        diagnostics: [
-          {
-            code: 'no-match',
-            pattern: cleaned.join(', '),
-            message: '模型范围解析失败，本次按全部可用模型处理',
-          },
-        ],
-      }
-    }
-  }
-
-  /** 当前会话范围（空 = 全部）与已保存用户默认。 */
-  async modelScopeOf(record: ThreadRecord): Promise<HarnessModelScope> {
-    const scoped = record.session.scopedModels
-    // 展示的是「用户默认」（agentDir 全局）；项目设置覆盖不伪装成用户默认。
-    const saved = record.settingsManager
-      .getGlobalSettings()
-      .enabledModels?.filter((item) => typeof item === 'string')
-    // 已保存默认的解析诊断只在读取时计算（可能含 no-match/ambiguous），不影响会话。
-    const savedResolution = saved?.length ? await this.resolveScopePatterns(saved) : undefined
-    return {
-      patterns: record.scopePatterns,
-      models: scoped.map((item) => ({
-        provider: item.model.provider,
-        modelId: item.model.id,
-        ...(item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}),
-      })),
-      diagnostics: savedResolution?.diagnostics ?? [],
-      ...(saved?.length ? { savedPatterns: saved } : {}),
-    }
   }
 
   /**
@@ -396,6 +358,11 @@ export class ConfigurationService {
     const snapshot = await this.settingsSnapshotOf(resolved.target, resolved.cwd, resolved.record)
     const restartKeys = restartRequiredKeys(changed)
     const reloadRequired = changed.length > 0
+    // 用户全局 enabledModels 是两层模型范围的底层；保存后推进既有目录代数，
+    // 让已打开窗口通过既有的快照广播重新读取候选（不重设旧会话模型）。
+    if (input.scope === 'user' && changed.includes('enabledModels')) {
+      this.deps.modelService.notifyScopeChanged()
+    }
     return {
       status: 'saved',
       scope: input.scope,
@@ -493,7 +460,6 @@ export class ConfigurationService {
   ): Promise<{ ok: true } | { ok: false; message: string }> {
     this.deps.assertActive()
     if (record.retired) return { ok: false, message: '会话正在关闭，设置未保存' }
-    const { SettingsManager } = await import('@earendil-works/pi-coding-agent')
     const manager = SettingsManager.create(record.workspacePath, this.deps.agentDir, {
       projectTrusted: false,
     })
@@ -590,75 +556,6 @@ export class ConfigurationService {
     }
   }
 
-  /** 更新会话模型范围；保存用户默认是独立显式操作。 */
-  async setThreadModelScope(
-    threadId: string,
-    input: HarnessModelScopeUpdateInput,
-  ): Promise<HarnessModelScopeUpdateResult> {
-    this.deps.assertActive()
-    const record = await this.deps.live.ensureOpen(threadId)
-    const patterns = normalizePatterns(input.patterns)
-    const operation = this.deps.coordinator.beginStructure(record, 'model')
-    try {
-      const resolved = await this.resolveScopePatterns(patterns)
-      this.deps.assertActive()
-      if (record.retired) throw new ThreadStructureBusyError('会话正在关闭')
-      // 非空模式但没有任何匹配：保持会话原范围（不静默扩大为全部），并如实诊断。
-      if (patterns.length > 0 && resolved.scopedModels.length === 0) {
-        return {
-          ...(await this.modelScopeOf(record)),
-          diagnostics: resolved.diagnostics,
-          persistence: 'skipped',
-          message: '没有匹配的模型，会话范围未修改；请检查模式或先刷新模型目录。',
-        }
-      }
-      record.session.setScopedModels(
-        resolved.scopedModels.map((item) => ({
-          model: item.model,
-          ...(item.thinkingLevel ? { thinkingLevel: item.thinkingLevel } : {}),
-        })),
-      )
-      record.scopePatterns = patterns
-      let persistence: HarnessModelScopeUpdateResult['persistence'] = 'skipped'
-      let message: string | undefined
-      if (input.saveAsDefault === true) {
-        const written = await this.writeGlobalSetting(
-          record,
-          '用户默认模型范围',
-          (manager) => {
-            manager.setEnabledModels(patterns.length > 0 ? patterns : undefined)
-          },
-          async () => {
-            const settings = await this.readUserSettings()
-            const saved = settings?.enabledModels
-            if (patterns.length === 0) return saved === undefined
-            return (
-              Array.isArray(saved) &&
-              saved.length === patterns.length &&
-              saved.every((item, index) => item === patterns[index])
-            )
-          },
-        )
-        if (written.ok) {
-          persistence = 'saved'
-          await this.syncSettingsCaches(record)
-        } else {
-          persistence = 'failed'
-          message = '会话范围已生效，但用户默认保存失败；新会话仍按原配置解析。'
-        }
-      }
-      const scope = await this.modelScopeOf(record)
-      return {
-        ...scope,
-        diagnostics: resolved.diagnostics,
-        persistence,
-        ...(message ? { message } : {}),
-      }
-    } finally {
-      this.deps.coordinator.releaseStructure(record, operation)
-    }
-  }
-
   /**
    * 显式刷新模型目录（共享 modelRuntime）。
    *
@@ -680,15 +577,52 @@ export class ConfigurationService {
     return this.deps.modelService.refreshExplicit()
   }
 
-  async getAvailableModels(workspacePath?: string): Promise<HarnessModelInfo[]> {
+  /**
+   * 查询模型目录：默认返回两层范围解析后的候选，`all:true` 返回完整目录。
+   *
+   * 会话归属只按 huan 元数据解析，不按 cwd 推测工作区；workspaceId 只用于
+   * 新会话，不因窗口当前目录自动映射。项目装配只用于登记模型 provider，
+   * 项目 settings.enabledModels 不参与筛选。
+   */
+  async getAvailableModels(input?: {
+    workspacePath?: string
+    workspaceId?: string
+    threadId?: string
+    all?: boolean
+  }): Promise<HarnessModelInfo[]> {
     this.deps.assertActive()
-    const info = await this.deps.assembly.query(
-      workspacePath ?? this.deps.workspacePath,
-      this.deps.isDisposed(),
-    )
+    let threadCwd: string | undefined
+    let threadWorkspaceId: string | undefined
+    const threadId = input?.threadId?.trim()
+    if (threadId) {
+      const record = this.deps.live.get(threadId)
+      if (record) {
+        threadCwd = record.workspacePath
+      } else {
+        const info = await this.deps.catalog.findSessionInfo(threadId)
+        if (!info) throw new Error(`Unknown thread: ${threadId}`)
+        threadCwd = info.cwd || undefined
+      }
+      threadWorkspaceId = this.deps.workspaceStore.sessionWorkspace(this.deps.storeId, threadId)
+    }
+    // threadId 的归属以 huan 元数据为权威，忽略调用方同时传入的 workspaceId。
+    const workspaceId = threadId ? threadWorkspaceId : input?.workspaceId
+    const workspace = workspaceId ? this.deps.workspaceStore.workspace(workspaceId) : undefined
+    if (workspaceId && !workspace) throw new WorkspaceNotFoundError(workspaceId)
+    const assemblyPath =
+      input?.workspacePath ?? threadCwd ?? workspace?.projects[0]?.path ?? this.deps.workspacePath
+    const info = await this.deps.assembly.query(assemblyPath, this.deps.isDisposed())
     if (info.status === 'needs-trust') throw new ProjectTrustRequiredError(info)
     if (info.status === 'failed') throw new Error('项目装配失败')
-    return [...listModelCatalog(this.deps.modelRuntime)]
+    const catalog = listModelCatalog(this.deps.modelRuntime)
+    if (input?.all === true) return catalog
+    const scope = await this.modelScopeFor(workspaceId)
+    if (scope.patterns.length === 0) return catalog
+    const byKey = new Map(catalog.map((model) => [`${model.provider}/${model.modelId}`, model]))
+    return scope.scopedModels.flatMap((item) => {
+      const model = byKey.get(`${item.model.provider}/${item.model.id}`)
+      return model ? [model] : []
+    })
   }
 
   // ---- 资源重载 ----
@@ -990,21 +924,6 @@ export class ConfigurationService {
   }
 }
 
-/** 作用域模式去重（保持输入顺序）；空字符串忽略。 */
-const normalizePatterns = (patterns: readonly string[]): string[] => {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const pattern of patterns) {
-    const value = pattern.trim()
-    if (!value || seen.has(value)) continue
-    seen.add(value)
-    result.push(value)
-  }
-  return result
-}
-
+/** 提取诊断错误文本。 */
 const errorText = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : String(error)
-
-/** 避免重复实现 realpath 口径（装配服务导出同名函数）。 */
-import { canonicalProjectPath as canonicalPath } from './project-assembly.js'

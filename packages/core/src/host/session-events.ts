@@ -183,7 +183,6 @@ export class SessionEvents {
         ? { compactionReason: record.compactionReason }
         : {}),
       autoCompactionEnabled: record.settingsManager.getCompactionEnabled(),
-      scopedModelKeys: session.scopedModels.map(({ model }) => `${model.provider}/${model.id}`),
       modelCatalogRevision: this.deps.modelCatalogRevision(),
       ...(model?.input ? { modelInput: [...model.input] } : {}),
       retryActive: session.isRetrying,

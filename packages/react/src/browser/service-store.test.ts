@@ -639,6 +639,10 @@ describe('service-store：模型目录按目标与版本唯一', () => {
     store.getState().applyProviderAuth(providerAuth(7))
 
     await store.getState().loadModelCatalog({ workspacePath: '/alpha', threadId: 't1' })
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/alpha',
+      threadId: 't1',
+    })
     expect(
       selectHarnessModelCatalog(store.getState(), { workspacePath: '/alpha', threadId: 't1' }),
     ).toMatchObject({
@@ -672,6 +676,83 @@ describe('service-store：模型目录按目标与版本唯一', () => {
     pending.resolve([model('provider', 'model')])
     await Promise.all([first, second])
     expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+  })
+
+  it('完整目录与最终候选按 all 分开缓存并传递工作区参数', async () => {
+    const client = createClient()
+    vi.mocked(client.getAvailableModels)
+      .mockResolvedValueOnce([model('provider', 'filtered')])
+      .mockResolvedValueOnce([model('provider', 'all')])
+    const store = createHarnessServiceStore({ client })
+    store.getState().applyWorkspace({
+      id: 'w1',
+      name: '工作区',
+      revision: 2,
+      projects: [],
+    })
+
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha', workspaceId: 'w1' })
+    await store.getState().loadModelCatalog({
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+      all: true,
+    })
+
+    expect(client.getAvailableModels).toHaveBeenNthCalledWith(1, {
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+    })
+    expect(client.getAvailableModels).toHaveBeenNthCalledWith(2, {
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+      all: true,
+    })
+    const filtered = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+    })
+    const all = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+      all: true,
+    })
+    expect(filtered?.models.map((item) => item.modelId)).toEqual(['filtered'])
+    expect(filtered?.workspaceRevision).toBe(2)
+    expect(all?.models.map((item) => item.modelId)).toEqual(['all'])
+    expect(all?.workspaceRevision).toBe(2)
+    expect(Object.keys(store.getState().modelCatalogByKey)).toHaveLength(2)
+  })
+
+  it('工作区 revision 推进后目录查询换键并释放旧版本', async () => {
+    const client = createClient()
+    vi.mocked(client.getAvailableModels)
+      .mockResolvedValueOnce([model('provider', 'old')])
+      .mockResolvedValueOnce([model('provider', 'new')])
+    const store = createHarnessServiceStore({ client })
+    store.getState().applyWorkspace({
+      id: 'w1',
+      name: '工作区',
+      revision: 1,
+      projects: [],
+    })
+
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha', workspaceId: 'w1' })
+    store.getState().applyWorkspace({
+      id: 'w1',
+      name: '工作区',
+      revision: 2,
+      projects: [],
+    })
+    await store.getState().loadModelCatalog({ workspacePath: '/alpha', workspaceId: 'w1' })
+
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(2)
+    const current = selectHarnessModelCatalog(store.getState(), {
+      workspacePath: '/alpha',
+      workspaceId: 'w1',
+    })
+    expect(current?.models.map((item) => item.modelId)).toEqual(['new'])
+    expect(current?.workspaceRevision).toBe(2)
+    expect(Object.keys(store.getState().modelCatalogByKey)).toHaveLength(1)
   })
 })
 

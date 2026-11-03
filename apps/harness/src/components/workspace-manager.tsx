@@ -6,17 +6,19 @@
  */
 
 import type { HarnessProjectInfo } from '@huan/protocol'
-import { useServiceStore } from '@huan/react'
+import { selectHarnessModelCatalog, useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import {
   CheckCircle2Icon,
   Loader2Icon,
   PlusIcon,
+  RefreshCwIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
   ShieldXIcon,
   Trash2Icon,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -29,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { useWorkspaceStore } from '@/state/app-context'
 import type { WorkspaceMemberDraft } from '@/state/workspace-store'
+import { ModelScopeEditor } from './model-scope-editor'
 
 const mutationDisabled = (state: string | undefined): boolean =>
   state !== undefined && state !== 'ok'
@@ -158,8 +161,26 @@ export function TrustDecisionPanel({
 export function WorkspaceManagerDialog() {
   const form = useWorkspaceStore((state) => state.form)
   const workspaceState = useServiceStore((state) => state.workspaceState)
+  const workspaceRevision = useServiceStore((state) =>
+    form.workspaceId ? state.workspacesById[form.workspaceId]?.revision : undefined,
+  )
+  const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
+  const modelEntry = useServiceStore((state) => {
+    if (!form.modelCatalogPath) return undefined
+    return selectHarnessModelCatalog(state, {
+      workspacePath: form.modelCatalogPath,
+      ...(form.workspaceId ? { workspaceId: form.workspaceId } : {}),
+      all: true,
+    })
+  })
   const closeWorkspaceForm = useWorkspaceStore((state) => state.closeWorkspaceForm)
   const setWorkspaceFormName = useWorkspaceStore((state) => state.setWorkspaceFormName)
+  const setWorkspaceModelScopeMode = useWorkspaceStore((state) => state.setWorkspaceModelScopeMode)
+  const setWorkspaceFormModelPatterns = useWorkspaceStore(
+    (state) => state.setWorkspaceFormModelPatterns,
+  )
+  const loadWorkspaceModels = useWorkspaceStore((state) => state.loadWorkspaceModels)
+  const refreshWorkspaceModels = useWorkspaceStore((state) => state.refreshWorkspaceModels)
   const setWorkspaceMember = useWorkspaceStore((state) => state.setWorkspaceMember)
   const inspectWorkspaceMember = useWorkspaceStore((state) => state.inspectWorkspaceMember)
   const openTrust = useWorkspaceStore((state) => state.openTrust)
@@ -167,6 +188,22 @@ export function WorkspaceManagerDialog() {
   const removeWorkspaceMember = useWorkspaceStore((state) => state.removeWorkspaceMember)
   const saveWorkspaceForm = useWorkspaceStore((state) => state.saveWorkspaceForm)
   const disabled = mutationDisabled(workspaceState)
+  const models = modelEntry?.models ?? []
+
+  // 打开表单时读取完整目录；版本变化重新读取。成员/名称/patterns 输入不触发请求。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 目录版本是 serviceStore 查询键
+  useEffect(() => {
+    if (!form.open) return
+    void loadWorkspaceModels()
+  }, [
+    form.open,
+    form.workspaceId,
+    form.modelCatalogPath,
+    form.revision,
+    workspaceRevision,
+    authRevision,
+    loadWorkspaceModels,
+  ])
 
   return (
     <Dialog
@@ -195,6 +232,80 @@ export function WorkspaceManagerDialog() {
             aria-label="工作区名称"
             placeholder="例如：幻开发"
           />
+        </div>
+
+        <div className="flex flex-col gap-2" data-slot="huan-workspace-model-scope">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground text-sm">
+              <Trans>模型范围</Trans>
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={
+                !form.modelCatalogPath ||
+                form.busy ||
+                form.modelRefreshing ||
+                modelEntry?.loading === true
+              }
+              onClick={() => void refreshWorkspaceModels()}
+            >
+              {form.modelRefreshing || modelEntry?.loading ? (
+                <Loader2Icon aria-hidden className="size-4 animate-spin" />
+              ) : (
+                <RefreshCwIcon aria-hidden className="size-4" />
+              )}
+              <Trans>刷新目录</Trans>
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-4 text-sm" role="radiogroup" aria-label="模型范围模式">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="radio"
+                name={`workspace-model-scope-${form.workspaceId ?? 'new'}`}
+                className="size-4 accent-current"
+                checked={form.modelScopeMode === 'inherit'}
+                onChange={() => setWorkspaceModelScopeMode('inherit')}
+              />
+              <Trans>跟随全局</Trans>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="radio"
+                name={`workspace-model-scope-${form.workspaceId ?? 'new'}`}
+                className="size-4 accent-current"
+                checked={form.modelScopeMode === 'custom'}
+                onChange={() => setWorkspaceModelScopeMode('custom')}
+              />
+              <Trans>自定义</Trans>
+            </label>
+          </div>
+          {modelEntry?.error && (
+            <p role="alert" className="text-destructive text-xs">
+              <Trans>模型目录读取失败，请重试。</Trans>
+            </p>
+          )}
+          {form.modelScopeMode === 'custom' &&
+            (modelEntry?.loading && models.length === 0 ? (
+              <p
+                role="status"
+                className="text-muted-foreground inline-flex items-center gap-1.5 text-sm"
+              >
+                <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                <Trans>正在读取模型目录…</Trans>
+              </p>
+            ) : models.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                <Trans>没有可用模型，请刷新目录。</Trans>
+              </p>
+            ) : (
+              <ModelScopeEditor
+                models={models}
+                value={form.modelPatterns}
+                onChange={setWorkspaceFormModelPatterns}
+                disabled={form.busy || disabled}
+              />
+            ))}
         </div>
 
         <div className="flex flex-col gap-2">
@@ -303,7 +414,9 @@ export function WorkspaceManagerDialog() {
             <Trans>取消</Trans>
           </Button>
           <Button
-            disabled={form.busy || disabled || form.name.trim().length === 0}
+            disabled={
+              form.busy || form.modelRefreshing || disabled || form.name.trim().length === 0
+            }
             onClick={() => void saveWorkspaceForm()}
           >
             {form.busy ? <Loader2Icon aria-hidden className="size-4 animate-spin" /> : null}

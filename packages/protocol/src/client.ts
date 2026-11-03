@@ -70,9 +70,6 @@ import type {
   HarnessCompactionOutcome,
   HarnessModelRefreshInput,
   HarnessModelRefreshResult,
-  HarnessModelScope,
-  HarnessModelScopeUpdateInput,
-  HarnessModelScopeUpdateResult,
 } from './runtime.js'
 import type {
   HarnessResourceQueryInput,
@@ -362,19 +359,22 @@ export interface HarnessConfigurationClient {
    * 并同步所有已打开会话的有效状态。写盘失败时回滚内存并如实返回 failed。
    */
   setAutoCompaction(threadId: string, enabled: boolean): Promise<HarnessAutoCompactionUpdateResult>
-  /** 读取会话模型范围（会话级）与已保存的用户默认。 */
-  getThreadModelScope(threadId: string): Promise<HarnessModelScope>
-  /** 更新会话模型范围；saveAsDefault 才写入用户设置。 */
-  setThreadModelScope(
-    threadId: string,
-    input: HarnessModelScopeUpdateInput,
-  ): Promise<HarnessModelScopeUpdateResult>
   /**
    * 显式刷新模型目录（可以不重建 live session 或发起模型请求）。
    * 必须显式指定会话或固定起始目录，不接受隐式窗口工作区。
    */
   refreshModels(input: HarnessModelRefreshInput): Promise<HarnessModelRefreshResult>
-  getAvailableModels(input?: { workspacePath?: string }): Promise<HarnessModelInfo[]>
+  /**
+   * 查询模型目录。默认返回按两层范围（工作区覆盖或用户 enabledModels）
+   * 解析后的候选；`all: true` 返回已认证可用的完整目录。
+   * 会话归属只按 huan 元数据解析，不按 cwd 推测工作区。
+   */
+  getAvailableModels(input?: {
+    workspacePath?: string
+    workspaceId?: string
+    threadId?: string
+    all?: boolean
+  }): Promise<HarnessModelInfo[]>
 }
 
 /** 完整宿主客户端：少量领域接口组合，无通用 RPC 包装。 */

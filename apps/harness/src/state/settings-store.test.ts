@@ -1,5 +1,6 @@
 import type {
   HarnessClient,
+  HarnessModelInfo,
   HarnessResourceSnapshot,
   HarnessSettingsFile,
   HarnessSettingsSnapshot,
@@ -86,6 +87,11 @@ const resourcesOf = (
   diagnostics: [],
 })
 
+const models: HarnessModelInfo[] = [
+  { provider: 'provider', modelId: 'model-a', name: 'Model A' },
+  { provider: 'provider', modelId: 'model-b', name: 'Model B' },
+]
+
 const createFakeClient = () => {
   const target: HarnessSettingsTargetInput = { threadId: 't1' }
   const otherTarget: HarnessSettingsTargetInput = { threadId: 't2' }
@@ -98,6 +104,8 @@ const createFakeClient = () => {
       resourcesOf(input, input.includeText === true),
     ),
     reloadResources: vi.fn(),
+    getAvailableModels: vi.fn(async () => models),
+    refreshModels: vi.fn(async () => ({ models, failedProviders: [] })),
   } as unknown as HarnessClient
   return client
 }
@@ -311,6 +319,97 @@ describe('settings feature：原文、dirty 与目标保护', () => {
     expect(draftOf(store, 't:t1', 'user')?.issues).toEqual([
       { kind: 'schema', path: '/defaultModel', message: '类型错误' },
     ])
+  })
+})
+
+describe('settings feature：全局模型范围', () => {
+  it('模型页固定用户作用域；目录读取使用完整模式并支持仅有 cwd 的目标', async () => {
+    const client = createFakeClient()
+    const { browser, store } = createStore(client)
+    const loadCatalog = vi
+      .spyOn(browser.serviceStore.getState(), 'loadModelCatalog')
+      .mockResolvedValue(models)
+
+    await store.getState().openPanel({ threadId: 't1' }, { tab: 'models', scope: 'project' })
+    expect(store.getState().tab).toBe('models')
+    expect(store.getState().scope).toBe('user')
+    await store.getState().loadModelCatalog()
+    expect(loadCatalog).toHaveBeenCalledWith({ workspacePath: '/workspace', all: true })
+
+    // 模型页不允许切到项目作用域；离开后恢复普通作用域切换。
+    store.getState().setScope('project')
+    expect(store.getState().scope).toBe('user')
+    store.getState().setTab('common')
+    store.getState().setScope('project')
+    expect(store.getState().scope).toBe('project')
+    store.getState().setTab('models')
+    expect(store.getState().scope).toBe('user')
+
+    // 无会话、仅有起始目录时同样使用该 cwd 读取完整目录。
+    store.getState().close()
+    vi.mocked(client.getSettings).mockResolvedValueOnce(snapshotOf({ workspacePath: '/cwd-only' }))
+    await store.getState().openPanel({ workspacePath: '/cwd-only' }, { tab: 'models' })
+    await store.getState().loadModelCatalog()
+    expect(loadCatalog).toHaveBeenLastCalledWith({ workspacePath: '/cwd-only', all: true })
+  })
+
+  it('刷新目录调用共享刷新接口后重新读取完整目录', async () => {
+    const client = createFakeClient()
+    const { browser, store } = createStore(client)
+    const loadCatalog = vi
+      .spyOn(browser.serviceStore.getState(), 'loadModelCatalog')
+      .mockResolvedValue(models)
+    await store.getState().openPanel({ threadId: 't1' }, { tab: 'models' })
+    await store.getState().loadModelCatalog()
+    loadCatalog.mockClear()
+
+    await store.getState().refreshModelCatalog()
+    expect(client.refreshModels).toHaveBeenCalledWith({ workspacePath: '/workspace' })
+    expect(loadCatalog).toHaveBeenCalledWith({ workspacePath: '/workspace', all: true })
+    expect(store.getState().modelRefreshing).toBe(false)
+    expect(store.getState().notice).toContain('模型目录已刷新')
+  })
+
+  it('保存用户 enabledModels 保留其他字段，不提示资源应用；混合其他设置仍按 apply 提示', async () => {
+    const client = createFakeClient()
+    const { store } = createStore(client)
+    await store.getState().openPanel({ threadId: 't1' }, { tab: 'models' })
+    const snapshot = snapshotOf({ threadId: 't1' })
+
+    store.getState().updateObject({
+      defaultModel: 'm1',
+      unknownField: 1,
+      enabledModels: ['provider/model-b'],
+    })
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(savedResult(snapshot))
+    await store.getState().save()
+
+    expect(client.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { threadId: 't1' },
+        scope: 'user',
+      }),
+    )
+    const calls = vi.mocked(client.saveSettings).mock.calls
+    const first = calls[0]
+    if (!first) throw new Error('缺少保存调用')
+    const saved = JSON.parse((first[0] as { content: string }).content) as Record<string, unknown>
+    expect(saved).toMatchObject({
+      defaultModel: 'm1',
+      unknownField: 1,
+      enabledModels: ['provider/model-b'],
+    })
+    expect(store.getState().notice).toBe('已保存')
+
+    // 与普通设置一起修改时仍按宿主 apply 字段提示应用。
+    store.getState().updateObject({
+      defaultModel: 'm2',
+      unknownField: 1,
+      enabledModels: ['provider/model-b'],
+    })
+    vi.mocked(client.saveSettings).mockResolvedValueOnce(savedResult(snapshot))
+    await store.getState().save()
+    expect(store.getState().notice).toContain('已保存，可应用到当前会话')
   })
 })
 

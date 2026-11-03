@@ -11,6 +11,9 @@ import {
   createAgentSessionServices,
   type InlineExtension,
   ModelRuntime,
+  type ModelScopeDiagnostic,
+  resolveModelScopeWithDiagnostics,
+  type ScopedModel,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent'
 import type {
@@ -99,6 +102,66 @@ export function listModelCatalog(runtime: ModelRuntime): HarnessModelInfo[] {
   const available = runtime.getAvailableSnapshot()
   const models = available.length > 0 ? available : runtime.getModels()
   return models.map(mapModelInfo)
+}
+
+/** 两层模型范围的解析结果（模式、命中模型与 Pi 诊断）。 */
+export type ResolvedModelScope = {
+  patterns: string[]
+  scopedModels: ScopedModel[]
+  diagnostics: ModelScopeDiagnostic[]
+}
+
+/** 规范化模型模式：去空白、去重并保持顺序；空数组表示不限制。 */
+export function normalizeModelPatterns(patterns: readonly string[] | undefined): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const pattern of patterns ?? []) {
+    const value = pattern.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  return result
+}
+
+/** 用户全局启用的模型模式（只读用户设置，不使用项目覆盖）。 */
+export function globalModelPatterns(settings: SettingsManager): string[] {
+  return normalizeModelPatterns(settings.getGlobalSettings().enabledModels)
+}
+
+/**
+ * 用 Pi 公开解析器把模式解析为可用模型。
+ *
+ * 通配符与 Thinking 后缀由 Pi 处理；无匹配时返回空候选（不退全部）。
+ * 解析异常同样按空候选报告，不静默扩大范围。
+ */
+export async function resolveModelScopePatterns(
+  runtime: ModelRuntime,
+  patterns: readonly string[],
+  options: { diagnose?: (message: string) => void } = {},
+): Promise<ResolvedModelScope> {
+  const normalized = normalizeModelPatterns(patterns)
+  if (normalized.length === 0) return { patterns: [], scopedModels: [], diagnostics: [] }
+  try {
+    const result = await resolveModelScopeWithDiagnostics(normalized, runtime, {
+      signal: AbortSignal.timeout(10_000),
+    })
+    return { patterns: normalized, ...result }
+  } catch (error) {
+    options.diagnose?.(`模型范围解析：${error instanceof Error ? error.message : String(error)}`)
+    return {
+      patterns: normalized,
+      scopedModels: [],
+      diagnostics: [
+        {
+          type: 'warning',
+          code: 'no-match',
+          pattern: normalized.join(', '),
+          message: '模型范围解析失败，请检查模型范围或先刷新模型目录',
+        },
+      ],
+    }
+  }
 }
 
 /** 显式目录刷新（唯一允许联网的入口）。失败不抛，交由调用方决定提示。 */

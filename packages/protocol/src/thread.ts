@@ -129,8 +129,6 @@ export type HarnessThreadMetadata = {
   compactionReason?: 'manual' | 'threshold' | 'overflow'
   /** 当前会话的自动压缩开关（来自该会话的用户设置）；冷会话可能缺失。 */
   autoCompactionEnabled?: boolean
-  /** 当前会话的模型选择范围；空数组为全部。 */
-  scopedModelKeys?: readonly string[]
   /** SDK 恢复/默认解析时发生的模型回退；只含受控原因与原/有效模型。 */
   modelFallback?: HarnessModelFallback
   /** 共享模型目录显式刷新代数。 */

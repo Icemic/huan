@@ -255,6 +255,9 @@ describe('createHarnessHttpClient', () => {
     await expect(client.getAvailableModels({ workspacePath: '/ws' })).resolves.toEqual([
       { provider: 'anthropic', modelId: 'claude' },
     ])
+    await expect(
+      client.getAvailableModels({ workspaceId: 'ws1', threadId: 't1', all: true }),
+    ).resolves.toEqual([{ provider: 'anthropic', modelId: 'claude' }])
     await client.setModel('t1', { provider: 'anthropic', modelId: 'claude' })
     await client.setThinkingLevel('t1', 'high')
 
@@ -263,11 +266,15 @@ describe('createHarnessHttpClient', () => {
       method: 'GET',
     })
     expect(calls[1]).toMatchObject({
+      url: '/api/pi/models?workspaceId=ws1&threadId=t1&all=true',
+      method: 'GET',
+    })
+    expect(calls[2]).toMatchObject({
       url: '/api/pi/threads/t1/model',
       method: 'POST',
       body: { provider: 'anthropic', modelId: 'claude' },
     })
-    expect(calls[2]).toMatchObject({
+    expect(calls[3]).toMatchObject({
       url: '/api/pi/threads/t1/thinking',
       method: 'POST',
       body: { level: 'high' },
@@ -735,7 +742,7 @@ describe('createHarnessHttpClient', () => {
   })
 })
 
-describe('运行操作路由（Shell / 压缩 / 模型范围）', () => {
+describe('运行操作路由（Shell / 压缩 / 模型目录）', () => {
   const bashRun = {
     id: 'bash:1',
     command: 'echo hi',
@@ -745,12 +752,6 @@ describe('运行操作路由（Shell / 压缩 / 模型范围）', () => {
     output: '',
     outputTruncated: false,
     startedAt: '2026-08-18T00:00:00.000Z',
-  }
-
-  const scope = {
-    patterns: ['huan-test/test-model-a'],
-    models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
-    diagnostics: [],
   }
 
   it('启动与取消 Shell 经独立路由，并保留上下文排除选项', async () => {
@@ -829,55 +830,22 @@ describe('运行操作路由（Shell / 压缩 / 模型范围）', () => {
     })
   })
 
-  it('模型范围读写与目录刷新经固定会话/目录', async () => {
-    const { fn, calls } = fakeFetch((url) => {
-      if (url.endsWith('/models/refresh')) {
-        return json({
-          models: [{ provider: 'huan-test', modelId: 'test-model-a' }],
-          failedProviders: [],
-        })
-      }
-      if (url.endsWith('/model-scope')) {
-        return json({
-          ...scope,
-          persistence: 'saved',
-          savedPatterns: scope.patterns,
-        })
-      }
-      return new Response(null, { status: 404 })
-    })
+  it('目录刷新经固定会话/目录转发', async () => {
+    const { fn, calls } = fakeFetch(() =>
+      json({ models: [{ provider: 'huan-test', modelId: 'test-model-a' }], failedProviders: [] }),
+    )
     const client = createHarnessHttpClient({ fetchImpl: fn })
-
-    await expect(client.getThreadModelScope('t1')).resolves.toEqual({
-      ...scope,
-      persistence: 'saved',
-      savedPatterns: scope.patterns,
-    })
-    await expect(
-      client.setThreadModelScope('t1', { patterns: scope.patterns, saveAsDefault: true }),
-    ).resolves.toMatchObject({ patterns: scope.patterns, persistence: 'saved' })
     await expect(client.refreshModels({ workspacePath: '/ws' })).resolves.toMatchObject({
       failedProviders: [],
     })
-
-    expect(calls[0]).toMatchObject({ url: '/api/pi/threads/t1/model-scope', method: 'GET' })
-    expect(calls[1]).toMatchObject({
-      url: '/api/pi/threads/t1/model-scope',
-      method: 'POST',
-      body: { patterns: scope.patterns, saveAsDefault: true },
-    })
-    expect(calls[2]).toMatchObject({
+    expect(calls[0]).toMatchObject({
       url: '/api/pi/models/refresh',
       method: 'POST',
       body: { workspacePath: '/ws' },
     })
   })
 
-  it('拒绝畸形模型范围与刷新结果', async () => {
-    const { fn } = fakeFetch(() => json({ patterns: [], models: [{ provider: 'x' }] }))
-    const client = createHarnessHttpClient({ fetchImpl: fn })
-    await expect(client.getThreadModelScope('t1')).rejects.toThrow('Invalid Pi HTTP response')
-
+  it('拒绝畸形的目录刷新结果', async () => {
     const refresh = createHarnessHttpClient({
       fetchImpl: fakeFetch(() => json({ models: [], failedProviders: [1] })).fn,
     })

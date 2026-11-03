@@ -3,7 +3,7 @@
  *
  * 业务边界（见 R1 §5.1、R2 §7）：
  * - 面板打开时固定 target 与 panelEpoch；迟到结果只更新原目标，不盖新面板或新草稿；
- * - 目录统一从公共 serviceStore 按 target/resource/auth/modelCatalog 版本读取；
+ * - 目录统一从公共 serviceStore 按 target/工作区/resource/auth/modelCatalog 版本读取；
  * - 新会话选择写入窗口草稿（随创建请求生效），已有会话走公共 sessionActions.setModel /
  *   setThinkingLevel，真实改变服务端会话；
  * - Thinking 级别完全来自模型目录能力（含 max），不在此处截断。
@@ -173,6 +173,7 @@ export const createModelFeatureStore = (
         try {
           await browser.serviceStore.getState().loadModelCatalog({
             workspacePath: target.workspacePath,
+            ...(target.workspaceId ? { workspaceId: target.workspaceId } : {}),
             ...(target.threadId ? { threadId: target.threadId } : {}),
           })
         } catch (error) {

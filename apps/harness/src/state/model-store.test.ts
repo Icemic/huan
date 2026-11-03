@@ -73,7 +73,10 @@ describe('model feature：目录版本与已有会话选择', () => {
     await store.getState().openPanel({
       target: { threadId: 't1', workspacePath: '/workspace' },
     })
-    expect(client.getAvailableModels).toHaveBeenCalledWith({ workspacePath: '/workspace' })
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/workspace',
+      threadId: 't1',
+    })
     expect(entryOf(browser, 't1')?.models.map((item) => item.modelId)).toEqual(['model', 'other'])
 
     await store.getState().chooseModel({ provider: 'provider', modelId: 'other' })
@@ -104,6 +107,10 @@ describe('model feature：目录版本与已有会话选择', () => {
     })
     await store.getState().openPanel({
       target: { workspacePath: '/workspace', workspaceId: 'w1' },
+    })
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/workspace',
+      workspaceId: 'w1',
     })
     await store.getState().chooseModel({ provider: 'provider', modelId: 'other' })
     await store.getState().chooseThinking('xhigh')

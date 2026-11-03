@@ -45,8 +45,6 @@ import {
   type HarnessModelInfo,
   type HarnessModelRefreshInput,
   type HarnessModelRefreshResult,
-  type HarnessModelScope,
-  type HarnessModelScopeUpdateResult,
   type HarnessProviderAuthCancelResult,
   type HarnessProviderAuthRespondResult,
   type HarnessProviderAuthSnapshot,
@@ -214,6 +212,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       path: project.path,
       available: isAvailableDirectory(project.path),
     })),
+    ...(workspace.modelPatterns ? { modelPatterns: [...workspace.modelPatterns] } : {}),
   })
 
   /** 扩展运行边界读取的权威快照：每次都从已提交的内存状态生成。 */
@@ -359,7 +358,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     catalog,
     events,
     coordinator,
-    resolveScopePatterns: (patterns) => configuration.resolveScopePatterns(patterns),
     commandActionsFor: (record) => operations.commandActionsFor(record),
     diagnose: pushDiagnostic,
     addSafeDiagnostic: (code) => safeDiagnostics.add(code),
@@ -403,6 +401,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     storeId,
     workspacePath,
     reloadThread: (record, trigger) => configuration.reloadThread(record, trigger),
+    resolveModelScope: (workspaceId) => configuration.modelScopeFor(workspaceId),
     diagnose: pushDiagnostic,
     assertActive,
     isDisposed,
@@ -630,8 +629,18 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
             : {}),
         }),
       )
-      if (result.ok) emitWorkspaceSnapshots(result.workspace.id)
-      else if (result.workspace) emitWorkspaceSnapshots(result.workspace.id)
+      if (result.ok) {
+        emitWorkspaceSnapshots(result.workspace.id)
+        // 范围变更只推进既有目录代数并广播快照；已在运行的会话保持当前模型。
+        if (
+          input.modelPatterns !== undefined &&
+          result.workspace.revision !== input.expectedRevision
+        ) {
+          modelService.notifyScopeChanged()
+        }
+      } else if (result.workspace) {
+        emitWorkspaceSnapshots(result.workspace.id)
+      }
       return result
     },
 
@@ -751,12 +760,6 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
             )
           }
           explicitModel = resolved
-        }
-        if (
-          !input?.model &&
-          project.runtime.defaultModel.info.readiness.state === 'unavailable-model'
-        ) {
-          throw new Error('默认模型不在注册表中，请先选择有效模型，或修正配置后重启宿主。')
         }
         const sessionDir = resolveSessionDirFor(cwd).dir
         // 尚未生成文件名，先检查目录中的探针路径；父目录链接也不得越过默认空间。
@@ -942,24 +945,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       )
     },
 
-    async getThreadModelScope(threadId: string): Promise<HarnessModelScope> {
-      assertActive()
-      const record = await live.ensureOpen(threadId)
-      return configuration.modelScopeOf(record)
-    },
-
-    async setThreadModelScope(threadId, input): Promise<HarnessModelScopeUpdateResult> {
-      return configuration.withSettingsWrite(() =>
-        configuration.setThreadModelScope(threadId, input),
-      )
-    },
-
     async refreshModels(input: HarnessModelRefreshInput): Promise<HarnessModelRefreshResult> {
       return configuration.refreshModels(input)
     },
 
-    async getAvailableModels(input?: { workspacePath?: string }): Promise<HarnessModelInfo[]> {
-      return configuration.getAvailableModels(input?.workspacePath)
+    async getAvailableModels(input): Promise<HarnessModelInfo[]> {
+      return configuration.getAvailableModels(input)
     },
 
     async setModel(threadId, input) {

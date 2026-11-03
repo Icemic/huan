@@ -1,7 +1,7 @@
 # 幻（huan）— 技术架构文档
 
 **最后更新**：2026-11-02
-**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 15。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
+**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 16。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
 ---
@@ -28,7 +28,7 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 15；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
+**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 16；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
 
 **UI 依赖边界（2026-11-02）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；聊天展示源码在应用内维护，不保留 assistant-ui 运行时。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
 
@@ -117,7 +117,7 @@ JSONL 导入先逐行严格解析并校验 header/ID/版本/条目/父链，旧�
 
 用户Shell先发布有界运行态，再通过公开user_bash事件处理结果或自定义operations，普通命令交executeBash；取消覆盖扩展等待窗口。Shell与模型可并存，结构导航/压缩不得越过Shell；完成后用SDK持久历史替代瞬态卡，pendingBashMessages未处理完时保留完成态，断线重连取权威快照。Shell取消独立于模型取消。
 
-手动compact共享结构闸门，abortCompaction取消；压缩错误/原因随事件与快照可见。自动压缩用户默认经独立SettingsManager串行保存、flush与磁盘校验后同步live缓存，不在保存失败时回写旧值。项目覆盖仍生效。模型范围默认会话临时，保存默认是显式操作；选择器禁用范围外模型且保留当前模型展示，刷新代数使各窗重读目录。具体行为与验证见[运行操作](iteration/2026-10/2026-10-31-feat-runtime-operations.md)。
+手动compact共享结构闸门，abortCompaction取消；压缩错误/原因随事件与快照可见。自动压缩用户默认经独立SettingsManager串行保存、flush与磁盘校验后同步live缓存，不在保存失败时回写旧值。项目覆盖仍生效。模型范围由Pi用户enabledModels提供全局默认，huan工作区modelPatterns完整覆盖；项目enabledModels不再参与候选筛选。全局模型页与工作区管理使用完整目录，输入区、新建与主动切换使用最终候选。已有会话按原模型继续使用与发送，目录版本推进使订阅窗口重读候选。工作区覆盖存于原state.json，复用工作区revision；模型目录查询按工作区、完整目录标记与既有版本区分。具体设计见[UI调整§5.6](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#56-两层模型范围产品规则)。
 
 ### 3.2.6 命令输入与Host UI
 
@@ -162,7 +162,7 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
   - 命令通过类型化方法与 HTTP 请求/响应对应，无统一命令 `requestId`；Host UI 响应中的 `requestId` 只关联交互请求。
   - 会话事件信封为 `threadId + seq`，工具事件按需携带 `toolCallId/parentToolCallId`；无统一 `sessionId/runId` 事件信封。
   - 重连与首次订阅采用同一机制：订阅入口先交付带 `seq` 的权威快照，再在同一连接上接续实时事件。`seq` 可用于发现序号遗漏，但不依赖事件重放。
-  - 协议常量为 15；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
+  - 协议常量为 16；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
   - Host UI 为四种交互及安全投影；版本化应用自定义 `kind` 尚未实现。
 - 传输可替换：首期 HTTP/SSE；Electron 主进程共置、Tauri sidecar 或未来本地 IPC 都实现同一 `HarnessClient` 接口。
 

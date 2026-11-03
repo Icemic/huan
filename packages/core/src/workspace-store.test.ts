@@ -116,6 +116,52 @@ describe('工作区元数据存储', () => {
     expect(onDisk.workspaces[created.id].revision).toBe(2)
   })
 
+  it('工作区模型范围可创建/完整替换/清除，空数组不被当作继承', async () => {
+    const store = new WorkspaceStore(agentDir)
+    await store.load()
+    const created = await store.createWorkspace({
+      name: '范围工作区',
+      projects: [{ alias: 'a', path: join(root, 'a') }],
+      modelPatterns: [' huan-test/a ', 'huan-test/a', 'huan-test/b:high'],
+    })
+    expect(created.modelPatterns).toEqual(['huan-test/a', 'huan-test/b:high'])
+
+    const replaced = await store.updateWorkspace({
+      workspaceId: created.id,
+      expectedRevision: created.revision,
+      modelPatterns: ['huan-test/c'],
+    })
+    expect(replaced.modelPatterns).toEqual(['huan-test/c'])
+    expect(replaced.revision).toBe(created.revision + 1)
+
+    // 相同范围不制造新 revision。
+    const unchanged = await store.updateWorkspace({
+      workspaceId: created.id,
+      expectedRevision: replaced.revision,
+      modelPatterns: ['huan-test/c'],
+    })
+    expect(unchanged.revision).toBe(replaced.revision)
+
+    const cleared = await store.updateWorkspace({
+      workspaceId: created.id,
+      expectedRevision: replaced.revision,
+      modelPatterns: null,
+    })
+    expect(cleared.modelPatterns).toBeUndefined()
+
+    await expect(
+      store.updateWorkspace({
+        workspaceId: created.id,
+        expectedRevision: cleared.revision,
+        modelPatterns: [],
+      }),
+    ).rejects.toThrow('invalid-model-patterns')
+
+    const reloaded = new WorkspaceStore(agentDir)
+    await reloaded.load()
+    expect(reloaded.workspace(created.id)?.modelPatterns).toBeUndefined()
+  })
+
   it('会话归属按存储根摘要隔离，同一会话 ID 不会跨作用域串用', async () => {
     const store = new WorkspaceStore(agentDir)
     await store.load()

@@ -408,6 +408,7 @@ export const createComposerFeatureStore = (
       .getState()
       .loadModelCatalog({
         workspacePath,
+        ...(target.kind === 'new' && target.workspaceId ? { workspaceId: target.workspaceId } : {}),
         ...(target.kind === 'thread' ? { threadId: target.threadId } : {}),
       })
       .catch(() => undefined)
@@ -818,7 +819,10 @@ export const createComposerFeatureStore = (
         })
         return true
       case 'scoped-models':
-        await runtimeStore.getState().openPanel({ section: 'scope' })
+        // 全局模型范围固定在设置面板的模型页与用户作用域；不再打开运行面板。
+        await settingsStore
+          .getState()
+          .openPanel(settingsTargetNow(), { tab: 'models', scope: 'user' })
         return true
       case 'mcp': {
         const trimmed = args.trim()

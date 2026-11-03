@@ -463,6 +463,10 @@ describe('session-actions：创建与发送', () => {
     const outcome = await browser.sessionActions.submit({ mode: 'prompt' })
     expect(outcome).toMatchObject({ status: 'failed' })
     expect(outcome?.message).toContain('未声明图像输入能力')
+    expect(fake.client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/workspace',
+      workspaceId: 'workspace-1',
+    })
     expect(fake.created).toHaveLength(0)
     expect(fake.sent).toHaveLength(0)
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('look')

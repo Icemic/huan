@@ -1,6 +1,6 @@
 /**
- * 设置与资源面板：用户/项目作用域、常用项、JSON 原文、revision 冲突、
- * 保存与应用分离、资源来源与按需正文。
+ * 设置与资源面板：用户/项目作用域、常用项、JSON 原文、全局模型范围、
+ * revision 冲突、保存与应用分离、资源来源与按需正文。
  *
  * 业务状态（目标、草稿、dirty、revision、读取代次、busy/notice）全部在
  * settings feature Zustand；本组件只选择状态并触发动作。
@@ -11,10 +11,16 @@ import type {
   HarnessSettingsFile,
   HarnessSettingsIssue,
 } from '@huan/protocol'
-import { type HarnessDraftTarget, useServiceStore, useWindowStore } from '@huan/react'
+import {
+  type HarnessDraftTarget,
+  selectHarnessModelCatalog,
+  useServiceStore,
+  useWindowStore,
+} from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, RefreshCwIcon, RotateCwIcon, Settings2Icon } from 'lucide-react'
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { ModelScopeEditor } from '@/components/model-scope-editor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -545,17 +551,22 @@ export function SettingsResourcesDialog() {
   const resetDraft = useSettingsStore((state) => state.resetDraft)
   const save = useSettingsStore((state) => state.save)
   const syncResourceRevision = useSettingsStore((state) => state.syncResourceRevision)
+  const loadModelCatalog = useSettingsStore((state) => state.loadModelCatalog)
+  const refreshModelCatalog = useSettingsStore((state) => state.refreshModelCatalog)
+  const modelRefreshing = useSettingsStore((state) => state.modelRefreshing)
+  const modelError = useSettingsStore((state) => state.modelError)
 
   const workspacePath = activeWorkspaceId
     ? startProjectFor(activeWorkspaceId)
     : browser.serviceStore.getState().host?.workspacePath
   const resolvedTarget = currentSettingsTarget(selection, workspacePath)
-  const key = settingsScopedDraftKey(targetKey, scope)
+  const effectiveScope = tab === 'models' ? 'user' : scope
+  const key = settingsScopedDraftKey(targetKey, effectiveScope)
   const draft = drafts[key]
   const parsed = useMemo(() => (draft ? parseDraft(draft.content) : undefined), [draft])
   const dirty = draft !== undefined && draft.content !== draft.baseContent
   const file = snapshot
-    ? scope === 'user'
+    ? effectiveScope === 'user'
       ? snapshot.files.user
       : snapshot.files.project
     : undefined
@@ -567,19 +578,54 @@ export function SettingsResourcesDialog() {
       )
     : undefined
   const ready = snapshotTargetKey === targetKey && snapshot !== undefined
-  const scopeBlocked = scope === 'project' && (!ready || !snapshot?.projectTrusted)
+  const scopeBlocked = effectiveScope === 'project' && (!ready || !snapshot?.projectTrusted)
   const formDisabled =
     !ready || !draft || parsed?.error !== undefined || scopeBlocked || file?.tooLarge === true
   const metadata = useServiceStore((state) =>
     target?.threadId ? state.threadsById[target.threadId] : undefined,
   )
   const reloadRunning = metadata?.reload?.status === 'running'
+  const modelWorkspacePath =
+    snapshot?.target.workspacePath ?? target?.workspacePath ?? metadata?.workspacePath
+  const catalogEntry = useServiceStore((state) =>
+    modelWorkspacePath
+      ? selectHarnessModelCatalog(state, { workspacePath: modelWorkspacePath, all: true })
+      : undefined,
+  )
+  const catalog = catalogEntry?.models ?? []
+  const catalogLoading = catalogEntry?.loading === true
+  const catalogPending = catalogLoading || catalogEntry === undefined
+  const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
+  const enabledModels = useMemo(() => {
+    const raw = parsed?.value?.enabledModels
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+  }, [parsed])
 
   // 目标会话的资源版本推进时只重读；不重置未保存草稿。
   useEffect(() => {
     if (!open) return
     syncResourceRevision(metadata?.resourceRevision)
   }, [metadata?.resourceRevision, open, syncResourceRevision])
+
+  // 模型页使用完整目录；认证版本变化时重读，目录正文仍由 serviceStore 持有。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 认证版本是 serviceStore 查询键
+  useEffect(() => {
+    if (!open || tab !== 'models' || !modelWorkspacePath) return
+    void loadModelCatalog()
+  }, [authRevision, loadModelCatalog, modelWorkspacePath, open, tab])
+
+  const changeEnabledModels = (patterns: string[]) => {
+    const value = parsed?.value
+    if (!value) return
+    const current = Array.isArray(value.enabledModels) ? value.enabledModels : []
+    if (
+      current.length === patterns.length &&
+      current.every((item, index) => item === patterns[index])
+    ) {
+      return
+    }
+    updateObject(setField(value, ['enabledModels'], patterns))
+  }
 
   const triggerRef = useRestoreTriggerFocus(open)
 
@@ -670,47 +716,49 @@ export function SettingsResourcesDialog() {
             )}
 
             <div className="flex flex-wrap items-center gap-2">
-              <div role="tablist" aria-label="设置作用域" className="flex gap-1">
-                <Button
-                  size="sm"
-                  variant={scope === 'user' ? 'secondary' : 'outline'}
-                  role="tab"
-                  aria-selected={scope === 'user'}
-                  aria-label="编辑用户设置"
-                  onClick={() => setScope('user')}
-                >
-                  <Trans>用户设置</Trans>
-                  {drafts[settingsScopedDraftKey(targetKey, 'user')]?.content !==
-                    drafts[settingsScopedDraftKey(targetKey, 'user')]?.baseContent && (
-                    <span
-                      data-slot="huan-settings-dirty"
-                      className="ms-1 rounded bg-muted px-1 text-xs"
-                    >
-                      <Trans>未保存</Trans>
-                    </span>
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={scope === 'project' ? 'secondary' : 'outline'}
-                  role="tab"
-                  aria-selected={scope === 'project'}
-                  aria-label="编辑项目设置"
-                  onClick={() => setScope('project')}
-                  disabled={snapshot !== undefined && !snapshot.projectTrusted}
-                >
-                  <Trans>项目设置</Trans>
-                  {drafts[settingsScopedDraftKey(targetKey, 'project')]?.content !==
-                    drafts[settingsScopedDraftKey(targetKey, 'project')]?.baseContent && (
-                    <span
-                      data-slot="huan-settings-dirty"
-                      className="ms-1 rounded bg-muted px-1 text-xs"
-                    >
-                      <Trans>未保存</Trans>
-                    </span>
-                  )}
-                </Button>
-              </div>
+              {tab !== 'models' && (
+                <div role="tablist" aria-label="设置作用域" className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant={scope === 'user' ? 'secondary' : 'outline'}
+                    role="tab"
+                    aria-selected={scope === 'user'}
+                    aria-label="编辑用户设置"
+                    onClick={() => setScope('user')}
+                  >
+                    <Trans>用户设置</Trans>
+                    {drafts[settingsScopedDraftKey(targetKey, 'user')]?.content !==
+                      drafts[settingsScopedDraftKey(targetKey, 'user')]?.baseContent && (
+                      <span
+                        data-slot="huan-settings-dirty"
+                        className="ms-1 rounded bg-muted px-1 text-xs"
+                      >
+                        <Trans>未保存</Trans>
+                      </span>
+                    )}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={scope === 'project' ? 'secondary' : 'outline'}
+                    role="tab"
+                    aria-selected={scope === 'project'}
+                    aria-label="编辑项目设置"
+                    onClick={() => setScope('project')}
+                    disabled={snapshot !== undefined && !snapshot.projectTrusted}
+                  >
+                    <Trans>项目设置</Trans>
+                    {drafts[settingsScopedDraftKey(targetKey, 'project')]?.content !==
+                      drafts[settingsScopedDraftKey(targetKey, 'project')]?.baseContent && (
+                      <span
+                        data-slot="huan-settings-dirty"
+                        className="ms-1 rounded bg-muted px-1 text-xs"
+                      >
+                        <Trans>未保存</Trans>
+                      </span>
+                    )}
+                  </Button>
+                </div>
+              )}
               <div className="ms-auto flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
@@ -776,6 +824,15 @@ export function SettingsResourcesDialog() {
               </Button>
               <Button
                 size="sm"
+                variant={tab === 'models' ? 'secondary' : 'ghost'}
+                role="tab"
+                aria-selected={tab === 'models'}
+                onClick={() => setTab('models')}
+              >
+                <Trans>模型</Trans>
+              </Button>
+              <Button
+                size="sm"
                 variant={tab === 'resources' ? 'secondary' : 'ghost'}
                 role="tab"
                 aria-selected={tab === 'resources'}
@@ -820,6 +877,60 @@ export function SettingsResourcesDialog() {
                   ) : (
                     <p className="text-muted-foreground text-xs">
                       <Trans>先修复 JSON 解析错误，常用项表单才可用。</Trans>
+                    </p>
+                  ))}
+                {tab === 'models' &&
+                  (parsed?.value ? (
+                    <div data-slot="huan-settings-models" className="flex flex-col gap-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-medium">
+                          <Trans>模型范围</Trans>
+                        </h3>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!ready || modelRefreshing || !modelWorkspacePath}
+                          onClick={() => void refreshModelCatalog()}
+                        >
+                          {modelRefreshing ? (
+                            <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCwIcon aria-hidden className="size-3.5" />
+                          )}
+                          <Trans>刷新模型目录</Trans>
+                        </Button>
+                      </div>
+                      <p className="text-muted-foreground text-xs">
+                        <Trans>
+                          未设置或空列表表示全部模型；此处保存到用户设置，工作区可单独覆盖。
+                        </Trans>
+                      </p>
+                      {(modelError ?? catalogEntry?.error) && (
+                        <p role="alert" className="text-destructive text-xs">
+                          {modelError ?? catalogEntry?.error}
+                        </p>
+                      )}
+                      {catalogPending ? (
+                        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                          <Loader2Icon aria-hidden className="size-3 animate-spin" />
+                          <Trans>正在读取模型目录…</Trans>
+                        </p>
+                      ) : catalog.length > 0 ? (
+                        <ModelScopeEditor
+                          models={catalog}
+                          value={enabledModels}
+                          onChange={changeEnabledModels}
+                          disabled={formDisabled || modelRefreshing}
+                        />
+                      ) : (
+                        <p className="text-muted-foreground text-xs">
+                          <Trans>模型目录为空；请刷新模型目录。</Trans>
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground text-xs">
+                      <Trans>先修复 JSON 解析错误，模型范围才可用。</Trans>
                     </p>
                   ))}
                 {tab === 'json' && (

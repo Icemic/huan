@@ -112,6 +112,14 @@ export class ModelCatalogService {
     return listModelCatalog(this.deps.modelRuntime)
   }
 
+  /**
+   * 模型范围（用户启用/工作区覆盖）变化：目录内容未变，但候选已变。
+   * 推进既有目录代数并复用快照广播，不新建订阅通道。
+   */
+  notifyScopeChanged(): void {
+    this.bump()
+  }
+
   private bump(): void {
     this.revision += 1
     this.deps.onChanged()

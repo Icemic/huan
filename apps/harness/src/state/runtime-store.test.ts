@@ -1,12 +1,7 @@
-import type {
-  HarnessBashRun,
-  HarnessClient,
-  HarnessModelScope,
-  HarnessThreadSnapshot,
-} from '@huan/protocol'
+import type { HarnessBashRun, HarnessClient, HarnessThreadSnapshot } from '@huan/protocol'
 import { createHarnessBrowser, type HarnessBrowser } from '@huan/react'
 import { describe, expect, it, vi } from 'vitest'
-import { createRuntimeFeatureStore, scopeModelKeysForPatterns } from './runtime-store'
+import { createRuntimeFeatureStore } from './runtime-store'
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void
@@ -17,23 +12,6 @@ const deferred = <T>() => {
   })
   return { promise, resolve, reject }
 }
-
-const model = (provider: string, modelId: string) => ({
-  provider,
-  modelId,
-  name: modelId,
-  supportsThinking: true,
-  availableThinkingLevels: ['off', 'low', 'high', 'max'] as const,
-  input: ['text', 'image'] as const,
-})
-
-const scopeOf = (overrides: Partial<HarnessModelScope> = {}): HarnessModelScope => ({
-  patterns: ['provider/model:high'],
-  models: [{ provider: 'provider', modelId: 'model', thinkingLevel: 'high' }],
-  diagnostics: [],
-  savedPatterns: ['provider/model:high'],
-  ...overrides,
-})
 
 const bashRunOf = (command: string): HarnessBashRun => ({
   id: 'bash-1',
@@ -53,13 +31,6 @@ const threadSnapshotOf = (threadId: string): HarnessThreadSnapshot => ({
 
 const createStore = () => {
   const client = {
-    getAvailableModels: vi.fn(async () => [model('provider', 'model'), model('provider', 'other')]),
-    getThreadModelScope: vi.fn(async () => scopeOf()),
-    setThreadModelScope: vi.fn(async (_threadId: string, input: { patterns: string[] }) => ({
-      ...scopeOf(),
-      patterns: input.patterns,
-      persistence: 'skipped' as const,
-    })),
     runThreadBash: vi.fn(async (_threadId: string, input: { command: string }) => ({
       status: 'started' as const,
       run: bashRunOf(input.command),
@@ -71,10 +42,6 @@ const createStore = () => {
       status: 'saved' as const,
       enabled: true,
       scope: 'global' as const,
-    })),
-    refreshModels: vi.fn(async () => ({
-      models: [model('provider', 'model')],
-      failedProviders: [],
     })),
     getThread: vi.fn(async (threadId: string) => threadSnapshotOf(threadId)),
     reloadResources: vi.fn(),
@@ -88,99 +55,6 @@ const createStore = () => {
   const store = createRuntimeFeatureStore({ browser })
   return { client, browser, store }
 }
-
-describe('runtime feature：模型范围原文与保存', () => {
-  it('读取会话patterns原文与Thinking后缀，未编辑保存不改写', async () => {
-    const { client, store } = createStore()
-    await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
-    expect(store.getState().scope?.savedPatterns).toEqual(['provider/model:high'])
-    expect(store.getState().patternsText).toBe('provider/model:high')
-    expect(store.getState().basePatternsText).toBe('provider/model:high')
-
-    await store.getState().saveScope()
-    expect(client.setThreadModelScope).toHaveBeenCalledWith('t1', {
-      patterns: ['provider/model:high'],
-    })
-    expect(store.getState().patternsText).toBe('provider/model:high')
-    expect(store.getState().basePatternsText).toBe('provider/model:high')
-    expect(store.getState().notice).toContain('会话范围已应用')
-  })
-
-  it('清除范围不回填旧默认；会话通配原文独立保留', async () => {
-    const { client, store } = createStore()
-    vi.mocked(client.getThreadModelScope).mockResolvedValue({
-      patterns: [],
-      models: [],
-      diagnostics: [],
-      savedPatterns: ['provider/model:high'],
-    })
-    await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
-    expect(store.getState().patternsText).toBe('')
-
-    vi.mocked(client.getThreadModelScope).mockResolvedValue({
-      patterns: ['provider/*:high'],
-      models: [{ provider: 'provider', modelId: 'model', thinkingLevel: 'high' }],
-      diagnostics: [],
-      savedPatterns: ['other/model:high'],
-    })
-    await store.getState().loadScope()
-    expect(store.getState().patternsText).toBe('provider/*:high')
-  })
-
-  it('显式保存用户默认使用原始 patterns；无匹配时恢复已保存原文', async () => {
-    const { client, store } = createStore()
-    await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
-    store.getState().setSaveAsDefault(true)
-    vi.mocked(client.setThreadModelScope).mockResolvedValueOnce({
-      ...scopeOf(),
-      patterns: ['provider/model:high'],
-      persistence: 'saved',
-    })
-    await store.getState().saveScope()
-    expect(client.setThreadModelScope).toHaveBeenCalledWith('t1', {
-      patterns: ['provider/model:high'],
-      saveAsDefault: true,
-    })
-    expect(store.getState().notice).toContain('保存为用户默认')
-
-    store.getState().updatePatternsText('nope/missing')
-    vi.mocked(client.setThreadModelScope).mockResolvedValueOnce({
-      ...scopeOf(),
-      patterns: [],
-      models: [],
-      diagnostics: [{ code: 'no-match', message: '没有匹配', pattern: 'nope/missing' }],
-      persistence: 'skipped',
-      message: '没有匹配的模型，会话范围未修改。',
-    })
-    await store.getState().saveScope()
-    expect(store.getState().patternsText).toBe('provider/model:high')
-    expect(store.getState().notice).toContain('没有匹配')
-  })
-
-  it('按目录勾选模型不破坏其他 Thinking 后缀；通配模式不冒充精确行', async () => {
-    const { store } = createStore()
-    await store.getState().openPanel({ target: { threadId: 't1', workspacePath: '/workspace' } })
-    const catalog = [
-      { provider: 'provider', modelId: 'model' },
-      { provider: 'provider', modelId: 'other' },
-    ]
-    const other = catalog[1]
-    const first = catalog[0]
-    if (!other || !first) throw new Error('测试缺少模型目录')
-    store.getState().toggleScopeModel(other, catalog)
-    expect(store.getState().patternsText).toBe('provider/model:high\nprovider/other')
-
-    store.getState().updatePatternsText('provider/*')
-    store.getState().toggleScopeModel(first, catalog)
-    expect(store.getState().notice).toContain('通配模式')
-    expect(store.getState().patternsText).toBe('provider/*')
-
-    expect(scopeModelKeysForPatterns('provider/*', catalog)).toEqual([
-      'provider/model',
-      'provider/other',
-    ])
-  })
-})
 
 describe('runtime feature：Shell、压缩与自动开关', () => {
   it('Shell 成功后只清空本次命令；busy/失败如实提示', async () => {

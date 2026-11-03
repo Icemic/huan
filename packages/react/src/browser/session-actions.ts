@@ -280,6 +280,9 @@ export const createHarnessSessionActions = (
       .getState()
       .loadModelCatalog({
         workspacePath,
+        ...(submission.target.kind === 'new' && submission.target.workspaceId
+          ? { workspaceId: submission.target.workspaceId }
+          : {}),
         ...(existingThreadId ? { threadId: existingThreadId } : {}),
       })
       .catch(() => undefined)

@@ -1,15 +1,14 @@
 /**
- * 运行操作契约：直接 Shell、上下文压缩与模型范围。
+ * 运行操作契约：直接 Shell、上下文压缩与模型目录刷新。
  *
  * 本模块只描述宿主 ↔ UI 的可序列化形状，不依赖 Pi SDK 与 Node。
  * 语义约定（G1.3a 设计）：
  * - Shell 与模型运行可并存；同一会话同时至多一条用户 Shell；
  * - 取消 Shell 与取消模型运行互相独立；
- * - 压缩要求会话空闲，失败保留原始消息树，原始错误只经受控文案暴露；
- * - 模型范围默认只作用于当前会话，保存用户默认是独立的显式操作。
+ * - 压缩要求会话空闲，失败保留原始消息树，原始错误只经受控文案暴露。
  */
 
-import type { HarnessModelInfo, HarnessThinkingLevel } from './thread.js'
+import type { HarnessModelInfo } from './thread.js'
 
 /** 压缩触发原因（与 Pi 事件一致）。 */
 export type HarnessCompactionReason = 'manual' | 'threshold' | 'overflow'
@@ -84,49 +83,6 @@ export type HarnessBashStartResult =
 
 /** 取消用户 Shell 的结果。 */
 export type HarnessBashAbortResult = { status: 'requested' } | { status: 'idle' }
-
-/** 模型范围中的一项（与 Pi ScopedModel 对应）。 */
-export type HarnessModelScopeModel = {
-  provider: string
-  modelId: string
-  thinkingLevel?: HarnessThinkingLevel
-}
-
-/** 范围解析诊断（与 Pi ModelScopeDiagnostic 的 code 对应）。 */
-export type HarnessModelScopeDiagnostic = {
-  code: 'no-match' | 'invalid-thinking-level' | 'ambiguous'
-  message: string
-  pattern: string
-}
-
-/** 会话模型范围。 */
-export type HarnessModelScope = {
-  /** 当前会话的范围模式；空数组表示不限制（全部可用模型）。 */
-  patterns: readonly string[]
-  /** 解析后的会话范围模型；空数组表示全部。 */
-  models: readonly HarnessModelScopeModel[]
-  diagnostics: readonly HarnessModelScopeDiagnostic[]
-  /** 已保存的用户默认范围（当前 agentDir 设置）；缺失表示未设置。 */
-  savedPatterns?: readonly string[]
-}
-
-/** 更新会话模型范围的输入。 */
-export type HarnessModelScopeUpdateInput = {
-  patterns: readonly string[]
-  /** 显式保存为用户默认（写入当前 agentDir 设置）；只影响未来会话。 */
-  saveAsDefault?: boolean
-}
-
-/** 更新会话模型范围的结果。 */
-export type HarnessModelScopeUpdateResult = HarnessModelScope & {
-  /**
-   * 用户默认的写盘结果；未请求保存时为 skipped。
-   * failed 表示会话范围已生效但用户默认未保存（绝不伪报成功）。
-   */
-  persistence: 'saved' | 'failed' | 'skipped'
-  /** persistence 为 failed 时的可读说明。 */
-  message?: string
-}
 
 /** 模型目录刷新输入：必须显式指定会话或固定起始目录。 */
 export type HarnessModelRefreshInput = {

@@ -48,17 +48,25 @@ export interface HarnessThreadQuery {
   refresh?: boolean
 }
 
-/** 模型目录目标：固定起始目录，会话目标另带 threadId 区分同路径的不同会话。 */
+/**
+ * 模型目录目标：固定起始目录；会话目标另带 threadId，工作区目标带 workspaceId
+ * 区分同路径的不同范围，`all` 明确请求完整目录而非最终候选。
+ */
 export interface HarnessModelCatalogTarget {
   workspacePath: string
+  workspaceId?: string
   threadId?: string
+  /** true 只读取完整目录供范围管理；缺省按工作区覆盖或用户范围筛选。 */
+  all?: boolean
 }
 
-/** 模型目录依赖版本；缺省时由服务状态中的认证/会话元数据补齐。 */
+/** 模型目录依赖版本；缺省时由服务状态中的认证/会话/工作区元数据补齐。 */
 export interface HarnessModelCatalogVersions {
   resourceRevision?: number
   authRevision?: number
   modelCatalogRevision?: number
+  /** 工作区定义版本；范围与成员变化都会推进。 */
+  workspaceRevision?: number
 }
 
 /** 模型目录查询：目标与实际使用的依赖版本。 */
@@ -74,11 +82,14 @@ export interface HarnessModelCatalogEntry extends HarnessModelCatalogQuery {
   models: readonly HarnessModelInfo[]
 }
 
-/** 模型目录缓存键：目标、路径和三个失效版本共同决定。 */
+/** 模型目录缓存键：目标（含工作区/完整目录标记）与依赖版本共同决定。 */
 export const modelCatalogKeyOf = (query: HarnessModelCatalogQuery): string =>
   JSON.stringify([
     query.threadId ?? null,
     query.workspacePath,
+    query.workspaceId ?? null,
+    query.workspaceRevision ?? null,
+    query.all === true,
     query.resourceRevision ?? null,
     query.authRevision ?? null,
     query.modelCatalogRevision ?? null,
@@ -244,21 +255,28 @@ const withSession = (
   sessionDataById: { ...state.sessionDataById, [threadId]: session },
 })
 
-/** 用当前服务状态补齐模型目录查询的依赖版本。 */
+/** 用当前服务状态补齐模型目录查询的身份与依赖版本。 */
 const resolveModelCatalogQuery = (
   state: HarnessServiceState,
   query: HarnessModelCatalogTarget & HarnessModelCatalogVersions,
 ): HarnessModelCatalogQuery => {
   const metadata = query.threadId ? state.threadsById[query.threadId] : undefined
+  const workspaceId = query.workspaceId ?? metadata?.workspaceId
+  const workspace = workspaceId ? state.workspacesById[workspaceId] : undefined
   const resourceRevision = query.resourceRevision ?? metadata?.resourceRevision
   const authRevision = query.authRevision ?? state.providerAuth?.authRevision
   const modelCatalogRevision = query.modelCatalogRevision ?? metadata?.modelCatalogRevision
+  const workspaceRevision =
+    query.workspaceRevision ?? workspace?.revision ?? metadata?.workspaceRevision
   return {
     workspacePath: query.workspacePath,
+    ...(workspaceId ? { workspaceId } : {}),
     ...(query.threadId ? { threadId: query.threadId } : {}),
+    ...(query.all === true ? { all: true } : {}),
     ...(resourceRevision !== undefined ? { resourceRevision } : {}),
     ...(authRevision !== undefined ? { authRevision } : {}),
     ...(modelCatalogRevision !== undefined ? { modelCatalogRevision } : {}),
+    ...(workspaceRevision !== undefined ? { workspaceRevision } : {}),
   }
 }
 
@@ -269,7 +287,10 @@ export const selectHarnessModelCatalog = (
 ): HarnessModelCatalogEntry | undefined =>
   state.modelCatalogByKey[modelCatalogKeyOf(resolveModelCatalogQuery(state, query))]
 
-/** 同一目标只保留最新版本条目；不同目标各自保留当前版本。 */
+/**
+ * 同一目标只保留最新版本条目；不同目标各自保留当前版本。
+ * 完整目录与最终候选是不同目标，不能互相覆盖。
+ */
 const pruneModelCatalogTarget = (
   entries: Readonly<Record<string, HarnessModelCatalogEntry>>,
   next: HarnessModelCatalogEntry,
@@ -277,7 +298,14 @@ const pruneModelCatalogTarget = (
   const result: Record<string, HarnessModelCatalogEntry> = {}
   for (const [key, entry] of Object.entries(entries)) {
     if (key === next.key) continue
-    if (entry.threadId === next.threadId && entry.workspacePath === next.workspacePath) continue
+    if (
+      entry.threadId === next.threadId &&
+      entry.workspacePath === next.workspacePath &&
+      entry.workspaceId === next.workspaceId &&
+      (entry.all === true) === (next.all === true)
+    ) {
+      continue
+    }
     result[key] = entry
   }
   result[next.key] = next
@@ -523,6 +551,9 @@ export const createHarnessServiceStore = (
           try {
             const models = await client.getAvailableModels({
               workspacePath: resolved.workspacePath,
+              ...(resolved.workspaceId ? { workspaceId: resolved.workspaceId } : {}),
+              ...(resolved.threadId ? { threadId: resolved.threadId } : {}),
+              ...(resolved.all ? { all: true } : {}),
             })
             if (
               get().disposed ||

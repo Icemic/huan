@@ -8,7 +8,9 @@
 
 import type { HarnessModelInfo, HarnessThinkingLevel } from '@huan/protocol'
 import { draftIdOf, selectHarnessModelCatalog, useServiceStore, useWindowStore } from '@huan/react'
+import { Trans } from '@lingui/react/macro'
 import { memo, useEffect, useMemo, useRef } from 'react'
+import { Button } from '@/components/ui/button'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -16,7 +18,7 @@ import {
   ModelSelectorTrigger,
   ModelSelectorValue,
 } from '@/components/ui/model-selector'
-import { useModelStore } from '@/state/app-context'
+import { useAuthStore, useModelStore, useSettingsStore } from '@/state/app-context'
 import type { ModelTarget } from '@/state/model-store'
 
 /** 把宿主模型目录映射为选择器条目；Thinking 级别完整来自模型能力（含 max）。 */
@@ -59,11 +61,22 @@ export const PiModelSelector = memo(function PiModelSelector({
     }
     if (selection?.kind !== 'thread') return undefined
     const workspacePath = metadata?.workspacePath ?? host?.workspacePath
-    return workspacePath ? { workspacePath, threadId: selection.threadId } : undefined
-  }, [selection, metadata?.workspacePath, host?.workspacePath])
+    return workspacePath
+      ? {
+          workspacePath,
+          threadId: selection.threadId,
+          ...(metadata?.workspaceId ? { workspaceId: metadata.workspaceId } : {}),
+        }
+      : undefined
+  }, [selection, metadata?.workspaceId, metadata?.workspacePath, host?.workspacePath])
   const currentTargetKey = targetKeyOf(currentTarget)
   const entry = useServiceStore((state) =>
     currentTarget ? selectHarnessModelCatalog(state, currentTarget) : undefined,
+  )
+  const workspaceRevision = useServiceStore((state) =>
+    currentTarget?.workspaceId
+      ? state.workspacesById[currentTarget.workspaceId]?.revision
+      : undefined,
   )
   const authRevision = useServiceStore((state) => state.providerAuth?.authRevision)
   const readOnly = useServiceStore(
@@ -82,6 +95,8 @@ export const PiModelSelector = memo(function PiModelSelector({
   const loadCatalog = useModelStore((state) => state.loadCatalog)
   const chooseModel = useModelStore((state) => state.chooseModel)
   const chooseThinking = useModelStore((state) => state.chooseThinking)
+  const openSettings = useSettingsStore((state) => state.openPanel)
+  const openAuth = useAuthStore((state) => state.openPanel)
 
   const draft = useWindowStore((state) =>
     selection ? state.draftsById[draftIdOf(selection)] : undefined,
@@ -99,12 +114,20 @@ export const PiModelSelector = memo(function PiModelSelector({
     : (metadata?.config?.thinkingLevel as HarnessThinkingLevel | undefined)
   const fallback = metadata?.modelFallback
 
-  // 目录按目标与认证/资源/目录版本读取；认证刷新会得到新的查询键。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 认证/目录版本是 serviceStore 查询键
+  // 目录按目标与认证/工作区/资源/目录版本读取；任一版本推进都会换查询键。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 目录版本是 serviceStore 查询键
   useEffect(() => {
     if (!currentTarget) return
     void loadCatalog(currentTarget)
-  }, [currentTarget, currentTargetKey, authRevision, metadata?.modelCatalogRevision, loadCatalog])
+  }, [
+    currentTarget,
+    currentTargetKey,
+    authRevision,
+    workspaceRevision,
+    metadata?.workspaceRevision,
+    metadata?.modelCatalogRevision,
+    loadCatalog,
+  ])
 
   // 选择器可见目标必须仍是当前窗口目标；切换选择时由 bootstrap 关闭旧面板。
   // 同一时刻只有一个实例展开弹层：避免上下文栏与输入区两个同名 popup。
@@ -128,11 +151,55 @@ export const PiModelSelector = memo(function PiModelSelector({
     wasVisible.current = visible
   }, [visible])
   const options = useMemo(() => toModelOptions(models), [models])
-  const scopeKeys = metadata?.scopedModelKeys
-  const selectableModels =
-    !scopeKeys?.length || isNew
-      ? options
-      : options.map((option) => ({ ...option, disabled: !scopeKeys.includes(option.id) }))
+  // 当前会话仍在使用、但已不在最终候选中的旧模型：只用于显示，不进入下拉候选。
+  const fallbackLabel =
+    displayKey && !options.some((option) => option.id === displayKey) ? displayKey : undefined
+  const emptyContent = (
+    <div className="flex flex-col gap-2" data-slot="huan-model-selector-empty-state">
+      {entry?.loading ? (
+        <p>
+          <Trans>正在读取模型目录…</Trans>
+        </p>
+      ) : (
+        <p>
+          <Trans>当前范围内没有可用模型。</Trans>
+        </p>
+      )}
+      {entry?.error && (
+        <p className="text-destructive break-all text-xs" title={entry.error}>
+          {entry.error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => {
+            close()
+            void openSettings(
+              currentTarget?.threadId
+                ? { threadId: currentTarget.threadId }
+                : currentTarget?.workspacePath
+                  ? { workspacePath: currentTarget.workspacePath }
+                  : undefined,
+            )
+          }}
+        >
+          <Trans>打开设置</Trans>
+        </Button>
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => {
+            close()
+            void openAuth()
+          }}
+        >
+          <Trans>管理认证</Trans>
+        </Button>
+      </div>
+    </div>
+  )
 
   const onValueChange = (key: string) => {
     const model = models.find((item) => `${item.provider}/${item.modelId}` === key)
@@ -150,7 +217,7 @@ export const PiModelSelector = memo(function PiModelSelector({
     >
       <ModelSelectorRoot
         key={currentTargetKey}
-        models={selectableModels}
+        models={options}
         value={displayKey ?? ''}
         onValueChange={onValueChange}
         effort={effort ?? ''}
@@ -170,9 +237,9 @@ export const PiModelSelector = memo(function PiModelSelector({
           aria-label="选择模型"
           disabled={!currentTarget || readOnly}
         >
-          <ModelSelectorValue showEffort placeholder="选择模型" />
+          <ModelSelectorValue showEffort fallbackLabel={fallbackLabel} placeholder="选择模型" />
         </ModelSelectorTrigger>
-        <ModelSelectorContent />
+        <ModelSelectorContent emptyContent={emptyContent} />
       </ModelSelectorRoot>
       {busy ? (
         <span className="text-muted-foreground text-[10px]">…</span>

@@ -245,6 +245,26 @@ async function addTurn(threadId: string, content: string, reply: string): Promis
   await waitIdle(threadId)
 }
 
+/** 通过设置原文保存用户 enabledModels（模拟全局范围变更，不触碰 live 缓存）。 */
+async function saveUserEnabledModels(threadId: string, patterns: readonly string[]): Promise<void> {
+  const current = await host.getSettings({ threadId })
+  const content = `${JSON.stringify(
+    {
+      ...(JSON.parse(current.files.user.content) as Record<string, unknown>),
+      enabledModels: [...patterns],
+    },
+    null,
+    2,
+  )}\n`
+  const saved = await host.saveSettings({
+    target: { threadId },
+    scope: 'user',
+    content,
+    expectedRevision: current.files.user.revision,
+  })
+  if (saved.status !== 'saved') throw new Error(`保存用户模型范围失败：${saved.status}`)
+}
+
 async function waitBashEvent(
   collector: ReturnType<typeof collectEvents>,
   command: string,
@@ -846,63 +866,144 @@ describe('模型目录、范围与 Thinking', () => {
     expect(snapshot.metadata.config?.thinkingLevel).toBe('max')
   })
 
-  it('会话范围默认只改会话；显式保存才写用户默认并影响新会话', async () => {
-    const threadId = await createTurn('范围检查', '好的')
-    const initial = await host.getThreadModelScope(threadId)
-    expect(initial.patterns).toEqual([])
-    expect(initial.models).toEqual([])
-    expect(initial.savedPatterns).toBeUndefined()
+  it('全局启用范围只读用户设置，all 返回完整目录', async () => {
+    const threadId = await createTurn('全局范围检查', '好的')
+    await saveUserEnabledModels(threadId, [modelKey(TEST_MODEL_B)])
 
-    const updated = await host.setThreadModelScope(threadId, {
-      patterns: [modelKey(TEST_MODEL_B)],
-      saveAsDefault: true,
-    })
-    expect(updated.models.map((item) => item.modelId)).toEqual([TEST_MODEL_B])
-    expect(updated.patterns).toEqual([modelKey(TEST_MODEL_B)])
-    expect(updated.persistence).toBe('saved')
-    expect(updated.savedPatterns).toEqual([modelKey(TEST_MODEL_B)])
-    // 范围配置不意外更换当前模型。
+    expect((await host.getAvailableModels({ threadId })).map((item) => item.modelId)).toEqual([
+      TEST_MODEL_B,
+    ])
+    expect(
+      (await host.getAvailableModels({ threadId, all: true })).map((item) => item.modelId),
+    ).toEqual(expect.arrayContaining([TEST_MODEL_A, TEST_MODEL_B]))
+    // 旧会话仍保持当前模型，范围只影响候选。
     expect((await host.getThread(threadId)).metadata.config?.modelId).toBe(TEST_MODEL_A)
 
-    const persisted = JSON.parse(await readFile(settingsFile(), 'utf8')) as {
-      enabledModels?: string[]
-      compaction?: { enabled?: boolean }
-      defaultProvider?: string
-      defaultModel?: string
-    }
-    expect(persisted.enabledModels).toEqual([modelKey(TEST_MODEL_B)])
-    // 保存范围只改 enabledModels，不覆盖其他设置字段。
-    expect(persisted.compaction?.enabled).toBe(true)
-    expect(persisted.defaultProvider).toBe(TEST_PROVIDER)
-    expect(persisted.defaultModel).toBe(TEST_MODEL_A)
-
-    // 新会话读取已保存范围（会话级内存）。
-    const next = await createTurn('范围继承检查', '好的')
-    const nextScope = await host.getThreadModelScope(next)
-    expect(nextScope.patterns).toEqual([modelKey(TEST_MODEL_B)])
-    expect(nextScope.models.map((item) => item.modelId)).toEqual([TEST_MODEL_B])
-
-    // 重启后冷打开的会话仍读取同一保存范围。
-    await restartHost()
-    const reopened = await host.getThreadModelScope(next)
-    expect(reopened.patterns).toEqual([modelKey(TEST_MODEL_B)])
-
-    // 清空范围（= 全部）不等于清除用户默认。
-    const cleared = await host.setThreadModelScope(next, { patterns: [] })
-    expect(cleared.patterns).toEqual([])
-    expect(cleared.persistence).toBe('skipped')
-    expect(cleared.savedPatterns).toEqual([modelKey(TEST_MODEL_B)])
+    // 项目 enabledModels 不构成第三层覆盖。
+    const project = join(env.root, 'project-model-scope')
+    await mkdir(join(project, '.pi'), { recursive: true })
+    await writeFile(
+      join(project, '.pi', 'settings.json'),
+      `${JSON.stringify({ enabledModels: [modelKey(TEST_MODEL_A)] }, null, 2)}
+`,
+    )
+    await host.decideProjectTrust({ path: project, trusted: true })
+    expect(
+      (await host.getAvailableModels({ workspacePath: project })).map((item) => item.modelId),
+    ).toEqual([TEST_MODEL_B])
   })
 
-  it('无匹配范围保持原范围并返回诊断', async () => {
-    const threadId = await createEmptyThread()
-    const result = await host.setThreadModelScope(threadId, {
-      patterns: ['nope/not-a-model'],
+  it('工作区范围完整替换全局，新建默认与主动切换按候选校验', async () => {
+    const createdWorkspace = await host.createWorkspace({
+      name: '范围工作区',
+      projects: [{ alias: 'scope', path: env.workspace }],
+      modelPatterns: [modelKey(TEST_MODEL_B)],
     })
-    expect(result.models).toEqual([])
-    expect(result.diagnostics.some((item) => item.code === 'no-match')).toBe(true)
-    expect(result.persistence).toBe('skipped')
-    expect(result.message).toContain('没有匹配的模型')
+    if (!createdWorkspace.ok) throw new Error('创建工作区失败')
+    const workspace = createdWorkspace.workspace
+    const workspaceArgs = { workspaceId: workspace.id }
+
+    expect((await host.getAvailableModels(workspaceArgs)).map((item) => item.modelId)).toEqual([
+      TEST_MODEL_B,
+    ])
+    expect(
+      (await host.getAvailableModels({ ...workspaceArgs, all: true })).map((item) => item.modelId),
+    ).toEqual(expect.arrayContaining([TEST_MODEL_A, TEST_MODEL_B]))
+
+    // 新会话默认模型 A 在范围外，选择第一个候选 B。
+    const created = await host.createThread(workspaceArgs)
+    expect(created.metadata.config?.modelId).toBe(TEST_MODEL_B)
+    expect(
+      (await host.getAvailableModels({ threadId: created.metadata.id })).map(
+        (item) => item.modelId,
+      ),
+    ).toEqual([TEST_MODEL_B])
+    await expect(
+      host.createThread({
+        ...workspaceArgs,
+        model: { provider: TEST_PROVIDER, modelId: TEST_MODEL_A },
+      }),
+    ).rejects.toThrow('不在当前模型范围内')
+    await expect(
+      host.setModel(created.metadata.id, { provider: TEST_PROVIDER, modelId: TEST_MODEL_A }),
+    ).rejects.toThrow('不在当前模型范围内')
+
+    // 工作区范围更新后，同一会话查询走新范围；主动切换按新候选校验。
+    const updated = await host.updateWorkspace({
+      workspaceId: workspace.id,
+      expectedRevision: workspace.revision,
+      modelPatterns: [modelKey(TEST_MODEL_A)],
+    })
+    if (!updated.ok) throw new Error('修改工作区失败')
+    expect(
+      (await host.getAvailableModels({ threadId: created.metadata.id })).map(
+        (item) => item.modelId,
+      ),
+    ).toEqual([TEST_MODEL_A])
+    await expect(
+      host.setModel(created.metadata.id, { provider: TEST_PROVIDER, modelId: TEST_MODEL_B }),
+    ).rejects.toThrow('不在当前模型范围内')
+    await host.setModel(created.metadata.id, { provider: TEST_PROVIDER, modelId: TEST_MODEL_A })
+    expect((await host.getThread(created.metadata.id)).metadata.config?.modelId).toBe(TEST_MODEL_A)
+  })
+
+  it('范围无匹配返回空候选，新建明确报错且不退全部', async () => {
+    const created = await host.createWorkspace({
+      name: '无匹配范围',
+      projects: [{ alias: 'scope', path: env.workspace }],
+      modelPatterns: ['nope/not-a-model'],
+    })
+    if (!created.ok) throw new Error('创建工作区失败')
+    expect(await host.getAvailableModels({ workspaceId: created.workspace.id })).toEqual([])
+    await expect(host.createThread({ workspaceId: created.workspace.id })).rejects.toThrow(
+      '没有可用模型',
+    )
+  })
+
+  it('保存用户范围与修改工作区范围推进目录版本并广播快照', async () => {
+    const threadId = await createTurn('范围广播', '好的')
+    const collector = collectEvents(threadId)
+    const before = (await host.getThread(threadId)).metadata.modelCatalogRevision ?? 0
+    await saveUserEnabledModels(threadId, [modelKey(TEST_MODEL_B)])
+    await collector.waitFor(
+      (event): event is Extract<HarnessClientEvent, { type: 'snapshot' }> =>
+        event.type === 'snapshot' && (event.snapshot.metadata.modelCatalogRevision ?? 0) > before,
+    )
+    collector.unsubscribe()
+
+    const createdWorkspace = await host.createWorkspace({
+      name: '广播工作区',
+      projects: [{ alias: 'scope', path: env.workspace }],
+    })
+    if (!createdWorkspace.ok) throw new Error('创建工作区失败')
+    const workspace = createdWorkspace.workspace
+    const created = await host.createThread({ workspaceId: workspace.id })
+    const workspaceCollector = collectEvents(created.metadata.id)
+    const beforeWorkspace =
+      (await host.getThread(created.metadata.id)).metadata.modelCatalogRevision ?? 0
+    const updated = await host.updateWorkspace({
+      workspaceId: workspace.id,
+      expectedRevision: workspace.revision,
+      modelPatterns: [modelKey(TEST_MODEL_A)],
+    })
+    if (!updated.ok) throw new Error('修改工作区失败')
+    await workspaceCollector.waitFor(
+      (event): event is Extract<HarnessClientEvent, { type: 'snapshot' }> =>
+        event.type === 'snapshot' &&
+        (event.snapshot.metadata.modelCatalogRevision ?? 0) > beforeWorkspace,
+    )
+    workspaceCollector.unsubscribe()
+  })
+
+  it('旧会话冷恢复与发送保持原模型，不因范围变化校验或替换', async () => {
+    const threadId = await createTurn('旧会话范围', '旧回复')
+    await saveUserEnabledModels(threadId, [modelKey(TEST_MODEL_B)])
+    await restartHost()
+
+    const reopened = await host.getThread(threadId)
+    expect(reopened.metadata.config?.modelId).toBe(TEST_MODEL_A)
+    await addTurn(threadId, '继续旧会话', '继续回复')
+    expect((await host.getThread(threadId)).metadata.config?.modelId).toBe(TEST_MODEL_A)
   })
 
   it('目录刷新不重建会话、不发起模型请求，并支持显式固定目录', async () => {

@@ -231,17 +231,31 @@ describe('设置读取与保存', () => {
     }
   })
 
-  it('模型范围保存与设置原文保存可共存（共享写队列/磁盘语义）', async () => {
+  it('用户设置连续保存复用写队列，enabledModels 与其他字段都保留', async () => {
     const threadId = (await host.createThread()).metadata.id
-    const scope = await host.setThreadModelScope(threadId, {
-      patterns: [`${TEST_PROVIDER}/${TEST_MODEL_B}`],
-      saveAsDefault: true,
-    })
-    expect(scope.persistence).toBe('saved')
     const current = await host.getSettings({ threadId })
-    const content = `${JSON.stringify(
+    const enabledModels = [`${TEST_PROVIDER}/${TEST_MODEL_B}`]
+    const scopeContent = `${JSON.stringify(
       {
         ...(JSON.parse(current.files.user.content) as Record<string, unknown>),
+        enabledModels,
+      },
+      null,
+      2,
+    )}
+`
+    const scopeSaved = await host.saveSettings({
+      target: { threadId },
+      scope: 'user',
+      content: scopeContent,
+      expectedRevision: current.files.user.revision,
+    })
+    expect(scopeSaved.status).toBe('saved')
+
+    const afterScope = await host.getSettings({ threadId })
+    const content = `${JSON.stringify(
+      {
+        ...(JSON.parse(afterScope.files.user.content) as Record<string, unknown>),
         scopeMarker: { ok: true },
       },
       null,
@@ -252,11 +266,11 @@ describe('设置读取与保存', () => {
       target: { threadId },
       scope: 'user',
       content,
-      expectedRevision: current.files.user.revision,
+      expectedRevision: afterScope.files.user.revision,
     })
     expect(saved.status).toBe('saved')
     const disk = await readJson(userSettingsFile())
-    expect(disk.enabledModels).toEqual([`${TEST_PROVIDER}/${TEST_MODEL_B}`])
+    expect(disk.enabledModels).toEqual(enabledModels)
     expect(disk.scopeMarker).toEqual({ ok: true })
   })
 

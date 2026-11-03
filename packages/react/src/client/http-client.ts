@@ -58,8 +58,6 @@
  *   POST   /threads/:id/compact     → HarnessCompactionOutcome     (body: { customInstructions? })
  *   POST   /threads/:id/compact/abort → HarnessCompactionAbortResult
  *   POST   /threads/:id/auto-compaction → HarnessAutoCompactionUpdateResult (body: { enabled })
- *   GET    /threads/:id/model-scope → HarnessModelScope
- *   POST   /threads/:id/model-scope → HarnessModelScopeUpdateResult (body: { patterns, saveAsDefault? })
  *   GET    /models                  → HarnessModelInfo[]
  *   POST   /models/refresh          → HarnessModelRefreshResult    (body: { threadId?, workspacePath? })
  *   POST   /threads/:id/model       → 204                        (body: { provider, modelId })
@@ -120,8 +118,6 @@ import type {
   HarnessMcpTargetInput,
   HarnessModelInfo,
   HarnessModelRefreshResult,
-  HarnessModelScope,
-  HarnessModelScopeUpdateResult,
   HarnessProjectInfo,
   HarnessProjectPathCheck,
   HarnessProjectTrustInput,
@@ -381,7 +377,10 @@ const isWorkspace = (value: unknown): value is HarnessWorkspace =>
   typeof value.name === 'string' &&
   typeof value.revision === 'number' &&
   Array.isArray(value.projects) &&
-  value.projects.every(isWorkspaceProject)
+  value.projects.every(isWorkspaceProject) &&
+  (value.modelPatterns === undefined ||
+    (Array.isArray(value.modelPatterns) &&
+      value.modelPatterns.every((item) => typeof item === 'string')))
 
 const isWorkspaceCatalog = (value: unknown): value is HarnessWorkspaceCatalog =>
   isRecord(value) &&
@@ -649,51 +648,6 @@ const parseAutoCompactionResponse = (value: unknown): HarnessAutoCompactionUpdat
     return value as HarnessAutoCompactionUpdateResult
   }
   throw invalidResponse('updating auto compaction', 'expected saved or failed.')
-}
-
-const isModelScopeModel = (value: unknown): boolean =>
-  isRecord(value) && typeof value.provider === 'string' && typeof value.modelId === 'string'
-
-const isModelScopeDiagnostic = (value: unknown): boolean =>
-  isRecord(value) &&
-  (value.code === 'no-match' ||
-    value.code === 'invalid-thinking-level' ||
-    value.code === 'ambiguous') &&
-  typeof value.message === 'string' &&
-  typeof value.pattern === 'string'
-
-const parseModelScopeResponse = (value: unknown): HarnessModelScope => {
-  if (
-    !isRecord(value) ||
-    !Array.isArray(value.patterns) ||
-    !value.patterns.every((item) => typeof item === 'string') ||
-    !Array.isArray(value.models) ||
-    !value.models.every(isModelScopeModel) ||
-    !Array.isArray(value.diagnostics) ||
-    !value.diagnostics.every(isModelScopeDiagnostic) ||
-    (value.savedPatterns !== undefined &&
-      (!Array.isArray(value.savedPatterns) ||
-        !value.savedPatterns.every((item) => typeof item === 'string')))
-  ) {
-    throw invalidResponse('reading a model scope', 'expected a valid model scope.')
-  }
-  return value as HarnessModelScope
-}
-
-const parseModelScopeUpdateResponse = (value: unknown): HarnessModelScopeUpdateResult => {
-  parseModelScopeResponse(value)
-  if (!isRecord(value)) throw invalidResponse('updating a model scope', 'expected an object.')
-  if (
-    value.persistence !== 'saved' &&
-    value.persistence !== 'failed' &&
-    value.persistence !== 'skipped'
-  ) {
-    throw invalidResponse('updating a model scope', 'expected a persistence marker.')
-  }
-  if (value.message !== undefined && typeof value.message !== 'string') {
-    throw invalidResponse('updating a model scope', 'expected a string message.')
-  }
-  return value as HarnessModelScopeUpdateResult
 }
 
 const parseSettingsSnapshotResponse = (
@@ -1244,6 +1198,7 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
           expectedRevision: input.expectedRevision,
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.projects !== undefined ? { projects: input.projects } : {}),
+          ...(input.modelPatterns !== undefined ? { modelPatterns: input.modelPatterns } : {}),
         }),
         'updating a workspace',
       )
@@ -1551,25 +1506,6 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         ),
       ),
 
-    getThreadModelScope: async (threadId) =>
-      parseModelScopeResponse(
-        await readJson(
-          await send(`${threadUrl(threadId)}/model-scope`, 'GET'),
-          'reading a model scope',
-        ),
-      ),
-
-    setThreadModelScope: async (threadId, input) =>
-      parseModelScopeUpdateResponse(
-        await readJson(
-          await send(`${threadUrl(threadId)}/model-scope`, 'POST', {
-            patterns: [...input.patterns],
-            ...(input.saveAsDefault === true ? { saveAsDefault: true } : {}),
-          }),
-          'updating a model scope',
-        ),
-      ),
-
     refreshModels: async (input) =>
       parseModelRefreshResponse(
         await readJson(
@@ -1633,6 +1569,9 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
     getAvailableModels: async (input) => {
       const params = new URLSearchParams()
       if (input?.workspacePath) params.set('workspacePath', input.workspacePath)
+      if (input?.workspaceId) params.set('workspaceId', input.workspaceId)
+      if (input?.threadId) params.set('threadId', input.threadId)
+      if (input?.all === true) params.set('all', 'true')
       const query = params.toString()
       return parseModelListResponse(
         await readJson(

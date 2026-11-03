@@ -33,6 +33,7 @@ import type {
   HarnessTreeQueueRecovery,
 } from '@huan/protocol'
 import { builtinCommandNameOf } from '@huan/protocol'
+import type { ResolvedModelScope } from '../model-catalog.js'
 import {
   createForkSessionManager,
   ForkSessionCreateError,
@@ -111,6 +112,8 @@ export type SessionOperationsDeps = {
     record: ThreadRecord,
     trigger: 'extension',
   ) => Promise<import('@huan/protocol').HarnessReloadResult>
+  /** 解析会话所属工作区的当前两层模型范围（用于主动切换校验）。 */
+  resolveModelScope: (workspaceId?: string) => Promise<ResolvedModelScope>
   diagnose: (message: string) => void
   assertActive: () => void
   isDisposed: () => boolean
@@ -1218,6 +1221,20 @@ export class SessionOperations {
     const record = await this.live.ensureOpen(threadId)
     const model = this.deps.modelRuntime.getModel(input.provider, input.modelId)
     if (!model) throw new Error(`${input.provider}/${input.modelId} is not in Pi's model registry`)
+    // 显式主动切换按当前候选校验；旧会话读取与发送不经过这里。
+    const scope = await this.deps.resolveModelScope(record.workspaceId)
+    if (scope.patterns.length > 0) {
+      if (scope.scopedModels.length === 0) {
+        throw new Error('当前模型范围没有可用模型，请调整模型范围或先刷新模型目录。')
+      }
+      if (
+        !scope.scopedModels.some(
+          (item) => item.model.provider === input.provider && item.model.id === input.modelId,
+        )
+      ) {
+        throw new Error(`${input.provider}/${input.modelId} 不在当前模型范围内，请选择其他模型。`)
+      }
+    }
     const operation = this.coordinator.beginStructure(record, 'model')
     try {
       await record.session.setModel(model)

@@ -1,6 +1,6 @@
 /**
- * 设置与资源 feature Zustand 状态：目标捕获、作用域草稿、保存冲突、资源读取
- * 与同会话重载。
+ * 设置与资源 feature Zustand 状态：目标捕获、作用域草稿、保存冲突、资源读取、
+ * 同会话重载与全局模型范围目录读取。
  *
  * 业务边界（见 R1 §5.4）：
  * - 目标在打开面板时固定（会话或空白页起始目录），迟到读取/保存不串到新目标；
@@ -8,6 +8,8 @@
  *   才丢弃当前作用域（dirty 时先确认）；保存失败/冲突保留草稿，保存回执不覆盖后来的编辑；
  * - 保存只写磁盘，不自动应用到 live 会话；“应用到当前会话/刷新项目资源”是独立动作，
  *   未保存草稿不受影响；
+ * - 模型页固定用户作用域并编辑用户 JSON 的 enabledModels；完整目录从 serviceStore
+ *   按 cwd 读取，本 store 只保留加载/刷新忙状态与错误，不缓存 models；
  * - 资源正文只在显式请求时读取，隐藏即清除正文，不持久化。
  */
 
@@ -29,8 +31,8 @@ export interface SettingsTarget {
   workspacePath?: string
 }
 
-/** 设置视图标签页。 */
-export type SettingsTab = 'common' | 'json' | 'resources'
+/** 设置视图标签页；`models` 固定编辑用户作用域的 enabledModels。 */
+export type SettingsTab = 'common' | 'json' | 'models' | 'resources'
 
 /** 单个作用域的编辑草稿。 */
 export interface SettingsDraftState {
@@ -70,10 +72,17 @@ export interface SettingsFeatureState {
   reloadConfirm: boolean
   /** 目标会话最近确认的资源版本；变化时只重读，不重置草稿。 */
   observedResourceRevision: number | undefined
+  /** 模型目录刷新忙状态；目录正文仍由 serviceStore 持有。 */
+  modelRefreshing: boolean
+  /** 模型目录读取/刷新失败的受控提示。 */
+  modelError: string | undefined
   disposed: boolean
 
   /** 打开面板并固定目标；保留既有草稿。 */
-  openPanel: (target?: SettingsTarget) => Promise<void>
+  openPanel: (
+    target?: SettingsTarget,
+    options?: { tab?: SettingsTab; scope?: HarnessSettingsScope },
+  ) => Promise<void>
   /** 关闭面板；使在途读取失效，但保留 dirty 草稿。 */
   close: () => void
   setTab: (tab: SettingsTab) => void
@@ -84,6 +93,10 @@ export interface SettingsFeatureState {
   loadResources: (withText: boolean) => Promise<void>
   /** 重新读取磁盘设置并刷新资源；当前作用域 dirty 时首次只要求确认。 */
   reloadFromDisk: () => Promise<void>
+  /** 读取模型完整目录；结果留在 serviceStore，不在设置 store 缓存。 */
+  loadModelCatalog: () => Promise<void>
+  /** 显式刷新共享模型目录后重新读取完整目录。 */
+  refreshModelCatalog: () => Promise<void>
   updateDraft: (content: string) => void
   /** 常用项表单写入：只改指定键，重新序列化完整原文。 */
   updateObject: (next: Record<string, unknown>) => void
@@ -194,11 +207,23 @@ const topLevelChangedKeys = (before: string, after: string): string[] | undefine
  */
 const saveResultMessage = (
   result: Extract<HarnessSettingsSaveResult, { status: 'saved' }>,
-  context: { session: boolean; baseContent: string; content: string },
+  context: {
+    session: boolean
+    scope: HarnessSettingsScope
+    baseContent: string
+    content: string
+  },
 ): string => {
   const restartKeys = result.apply.restartRequiredKeys
   const changed = topLevelChangedKeys(context.baseContent, context.content)
+  // 用户 enabledModels 保存后直接参与模型候选；只有它变化时不提示资源应用。
+  const onlyEnabledModels =
+    context.scope === 'user' &&
+    changed !== undefined &&
+    changed.length > 0 &&
+    changed.every((key) => key === 'enabledModels')
   const applicable =
+    !onlyEnabledModels &&
     result.apply.reloadRequired &&
     (restartKeys.length === 0 ||
       changed === undefined ||
@@ -234,9 +259,29 @@ export const createSettingsFeatureStore = (
   let resourceRequest = 0
   let saveRequest = 0
   let reloadRequest = 0
+  let modelRequest = 0
 
   return createStore<SettingsFeatureState>()((set, get) => {
-    const keyNow = (): string => draftKeyOf(get().targetKey, get().scope)
+    /** 模型页固定用户作用域，不产生项目级第三层范围。 */
+    const effectiveScopeOf = (state: SettingsFeatureState): HarnessSettingsScope =>
+      state.tab === 'models' ? 'user' : state.scope
+
+    const keyNow = (): string => draftKeyOf(get().targetKey, effectiveScopeOf(get()))
+
+    /** 全局模型目录目标：会话目标使用其固定起始目录。 */
+    const modelWorkspacePathNow = (): string | undefined => {
+      const state = get()
+      const threadWorkspace =
+        state.target?.threadId !== undefined
+          ? browser.serviceStore.getState().threadsById[state.target.threadId]?.workspacePath
+          : undefined
+      return (
+        state.snapshot?.target.workspacePath ??
+        state.target?.workspacePath ??
+        threadWorkspace ??
+        options.fallbackWorkspacePath?.()
+      )
+    }
 
     const draftFileOf = (
       snapshot: HarnessSettingsSnapshot,
@@ -319,9 +364,11 @@ export const createSettingsFeatureStore = (
       drafts: {},
       reloadConfirm: false,
       observedResourceRevision: undefined,
+      modelRefreshing: false,
+      modelError: undefined,
       disposed: false,
 
-      openPanel: async (targetInput) => {
+      openPanel: async (targetInput, optionsInput) => {
         if (get().disposed) return
         const fallbackTarget: SettingsTarget | undefined = options.fallbackWorkspacePath
           ? (() => {
@@ -330,12 +377,18 @@ export const createSettingsFeatureStore = (
             })()
           : undefined
         const target = targetInput ?? fallbackTarget
+        const tab = optionsInput?.tab ?? get().tab
+        // 模型页只编辑用户作用域；不接受项目作用域作为第三层范围。
+        const scope = tab === 'models' ? 'user' : (optionsInput?.scope ?? get().scope)
         const epoch = ++panelEpoch
+        modelRequest += 1
         set({
           open: true,
           targetEpoch: epoch,
           target,
           targetKey: settingsTargetKey(target),
+          tab,
+          scope,
           snapshot: undefined,
           resources: undefined,
           showText: false,
@@ -351,6 +404,8 @@ export const createSettingsFeatureStore = (
             target?.threadId !== undefined
               ? browser.serviceStore.getState().threadsById[target.threadId]?.resourceRevision
               : undefined,
+          modelRefreshing: false,
+          modelError: undefined,
         })
         if (!target) return
         await Promise.all([get().loadSettings(), get().loadResources(false)])
@@ -362,6 +417,7 @@ export const createSettingsFeatureStore = (
         panelEpoch += 1
         loadRequest += 1
         resourceRequest += 1
+        modelRequest += 1
         set({
           open: false,
           targetEpoch: panelEpoch,
@@ -375,17 +431,22 @@ export const createSettingsFeatureStore = (
           error: undefined,
           resourceError: undefined,
           reloadConfirm: false,
+          modelRefreshing: false,
+          modelError: undefined,
         })
       },
 
       setTab: (tab) => {
         if (get().disposed) return
-        set({ tab })
+        // 模型页固定用户作用域；切回时保留用户作用域即可。
+        set(tab === 'models' ? { tab, scope: 'user', reloadConfirm: false } : { tab })
       },
 
       setScope: (scope) => {
         const state = get()
         if (state.disposed || state.scope === scope) return
+        // 模型页不允许切到项目作用域，避免出现第三层全局范围。
+        if (state.tab === 'models') return
         if (scope === 'project' && state.snapshot && !state.snapshot.projectTrusted) return
         set({ scope, notice: undefined, error: undefined, reloadConfirm: false })
       },
@@ -482,16 +543,103 @@ export const createSettingsFeatureStore = (
         }
       },
 
+      loadModelCatalog: async () => {
+        const state = get()
+        const workspacePath = modelWorkspacePathNow()
+        if (state.disposed || !state.open || !workspacePath) return
+        const panel = state.targetEpoch
+        const targetKey = state.targetKey
+        const request = ++modelRequest
+        set({ modelError: undefined })
+        try {
+          // 完整目录供全局范围管理；候选筛选由 serviceStore/宿主负责，这里不缓存。
+          await browser.serviceStore.getState().loadModelCatalog({
+            workspacePath,
+            all: true,
+          })
+        } catch (error) {
+          const current = get()
+          if (
+            current.disposed ||
+            !current.open ||
+            current.targetEpoch !== panel ||
+            current.targetKey !== targetKey ||
+            request !== modelRequest
+          ) {
+            return
+          }
+          set({ modelError: errorText(error) })
+        }
+      },
+
+      refreshModelCatalog: async () => {
+        const state = get()
+        const workspacePath = modelWorkspacePathNow()
+        if (state.disposed || !state.open || !workspacePath || state.modelRefreshing) return
+        const panel = state.targetEpoch
+        const targetKey = state.targetKey
+        const request = ++modelRequest
+        set({
+          modelRefreshing: true,
+          modelError: undefined,
+          notice: undefined,
+          error: undefined,
+        })
+        try {
+          const result = await browser.client.refreshModels({ workspacePath })
+          // 刷新后重读完整目录；目录正文仍留在 serviceStore。
+          await browser.serviceStore.getState().loadModelCatalog({
+            workspacePath,
+            all: true,
+          })
+          const current = get()
+          if (
+            current.disposed ||
+            !current.open ||
+            current.targetEpoch !== panel ||
+            current.targetKey !== targetKey ||
+            request !== modelRequest
+          ) {
+            return
+          }
+          set({
+            modelRefreshing: false,
+            notice:
+              result.failedProviders.length === 0
+                ? '模型目录已刷新。'
+                : result.failedProviders.includes('*')
+                  ? '模型目录刷新未完成（超时或异常），仍显示缓存目录。'
+                  : `部分 provider 目录刷新失败：${result.failedProviders.join('、')}（仍显示缓存目录）。`,
+          })
+        } catch (error) {
+          const current = get()
+          if (
+            current.disposed ||
+            !current.open ||
+            current.targetEpoch !== panel ||
+            current.targetKey !== targetKey ||
+            request !== modelRequest
+          ) {
+            return
+          }
+          set({ modelRefreshing: false, modelError: errorText(error) })
+        }
+      },
+
       reloadFromDisk: async () => {
         const state = get()
         if (state.disposed || !state.open || !state.target) return
+        const scope = effectiveScopeOf(state)
         // 当前作用域有未保存草稿时先要求确认；读取失败仍保留草稿。
-        if (draftIsDirty(state.drafts[keyNow()]) && !state.reloadConfirm) {
+        if (
+          draftIsDirty(state.drafts[draftKeyOf(state.targetKey, scope)]) &&
+          !state.reloadConfirm
+        ) {
           set({ reloadConfirm: true, notice: '重新读取将丢弃未保存的改动', error: undefined })
           return
         }
         set({ reloadConfirm: false, notice: undefined })
-        await get().loadSettings({ resetScope: state.scope })
+        await get().loadSettings({ resetScope: scope })
         await get().loadResources(state.showText)
       },
 
@@ -547,10 +695,10 @@ export const createSettingsFeatureStore = (
         const state = get()
         const target = state.target
         if (state.disposed || !state.open || !target || state.saving) return
-        const key = keyNow()
+        const scope = effectiveScopeOf(state)
+        const key = draftKeyOf(state.targetKey, scope)
         const draft = state.drafts[key]
         if (!draft) return
-        const scope = state.scope
         const targetKey = state.targetKey
         const submitted = {
           content: draft.content,
@@ -592,6 +740,7 @@ export const createSettingsFeatureStore = (
                 ? {
                     notice: saveResultMessage(result, {
                       session: target.threadId !== undefined,
+                      scope,
                       baseContent: submitted.baseContent,
                       content: submitted.content,
                     }),
@@ -703,6 +852,7 @@ export const createSettingsFeatureStore = (
         resourceRequest += 1
         saveRequest += 1
         reloadRequest += 1
+        modelRequest += 1
         set({
           open: false,
           target: undefined,
@@ -721,6 +871,8 @@ export const createSettingsFeatureStore = (
           resourceError: undefined,
           reloadConfirm: false,
           observedResourceRevision: undefined,
+          modelRefreshing: false,
+          modelError: undefined,
           disposed: true,
         })
       },

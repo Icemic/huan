@@ -35,11 +35,17 @@ const hostInfo: HarnessHostInfo = {
   diagnostics: [],
 }
 
-const workspace = (id: string, name: string, path: string): HarnessWorkspace => ({
+const workspace = (
+  id: string,
+  name: string,
+  path: string,
+  modelPatterns?: string[],
+): HarnessWorkspace => ({
   id,
   name,
   revision: 1,
   projects: [{ alias: 'main', path, available: true }],
+  ...(modelPatterns ? { modelPatterns } : {}),
 })
 
 const catalog = (workspaces: readonly HarnessWorkspace[]): HarnessWorkspaceCatalog => ({
@@ -85,6 +91,7 @@ const createClient = () => {
     })),
     getMcpAuth: vi.fn(async () => ({ seq: 1, authRevision: 1, operations: [] })),
     getAvailableModels: vi.fn(async () => []),
+    refreshModels: vi.fn(async () => ({ models: [], failedProviders: [] })),
     subscribeProviderAuth: vi.fn(() => () => {}),
     subscribeHostInteractions: vi.fn(() => () => {}),
     createWorkspace: vi.fn(
@@ -263,6 +270,115 @@ describe('workspace-store：目录变化与工作区表单', () => {
     await save
     expect(store.getState().form.open).toBe(true)
     expect(store.getState().form.workspaceId).toBe('w1')
+  })
+
+  it('管理时读取完整目录，输入成员/名称/patterns 不逐字请求', async () => {
+    const { client } = createClient()
+    vi.mocked(client.getAvailableModels).mockResolvedValue([
+      { provider: 'provider', modelId: 'model' },
+      { provider: 'other', modelId: 'second' },
+    ])
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+    store.getState().openWorkspaceForm('w1')
+    await vi.waitFor(() => expect(client.getAvailableModels).toHaveBeenCalledTimes(1))
+    expect(client.getAvailableModels).toHaveBeenCalledWith({
+      workspacePath: '/a',
+      workspaceId: 'w1',
+      all: true,
+    })
+
+    store.getState().setWorkspaceFormName('改名')
+    const member = store.getState().form.members[0]
+    if (!member) throw new Error('缺少成员')
+    store.getState().setWorkspaceMember(member.key, { alias: 'renamed' })
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+
+    store.getState().setWorkspaceModelScopeMode('custom')
+    expect(store.getState().form.modelPatterns).toEqual(['provider/model', 'other/second'])
+    store.getState().setWorkspaceFormModelPatterns(['provider/model'])
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(1)
+
+    await store.getState().refreshWorkspaceModels()
+    expect(client.refreshModels).toHaveBeenCalledWith({ workspacePath: '/a' })
+    expect(client.getAvailableModels).toHaveBeenCalledTimes(2)
+    expect(store.getState().form.modelRefreshing).toBe(false)
+  })
+
+  it('编辑自定义范围保存 patterns，跟随全局传 null 清除覆盖', async () => {
+    const { client, setWorkspaceCatalog } = createClient()
+    setWorkspaceCatalog(
+      catalog([
+        workspace('w1', '工作区一', '/a', ['provider/model']),
+        workspace('w2', '工作区二', '/b'),
+      ]),
+    )
+    vi.mocked(client.updateWorkspace).mockImplementation(async (input) => ({
+      ok: true,
+      workspace: {
+        ...workspace('w1', '工作区一', '/a'),
+        revision: 2,
+        ...(input.modelPatterns ? { modelPatterns: input.modelPatterns } : {}),
+      },
+    }))
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+
+    store.getState().openWorkspaceForm('w1')
+    expect(store.getState().form.modelScopeMode).toBe('custom')
+    store.getState().setWorkspaceFormModelPatterns(['provider/*:high', 'other/model'])
+    await store.getState().saveWorkspaceForm()
+    expect(client.updateWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspaceId: 'w1',
+        modelPatterns: ['provider/*:high', 'other/model'],
+      }),
+    )
+
+    store.getState().openWorkspaceForm('w1')
+    store.getState().setWorkspaceModelScopeMode('inherit')
+    await store.getState().saveWorkspaceForm()
+    expect(client.updateWorkspace).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspaceId: 'w1', modelPatterns: null }),
+    )
+  })
+
+  it('创建时自定义范围至少一项，跟随全局省略 patterns', async () => {
+    const { client } = createClient()
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+
+    store.getState().openWorkspaceForm()
+    store.getState().setWorkspaceFormName('自定义工作区')
+    const member = store.getState().form.members[0]
+    if (!member) throw new Error('缺少默认成员')
+    store.getState().setWorkspaceMember(member.key, { alias: 'main', path: '/c' })
+    store.getState().setWorkspaceModelScopeMode('custom')
+    await store.getState().saveWorkspaceForm()
+    expect(client.createWorkspace).not.toHaveBeenCalled()
+    expect(store.getState().form.message).toContain('至少需要选择一个模型')
+
+    store.getState().setWorkspaceFormModelPatterns(['provider/model:max'])
+    await store.getState().saveWorkspaceForm()
+    expect(client.createWorkspace).toHaveBeenCalledWith({
+      name: '自定义工作区',
+      projects: [{ alias: 'main', path: '/c' }],
+      modelPatterns: ['provider/model:max'],
+    })
+
+    store.getState().openWorkspaceForm()
+    store.getState().setWorkspaceFormName('继承工作区')
+    const inherited = store.getState().form.members[0]
+    if (!inherited) throw new Error('缺少默认成员')
+    store.getState().setWorkspaceMember(inherited.key, { alias: 'main', path: '/d' })
+    await store.getState().saveWorkspaceForm()
+    expect(client.createWorkspace).toHaveBeenLastCalledWith({
+      name: '继承工作区',
+      projects: [{ alias: 'main', path: '/d' }],
+    })
   })
 
   it('创建表单保存后更新唯一工作区实体、关闭表单并给出提示', async () => {

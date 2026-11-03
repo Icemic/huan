@@ -22,6 +22,11 @@ export type HarnessWorkspace = {
   /** 每次成功修改递增；修改请求必须携带预期值。 */
   revision: number
   projects: HarnessWorkspaceProject[]
+  /**
+   * 自定义模型范围（完整替换用户启用范围）；缺失表示跟随全局。
+   * 自定义时至少一项，空数组不作为继承或无模型的表示。
+   */
+  modelPatterns?: string[]
 }
 
 /** 元数据文件状态。非 ok 时冷历史仍可读，但依赖归属的修改禁用。 */
@@ -45,14 +50,18 @@ export type HarnessWorkspaceProjectInput = {
 export type HarnessCreateWorkspaceInput = {
   name: string
   projects: HarnessWorkspaceProjectInput[]
+  /** 可选自定义模型范围；省略表示跟随全局。 */
+  modelPatterns?: string[]
 }
 
-/** 修改工作区；name/projects 至少一项，revision 必须匹配当前值。 */
+/** 修改工作区；name/projects/modelPatterns 至少一项，revision 必须匹配当前值。 */
 export type HarnessUpdateWorkspaceInput = {
   workspaceId: string
   expectedRevision: number
   name?: string
   projects?: HarnessWorkspaceProjectInput[]
+  /** 自定义模型范围；null 清除覆盖并跟随全局。 */
+  modelPatterns?: string[] | null
 }
 
 /** 工作区修改失败分类（页面可据此提示重读或修复输入）。 */

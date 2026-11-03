@@ -38,7 +38,11 @@ export const HARNESS_BUILTIN_COMMANDS: readonly HarnessBuiltinCommand[] = [
     argumentHint: '<level>',
     stage: 'available',
   },
-  { name: 'scoped-models', description: '配置当前会话可用的模型范围', stage: 'available' },
+  {
+    name: 'scoped-models',
+    description: '打开设置中的模型范围',
+    stage: 'available',
+  },
   {
     name: 'compact',
     description: '压缩上下文，可附加摘要指令',
