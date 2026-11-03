@@ -4,7 +4,7 @@
  * 真实宿主/路由 + 隔离临时用户空间；扩展探针经测试控制面写入临时目录。
  * 重载不替换消息与分支，也不覆盖设置面板的未保存草稿。
  */
-import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
+import { type APIRequestContext, expect, type Locator, type Page, test } from '@playwright/test'
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
@@ -25,6 +25,16 @@ test.describe.configure({ mode: 'serial' })
 
 const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
 const composerNotice = (page: Page) => page.locator('[data-slot="huan-composer-notice"]')
+
+/** 键入命令前缀，检查资源重载后的实际补全结果。 */
+async function expectCommandListed(page: Page, prefix: string, name: string): Promise<Locator> {
+  await messageInput(page).fill(prefix)
+  const option = page
+    .getByRole('listbox', { name: '命令补全' })
+    .getByRole('option', { name: new RegExp(`^/${name}(?:\\s|$)`) })
+  await expect(option).toBeVisible()
+  return option
+}
 
 /** 项目设置写盘结果与控制面读取（隔离临时项目内）。 */
 async function readSettingsFile(
@@ -114,13 +124,9 @@ test('会话内 /reload 重载资源、刷新命令目录且不新增消息', as
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
   await expect(messageInput(page)).toHaveValue('')
 
-  // 命令目录按资源版本重新读取：新扩展命令可发现。
-  await page.getByRole('button', { name: '打开命令面板' }).click()
-  const palette = page.getByRole('dialog', { name: '命令面板' })
-  await expect(palette).toBeVisible()
-  await expect(palette.getByRole('option', { name: /\/reload-probe/ })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(palette).toHaveCount(0)
+  // 命令目录按资源版本重新读取：新扩展命令可经 / 补全发现。
+  const reloaded = await expectCommandListed(page, '/reload-probe', 'reload-probe')
+  await expect(reloaded).toContainText('重载探针命令')
 })
 
 test('项目设置保存后可应用到当前会话，保留未保存草稿', async ({ page, request }) => {
@@ -201,10 +207,8 @@ test('双窗口共享资源版本：另一窗口重载后本窗口命令目录�
   // 资源版本经快照/事件传播：另一窗口的资源面板与命令目录按需重读。
   await expect(secondDialog).toContainText('reload-shared.js')
   await second.keyboard.press('Escape')
-  await second.getByRole('button', { name: '打开命令面板' }).click()
-  const palette = second.getByRole('dialog', { name: '命令面板' })
-  await expect(palette.getByRole('option', { name: /\/shared-reload-cmd/ })).toBeVisible()
-  await second.keyboard.press('Escape')
+  const shared = await expectCommandListed(second, '/shared-reload-cmd', 'shared-reload-cmd')
+  await expect(shared).toContainText('重载探针命令')
   await second.close()
 })
 
@@ -235,9 +239,8 @@ test('空白页 /reload 只提示起始目录装配，不创建会话', async ({
   await messageInput(page).press('Enter')
   await expect(composerNotice(page)).toContainText('已刷新项目资源')
   await expect(userMessages(page)).toHaveCount(0)
-  await page.getByRole('button', { name: '打开命令面板' }).click()
-  const palette = page.getByRole('dialog', { name: '命令面板' })
-  await expect(palette.getByRole('option', { name: /\/blank-reload-cmd/ })).toBeVisible()
+  const blank = await expectCommandListed(page, '/blank-reload-cmd', 'blank-reload-cmd')
+  await expect(blank).toContainText('重载探针命令')
   await page.keyboard.press('Escape')
   // 仍停留在空白页：重载没有隐式创建会话。
   await expect(userMessages(page)).toHaveCount(0)

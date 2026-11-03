@@ -1,7 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, type FileChooser, type Page, test } from '@playwright/test'
 import {
   assistantMessages,
   DEFAULT_REPLY,
+  messageInput,
   openApp,
   openSettings,
   sendMessage,
@@ -10,6 +11,31 @@ import {
 } from './helpers.js'
 
 test.describe.configure({ mode: 'serial' })
+
+const PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+  'base64',
+)
+
+const addContentButton = (page: Page) =>
+  page.locator('[data-slot="huan-composer"]').getByRole('button', { name: '添加内容', exact: true })
+
+/** 打开输入区唯一的+菜单并确认仅有“添加图片”。 */
+async function openAddImageMenu(page: Page) {
+  await addContentButton(page).click()
+  const menu = page.getByRole('menu', { name: '添加内容' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '添加图片', exact: true })).toBeVisible()
+  return menu
+}
+
+/** 经+菜单触发原 file input，返回真实 filechooser 供测试选择/取消。 */
+async function openImageChooser(page: Page): Promise<FileChooser> {
+  const menu = await openAddImageMenu(page)
+  const chooser = page.waitForEvent('filechooser')
+  await menu.getByRole('menuitem', { name: '添加图片', exact: true }).click()
+  return chooser
+}
 
 let browserErrors: string[] = []
 
@@ -63,16 +89,11 @@ test('模型选择器支持键盘搜索、独立 Thinking 与空白会话草稿'
 
 test('图片附件预览关闭后恢复焦点，移除不触发预览', async ({ page }) => {
   await openApp(page)
-  const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: '添加图片附件', exact: true }).click()
-  const upload = await chooser
+  const upload = await openImageChooser(page)
   await upload.setFiles({
     name: 'pixel.png',
     mimeType: 'image/png',
-    buffer: Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
-      'base64',
-    ),
+    buffer: PIXEL_PNG,
   })
   const preview = page.getByRole('button', { name: '预览附件 pixel.png', exact: true })
   await expect(preview).toBeVisible()
@@ -86,6 +107,52 @@ test('图片附件预览关闭后恢复焦点，移除不触发预览', async ({
   await page.getByRole('button', { name: '移除附件 pixel.png', exact: true }).click()
   await expect(preview).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('输入区只有单一+菜单：添加图片、Escape 回焦、取消与重复选择不改草稿', async ({ page }) => {
+  await openApp(page)
+  const composer = page.locator('[data-slot="huan-composer"]')
+  const input = messageInput(page)
+  const addContent = addContentButton(page)
+  await expect(addContent).toHaveCount(1)
+
+  // 复用原图片 file input：图片类型、多选，且不进入 Tab 序列。
+  const fileInput = composer.locator('input[type="file"]')
+  await expect(fileInput).toHaveCount(1)
+  await expect(fileInput).toHaveAttribute('accept', 'image/*')
+  await expect(fileInput).toHaveAttribute('multiple', '')
+
+  // 旧命令面板与 @ 按钮已删除；@ 文件引用仍由输入框补全提供。
+  await expect(composer.getByRole('button', { name: '打开命令面板' })).toHaveCount(0)
+  await expect(composer.getByRole('button', { name: /引用文件/ })).toHaveCount(0)
+
+  const draft = '  保留文字草稿\n第二行  '
+  await input.fill(draft)
+  const menu = await openAddImageMenu(page)
+  await expect(menu.getByRole('menuitem')).toHaveCount(1)
+  await expect(page.getByRole('dialog', { name: '命令面板' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(addContent).toBeFocused()
+  await expect(input).toHaveValue(draft)
+
+  // 空文件选择不产生附件，文字草稿保持不变。
+  const cancelled = await openImageChooser(page)
+  await cancelled.setFiles([])
+  const attachments = page.locator('[data-slot="huan-composer-attachment"]')
+  await expect(attachments).toHaveCount(0)
+  await expect(input).toHaveValue(draft)
+
+  // 同一张图片可以再次选择：选择后 input 清空，重复文件仍会触发 change。
+  const first = await openImageChooser(page)
+  await first.setFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL_PNG })
+  await expect(attachments).toHaveCount(1)
+  await expect(input).toBeFocused()
+  await expect(input).toHaveValue(draft)
+
+  const second = await openImageChooser(page)
+  await second.setFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: PIXEL_PNG })
+  await expect(attachments).toHaveCount(2)
 })
 
 test('主题切换写入本地存储，刷新与跟随系统均可恢复', async ({ page }) => {

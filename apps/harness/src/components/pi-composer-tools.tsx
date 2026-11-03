@@ -1,27 +1,19 @@
 /**
- * 输入区附加 UI：命令/文件补全、队列、长输入、命令面板与提示。
+ * 输入区附加 UI：命令/文件补全、队列、长输入与提示。
  *
- * 所有状态读取自 composer feature store；组件只持有“搜索/高亮”这类瞬时
- * 交互状态。输入文字、附件、队列和提交都不在此复制。
+ * 所有状态读取自 composer feature store；输入文字、附件、队列和提交都不在此复制。
  */
 
 import { Trans } from '@lingui/react/macro'
 import {
   ArrowUpIcon,
-  AtSignIcon,
   CheckIcon,
   ChevronUpIcon,
   Maximize2Icon,
   SquareIcon,
-  SquareTerminalIcon,
   XIcon,
 } from 'lucide-react'
-import { memo, type RefObject, useEffect, useMemo, useState } from 'react'
-import {
-  type AppCommand,
-  commandSourceLabel,
-  commandStageLabel,
-} from '@/components/pi-builtin-commands'
+import { memo, type RefObject } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,7 +23,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button'
@@ -191,42 +182,6 @@ export function ComposerNotice() {
   )
 }
 
-/** 左侧工具按钮：命令面板与 @ 文件引用。 */
-export const ComposerTools = memo(function ComposerTools({
-  onOpenPalette,
-  onInsertMention,
-}: {
-  onOpenPalette: () => void
-  onInsertMention: () => void
-}) {
-  return (
-    <>
-      <TooltipIconButton
-        tooltip="命令"
-        side="bottom"
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        aria-label="打开命令面板"
-        onClick={onOpenPalette}
-      >
-        <SquareTerminalIcon aria-hidden />
-      </TooltipIconButton>
-      <TooltipIconButton
-        tooltip="引用文件"
-        side="bottom"
-        type="button"
-        variant="ghost"
-        size="icon-xs"
-        aria-label="插入文件引用"
-        onClick={onInsertMention}
-      >
-        <AtSignIcon aria-hidden />
-      </TooltipIconButton>
-    </>
-  )
-})
-
 /** 运行中显式选择排队语义。 */
 export const ComposerQueueMode = memo(function ComposerQueueMode({
   isRunning,
@@ -345,137 +300,6 @@ export const ComposerExpandButton = memo(function ComposerExpandButton({
   )
 })
 
-/** 命令面板：可搜索、可键盘选择，插入到当前光标位置。 */
-function CommandPaletteDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaElement | null> }) {
-  const open = useComposerStore((state) => state.paletteOpen)
-  const close = useComposerStore((state) => state.closePalette)
-  const catalog = useComposerStore((state) => state.catalog)
-  const diagnostics = useComposerStore((state) => state.catalogDiagnostics)
-  const insertCommand = useComposerStore((state) => state.insertCommandFromPalette)
-  const [query, setQuery] = useState('')
-  const [index, setIndex] = useState(0)
-  useEffect(() => {
-    if (!open) return
-    setQuery('')
-    setIndex(0)
-  }, [open])
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return catalog.filter(
-      (command) =>
-        !needle ||
-        command.name.toLowerCase().includes(needle) ||
-        (command.description ?? '').toLowerCase().includes(needle),
-    )
-  }, [catalog, query])
-  useEffect(() => {
-    if (index >= filtered.length) setIndex(0)
-  }, [filtered.length, index])
-
-  const choose = (command: AppCommand | undefined) => {
-    if (!command) return
-    const caret = insertCommand(command)
-    close()
-    if (caret !== undefined) focusTextareaAt(inputRef, caret)
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) return
-        close()
-        focusTextareaAt(inputRef, inputRef.current?.value.length ?? 0)
-      }}
-    >
-      <DialogContent data-slot="huan-command-palette" aria-label="命令面板" className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            <Trans>命令面板</Trans>
-          </DialogTitle>
-        </DialogHeader>
-        <Input
-          autoFocus
-          aria-label="搜索命令"
-          placeholder="搜索命令或说明"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return
-            if (event.key === 'ArrowDown') {
-              event.preventDefault()
-              setIndex((current) => (filtered.length ? (current + 1) % filtered.length : 0))
-            } else if (event.key === 'ArrowUp') {
-              event.preventDefault()
-              setIndex((current) =>
-                filtered.length ? (current - 1 + filtered.length) % filtered.length : 0,
-              )
-            } else if (event.key === 'Enter') {
-              event.preventDefault()
-              choose(filtered[index])
-            }
-          }}
-        />
-        <ScrollArea
-          className="max-h-[50dvh] rounded-md border"
-          viewportProps={{ role: 'listbox', 'aria-label': '命令列表', tabIndex: -1 }}
-          contentProps={{ className: 'p-1' }}
-        >
-          {filtered.length === 0 ? (
-            <p className="text-muted-foreground p-2 text-sm">
-              <Trans>没有匹配的命令。</Trans>
-            </p>
-          ) : (
-            filtered.map((command, itemIndex) => (
-              <button
-                key={`${command.source}:${command.name}`}
-                type="button"
-                role="option"
-                aria-selected={itemIndex === index}
-                className={cn(
-                  'flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm',
-                  itemIndex === index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
-                )}
-                onMouseEnter={() => setIndex(itemIndex)}
-                onClick={() => choose(command)}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-xs">
-                    /{command.name}
-                    {command.argumentHint ? ` ${command.argumentHint}` : ''}
-                  </span>
-                  <span className="text-muted-foreground block text-[11px]">
-                    {command.description}
-                  </span>
-                  {!command.available && command.availability && (
-                    <span className="text-destructive block text-[11px]">
-                      {command.availability}
-                    </span>
-                  )}
-                </span>
-                <span className="text-muted-foreground shrink-0 text-[10px]">
-                  {commandSourceLabel(command.source)}
-                  {commandStageLabel(command.stage) ? ` · ${commandStageLabel(command.stage)}` : ''}
-                </span>
-              </button>
-            ))
-          )}
-        </ScrollArea>
-        {diagnostics.length > 0 && (
-          <p className="text-muted-foreground text-[11px] whitespace-pre-wrap">
-            {diagnostics.join('\n')}
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={close}>
-            <Trans>关闭</Trans>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /** 长输入编辑：Esc/取消保留原草稿，确认才写回。 */
 function LongInputDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaElement | null> }) {
   const longInput = useComposerStore((state) => state.longInput)
@@ -537,10 +361,5 @@ export function PiComposerDialogs({
 }: {
   inputRef: RefObject<HTMLTextAreaElement | null>
 }) {
-  return (
-    <>
-      <CommandPaletteDialog inputRef={inputRef} />
-      <LongInputDialog inputRef={inputRef} />
-    </>
-  )
+  return <LongInputDialog inputRef={inputRef} />
 }

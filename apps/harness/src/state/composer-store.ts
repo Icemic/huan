@@ -106,7 +106,6 @@ export interface ComposerFeatureState {
   notice: string | undefined
   busy: string | undefined
   completion: ComposerCompletionState | undefined
-  paletteOpen: boolean
   queueMode: 'followUp' | 'steer'
   longInput: ComposerLongInputState | undefined
   historyBrowse: ComposerHistoryBrowseState | undefined
@@ -138,10 +137,6 @@ export interface ComposerFeatureState {
   setCompletionIndex: (index: number) => void
   chooseCompletion: (item?: ComposerCompletionItem) => number | undefined
   clearCompletion: () => void
-  openPalette: () => void
-  closePalette: () => void
-  insertCommandFromPalette: (command: AppCommand, caret?: number) => number | undefined
-  insertMention: (caret?: number) => number | undefined
 
   openLongInput: () => void
   setLongInputText: (text: string) => void
@@ -863,7 +858,6 @@ export const createComposerFeatureStore = (
     notice: undefined,
     busy: undefined,
     completion: undefined,
-    paletteOpen: false,
     queueMode: 'followUp' as const,
     longInput: undefined,
     historyBrowse: undefined,
@@ -1306,53 +1300,6 @@ export const createComposerFeatureStore = (
       set({ completion: undefined })
     },
 
-    openPalette: () => {
-      if (get().disposed) return
-      get().clearCompletion()
-      set({ paletteOpen: true })
-    },
-
-    closePalette: () => {
-      if (get().disposed) return
-      set({ paletteOpen: false })
-    },
-
-    insertCommandFromPalette: (command, caret) => {
-      const state = get()
-      if (state.disposed) return undefined
-      const current = currentDraft()
-      if (!current?.draft) return undefined
-      const position = caret ?? current.draft.text.length
-      const firstBreak = current.draft.text.search(/\s/)
-      const canReplace =
-        current.draft.text.startsWith('/') && (firstBreak === -1 || position <= firstBreak)
-      const insert = `/${command.name} `
-      const next = canReplace
-        ? insert +
-          current.draft.text
-            .slice(firstBreak === -1 ? current.draft.text.length : firstBreak)
-            .trimStart()
-        : `${current.draft.text.slice(0, position)}${insert}${current.draft.text.slice(position)}`
-      browser.windowStore.getState().editDraftText(current.draftId, next)
-      set({ paletteOpen: false })
-      get().clearCompletion()
-      return canReplace ? insert.length : position + insert.length
-    },
-
-    insertMention: (caret) => {
-      if (get().disposed) return undefined
-      const current = currentDraft()
-      if (!current?.draft) return undefined
-      const position = Math.min(
-        Math.max(caret ?? current.draft.text.length, 0),
-        current.draft.text.length,
-      )
-      const next = `${current.draft.text.slice(0, position)}@${current.draft.text.slice(position)}`
-      browser.windowStore.getState().editDraftText(current.draftId, next)
-      void get().refreshCompletion(next, position + 1)
-      return position + 1
-    },
-
     openLongInput: () => {
       const state = get()
       if (state.disposed) return
@@ -1467,7 +1414,6 @@ export const createComposerFeatureStore = (
         notice: undefined,
         busy: undefined,
         completion: undefined,
-        paletteOpen: false,
         longInput: undefined,
         historyBrowse: undefined,
         recoveredQueue: undefined,

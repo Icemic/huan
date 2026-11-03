@@ -2,7 +2,7 @@
  * 最终输入区：官方 InputGroup + Attachment 组合，单一 textarea 与单一发送入口。
  *
  * 文字/附件/模型/提交全部走 windowStore、composer/model feature store；组件
- * 只保留拖拽高亮、组合输入时间与弹层搜索等瞬时 UI 状态。IME、Shift/Ctrl
+ * 只保留拖拽高亮与组合输入时间等瞬时 UI 状态。IME、Shift/Ctrl
  * Enter、历史、补全、粘贴/拖入和长输入都在这里收口。
  */
 
@@ -15,7 +15,7 @@ import {
   useWindowStore,
 } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { ImagePlusIcon, RotateCcwIcon, XIcon } from 'lucide-react'
+import { ImagePlusIcon, PlusIcon, RotateCcwIcon, XIcon } from 'lucide-react'
 import {
   type ChangeEvent,
   type ClipboardEvent,
@@ -36,7 +36,6 @@ import {
   ComposerQueueMode,
   ComposerSendButton,
   ComposerStopButton,
-  ComposerTools,
   focusTextareaAt,
   PiComposerDialogs,
 } from '@/components/pi-composer-tools'
@@ -49,6 +48,7 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from '@/components/ui/input-group'
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu'
 import { cn } from '@/lib/utils'
 import {
   useChatStore,
@@ -224,9 +224,6 @@ export function ChatComposer() {
   const onInputSelect = useComposerStore((state) => state.onInputSelect)
   const historyUp = useComposerStore((state) => state.historyUp)
   const historyDown = useComposerStore((state) => state.historyDown)
-  const openPalette = useComposerStore((state) => state.openPalette)
-  const closePalette = useComposerStore((state) => state.closePalette)
-  const insertMention = useComposerStore((state) => state.insertMention)
   const openLongInput = useComposerStore((state) => state.openLongInput)
   const closeLongInput = useComposerStore((state) => state.closeLongInput)
   const retrieveQueue = useComposerStore((state) => state.retrieveQueue)
@@ -409,7 +406,6 @@ export function ChatComposer() {
       }
       case 'dismiss': {
         clearCompletion()
-        closePalette()
         closeLongInput()
         break
       }
@@ -501,22 +497,21 @@ export function ChatComposer() {
               tabIndex={-1}
               onChange={onFileInput}
             />
-            <InputGroupButton
-              type="button"
-              size="icon-xs"
-              aria-label="添加图片附件"
-              disabled={!draft || readOnly}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <ImagePlusIcon aria-hidden />
-            </InputGroupButton>
-            <ComposerTools
-              onOpenPalette={openPalette}
-              onInsertMention={() => {
-                const caret = insertMention(textareaRef.current?.selectionStart ?? text.length)
-                if (caret !== undefined) focusTextareaAt(textareaRef, caret)
-              }}
-            />
+            <Menu>
+              <MenuTrigger
+                disabled={!draft || readOnly}
+                render={<InputGroupButton size="icon-xs" aria-label="添加内容" />}
+              >
+                <PlusIcon aria-hidden />
+              </MenuTrigger>
+              {/* 菜单关闭后焦点交回 Base UI 默认行为；图片选择后由 addFiles 回到输入框。 */}
+              <MenuContent align="start" side="top">
+                <MenuItem onClick={() => fileInputRef.current?.click()}>
+                  <ImagePlusIcon aria-hidden />
+                  <Trans>添加图片</Trans>
+                </MenuItem>
+              </MenuContent>
+            </Menu>
             <ComposerQueueMode
               isRunning={running}
               queueMode={queueMode}

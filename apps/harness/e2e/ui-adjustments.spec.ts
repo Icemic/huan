@@ -105,12 +105,12 @@ test('聊天输入取消粗 ring，保留 border 加深、按钮焦点与拖入�
   expect(focused.border).not.toBe(base.border)
   expect(focused.shadow).not.toContain('3px')
 
-  // Tab 进入相邻按钮时，按钮自身的键盘焦点 ring 不能被聊天输入的局部覆盖影响。
+  // Tab 进入相邻的+菜单入口时，按钮自身的键盘焦点 ring 不能被聊天输入的局部覆盖影响。
   await page.keyboard.press('Tab')
-  const attach = page.getByRole('button', { name: '添加图片附件', exact: true })
-  await expect(attach).toBeFocused()
+  const addContent = page.getByRole('button', { name: '添加内容', exact: true })
+  await expect(addContent).toBeFocused()
   await expect
-    .poll(async () => attach.evaluate((element) => getComputedStyle(element).boxShadow))
+    .poll(async () => addContent.evaluate((element) => getComputedStyle(element).boxShadow))
     .toContain('3px')
 
   // 图片拖入仍使用原有 2px 高亮，而不是被焦点规则取消。

@@ -5,7 +5,7 @@
  * 使用真实 HTTP/SSE、真实 Pi SDK 与隔离临时用户空间；不访问个人空间或
  * 付费模型。模型流由测试控制端点显式释放。
  */
-import { expect, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 import {
   assistantMessages,
   configureStream,
@@ -24,8 +24,17 @@ import {
 
 test.describe.configure({ mode: 'serial' })
 
-const messageInput = (page: import('@playwright/test').Page) =>
-  page.getByRole('textbox', { name: '消息输入' })
+const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
+
+/** 键入命令前缀，检查输入框展示的实际补全结果。 */
+async function expectCommandListed(page: Page, prefix: string, name: string): Promise<Locator> {
+  await messageInput(page).fill(prefix)
+  const option = page
+    .getByRole('listbox', { name: '命令补全' })
+    .getByRole('option', { name: new RegExp(`^/${name}(?:\\s|$)`) })
+  await expect(option).toBeVisible()
+  return option
+}
 
 test.afterEach(async ({ request }) => {
   await resetStream(request)
@@ -33,35 +42,44 @@ test.afterEach(async ({ request }) => {
 
 test('命令目录展示内置/扩展/未实施阶段，内置命令不当作普通 prompt', async ({ page }) => {
   await openApp(page)
-  await page.getByRole('button', { name: '打开命令面板' }).click()
-  const palette = page.getByRole('dialog', { name: '命令面板' })
-  await expect(palette).toBeVisible()
-  await expect(palette.getByRole('option', { name: /\/probe/ })).toBeVisible()
-  await expect(palette.getByRole('option', { name: /\/model/ })).toBeVisible()
-  await expect(palette.getByRole('option', { name: /\/settings/ })).not.toContainText('G1.')
-  await expect(palette.getByRole('option', { name: /\/export/ })).toContainText('G1.5')
-  await page.keyboard.press('Escape')
-  await expect(palette).toHaveCount(0)
+  const input = messageInput(page)
+
+  // 命令统一从输入框的 / 补全发现，来源与阶段直接落在 listbox 选项上。
+  const probe = await expectCommandListed(page, '/pro', 'probe')
+  await expect(probe.getByText('扩展', { exact: true })).toBeVisible()
+  const model = await expectCommandListed(page, '/model', 'model')
+  await expect(model.getByText('内置', { exact: true })).toBeVisible()
+  const settingsOption = await expectCommandListed(page, '/settings', 'settings')
+  await expect(settingsOption.getByText('内置', { exact: true })).toBeVisible()
+  await expect(settingsOption).not.toContainText('G1.')
+  const llama = await expectCommandListed(page, '/llama', 'llama')
+  await expect(llama.getByText('内置 · G1.4', { exact: true })).toBeVisible()
+  const exported = await expectCommandListed(page, '/export', 'export')
+  await expect(exported.getByText('内置 · G1.5', { exact: true })).toBeVisible()
+
+  // 旧命令入口与命令面板已删除，不再提供隐藏按钮。
+  await expect(page.getByRole('button', { name: '打开命令面板' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /引用文件/ })).toHaveCount(0)
 
   // /model 打开现有模型选择器，不创建会话、不发用户消息。
-  await messageInput(page).fill('/model')
-  await messageInput(page).press('Escape')
-  await messageInput(page).press('Enter')
+  await input.fill('/model')
+  await input.press('Escape')
+  await input.press('Enter')
   await expect(page.locator('[data-slot="model-selector-content"]')).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
-  await expect(messageInput(page)).toHaveValue('')
+  await expect(input).toHaveValue('')
   await page.keyboard.press('Escape')
 
   // 已实施内置命令打开同一统一设置，不发送给模型；完成后回到输入框。
-  await messageInput(page).fill('/settings')
-  await messageInput(page).press('Escape')
-  await messageInput(page).press('Enter')
+  await input.fill('/settings')
+  await input.press('Escape')
+  await input.press('Enter')
   const settings = settingsDialog(page)
   await expect(settings).toBeVisible()
   await expect(userMessages(page)).toHaveCount(0)
   await page.keyboard.press('Escape')
   await expect(settings).toHaveCount(0)
-  await expect(messageInput(page)).toHaveValue('')
+  await expect(input).toHaveValue('')
 })
 
 test('扩展命令经 SDK 执行且参数补全不进入模型', async ({ page }) => {
@@ -69,10 +87,7 @@ test('扩展命令经 SDK 执行且参数补全不进入模型', async ({ page }
   await selectModel(page)
 
   // 斜杠补全：键盘选择 /probe。
-  await messageInput(page).fill('/pro')
-  const commandList = page.getByRole('listbox', { name: '命令补全' })
-  await expect(commandList).toBeVisible()
-  await expect(commandList.getByRole('option', { name: /\/probe/ })).toBeVisible()
+  await expectCommandListed(page, '/pro', 'probe')
   await messageInput(page).press('Enter')
   await expect(messageInput(page)).toHaveValue('/probe ')
 
@@ -109,7 +124,8 @@ test('图片在不支持图像的模型下被拒绝，文字与附件保留', as
   await openApp(page)
   await selectModel(page, 'Test Model B')
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: '添加图片附件' }).click()
+  await page.getByRole('button', { name: '添加内容', exact: true }).click()
+  await page.getByRole('menuitem', { name: '添加图片', exact: true }).click()
   const chooser = await chooserPromise
   await chooser.setFiles({
     name: 'dot.png',
