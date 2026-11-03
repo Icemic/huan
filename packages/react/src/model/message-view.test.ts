@@ -319,6 +319,13 @@ describe('message-view（独立展示投影）', () => {
     )
     expect(hidden).toEqual([])
 
+    const system = projectHarnessMessages(
+      input([{ role: 'system', content: '', sections: {}, timestamp: 6 }], {
+        messageEntryIds: ['e-system'],
+      }),
+    )
+    expect(system).toEqual([])
+
     const unknown = projectHarnessMessages(
       input([{ role: 'future-role', timestamp: 5, payload: 1 }], { messageEntryIds: ['e3'] }),
     )

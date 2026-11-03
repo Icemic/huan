@@ -58,6 +58,16 @@ describe('composer 按键决策', () => {
     })
   })
 
+  it('已输入完整条目时 Enter 直接执行，未完整时先接受补全', () => {
+    expect(resolveComposerKey(key({ completionOpen: true, completionExact: true }))).toEqual({
+      type: 'send',
+      steer: false,
+    })
+    expect(resolveComposerKey(key({ completionOpen: true, completionExact: false }))).toEqual({
+      type: 'completion-accept',
+    })
+  })
+
   it('仅在文本边界浏览历史，普通方向键不抢占光标', () => {
     expect(
       resolveComposerKey(key({ key: 'ArrowUp', valueLength: 5, caretStart: 0, caretEnd: 0 })),

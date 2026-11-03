@@ -249,6 +249,11 @@ export const createComposerFeatureStore = (
   let completionEpoch = 0
   let completionDraftId: string | undefined
   let completionTimer: ReturnType<typeof setTimeout> | undefined
+  // 最近一次触发补全的文本/光标位置：Escape 关闭补全后浏览器仍可能补发同
+  // 位置的 select 事件，重复补全会让“关闭补全”失效。
+  let selectionSignature: string | undefined
+  // 接受补全会程序化改写输入：文本保持在刚接受的取值时不再重开补全列表。
+  let suppressCompletionForText: string | undefined
   let fileAbort: AbortController | undefined
 
   const selectionTarget = (): HarnessDraftTarget | undefined =>
@@ -555,6 +560,11 @@ export const createComposerFeatureStore = (
     showSubmitOutcome(outcome)
   }
 
+  /** 仅消费提交来源版本的命令，后来编辑的草稿保持原样。 */
+  const consumeCommandText = (draftId: string, revision: number): void => {
+    browser.windowStore.getState().setDraftTextIfRevision(draftId, revision, '')
+  }
+
   const runNameCommand = async (args: string): Promise<boolean> => {
     const threadId = currentThreadId()
     if (!threadId) {
@@ -584,7 +594,14 @@ export const createComposerFeatureStore = (
   }
 
   const runModelCommand = async (args: string): Promise<boolean> => {
+    const current = currentDraft()
+    const origin = browser.windowStore.getState().selectionRevision
     const models = await loadModels()
+    if (
+      storeRef?.getState().disposed ||
+      origin !== browser.windowStore.getState().selectionRevision
+    )
+      return false
     const needle = args.trim().toLowerCase()
     if (!needle) {
       const opened = await modelStore.getState().openPanel({ focus: 'model' })
@@ -621,14 +638,17 @@ export const createComposerFeatureStore = (
     }
     const target = matches[0]
     if (!target) return false
-    const current = currentDraft()
     if (!current?.draft) return false
     if (current.target.kind === 'new') {
+      const unchanged =
+        browser.windowStore.getState().draftsById[current.draftId]?.revision ===
+        current.draft.revision
       browser.windowStore
         .getState()
         .setDraftModel(current.draftId, { provider: target.provider, modelId: target.modelId })
-      // 命令本身修改了草稿模型版本；这里同步消费命令文本，保留模型选择。
-      browser.windowStore.getState().editDraftText(current.draftId, '')
+      // 模型设置可能不推进版本；只有设置前未编辑时才消费设置后的版本。
+      const updated = browser.windowStore.getState().draftsById[current.draftId]
+      if (unchanged && updated) consumeCommandText(current.draftId, updated.revision)
       setIfAlive((store) => ({
         ...store,
         notice: `新会话将使用 ${target.provider}/${target.modelId}。`,
@@ -680,7 +700,8 @@ export const createComposerFeatureStore = (
         return false
       }
       browser.windowStore.getState().setDraftThinkingLevel(current.draftId, level)
-      browser.windowStore.getState().editDraftText(current.draftId, '')
+      const updated = browser.windowStore.getState().draftsById[current.draftId]
+      if (updated) consumeCommandText(current.draftId, updated.revision)
       setIfAlive((store) => ({ ...store, notice: `新会话 Thinking 级别：${level}。` }))
       return true
     }
@@ -800,10 +821,20 @@ export const createComposerFeatureStore = (
         await runtimeStore.getState().openPanel({ section: 'scope' })
         return true
       case 'mcp': {
-        const tokens = args.trim().split(/\s+/).filter(Boolean)
+        const trimmed = args.trim()
+        const tokens = trimmed ? trimmed.split(/\s+/).filter(Boolean) : []
         const first = tokens[0]
         const mode =
           first === 'login' || first === 'logout' || first === 'reconnect' ? first : undefined
+        // 子命令只接受 login/logout/reconnect [server]；其他输入只给受控提示，
+        // 不打开面板、不把名称当成服务器或发给模型。
+        if (first !== undefined && (!mode || tokens.length > 2)) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: `未知 /mcp 子命令：${trimmed}。可用：login、logout、reconnect [server]。`,
+          }))
+          return false
+        }
         if (mode) tokens.shift()
         const server = tokens[0]
         await mcpStore.getState().openPanel({
@@ -883,6 +914,9 @@ export const createComposerFeatureStore = (
         workspaceStore.getState().activeWorkspaceId ??
         service.startupWorkspaceId ??
         service.workspaceIds[0]
+      // 工作区目录未到达时先不固定目标：目标身份要一次确定，否则 @ 引用、
+      // 模型目录与创建请求会按无归属目录进行，草稿也已绑到另一个 draftId。
+      if (!workspaceId && service.workspaceState === undefined) return false
       const startProjectPath = workspaceId
         ? workspaceStore.getState().startProjectFor(workspaceId)
         : undefined
@@ -987,12 +1021,9 @@ export const createComposerFeatureStore = (
       if (builtin && parsed) {
         if (get().busy) return
         set({ busy: `command:${builtin.name}` })
-        const revision = current.draft.revision
         try {
           const handled = await runBuiltinCommand(builtin, parsed.args)
-          if (handled) {
-            browser.windowStore.getState().setDraftTextIfRevision(current.draftId, revision, '')
-          }
+          if (handled) consumeCommandText(current.draftId, current.draft.revision)
         } finally {
           if (!get().disposed) set({ busy: undefined })
         }
@@ -1071,6 +1102,8 @@ export const createComposerFeatureStore = (
       const current = currentDraft()
       if (current?.draft) browser.windowStore.getState().editDraftText(current.draftId, value)
       set({ notice: undefined })
+      // 文本变化本身已安排补全；同一位置的后续 select 事件不再重复触发。
+      selectionSignature = `${caret}:${value}`
       completionEpoch += 1
       fileAbort?.abort()
       fileAbort = undefined
@@ -1088,11 +1121,21 @@ export const createComposerFeatureStore = (
 
     onInputSelect: (value, caret) => {
       if (get().disposed) return
+      // 程序化改写草稿与 DOM 重渲染之间可能补发旧值的 select 事件；忽略过期值，
+      // 否则接受补全后会用旧文本立刻重建同一个补全列表。
+      if (currentDraft()?.draft?.text !== value) return
+      const signature = `${caret}:${value}`
+      if (signature === selectionSignature) return
+      selectionSignature = signature
       void get().refreshCompletion(value, caret)
     },
 
     refreshCompletion: async (value, caret) => {
       if (get().disposed) return
+      if (suppressCompletionForText !== undefined) {
+        if (value === suppressCompletionForText) return
+        suppressCompletionForText = undefined
+      }
       const draftId = currentDraft()?.draftId
       if (!draftId) {
         set({ completion: undefined })
@@ -1239,6 +1282,9 @@ export const createComposerFeatureStore = (
         current.draft.text.slice(0, chosen.replaceStart) +
         chosen.insertText +
         current.draft.text.slice(chosen.replaceEnd)
+      // 接受补全后不要立刻再次弹出同一个列表；用户继续输入时再重新计算。
+      suppressCompletionForText = next
+      selectionSignature = `${chosen.replaceStart + chosen.insertText.length}:${next}`
       browser.windowStore.getState().editDraftText(current.draftId, next)
       get().clearCompletion()
       return chosen.replaceStart + chosen.insertText.length
@@ -1425,5 +1471,24 @@ export const createComposerFeatureStore = (
       })
     },
   }))
+
+  // 资源版本推进（例如另一窗口应用资源重载）时重新读取命令目录。
+  // 只跟踪当前会话的版本，不把目录复制成第二份状态。
+  let lastCatalogRevision: string | undefined
+  const unsubscribeResources = browser.serviceStore.subscribe((state) => {
+    const target = selectionTarget()
+    if (target?.kind !== 'thread') return
+    const revision = `${target.threadId}:${state.threadsById[target.threadId]?.resourceRevision ?? 0}`
+    if (revision === lastCatalogRevision) return
+    lastCatalogRevision = revision
+    if (!storeRef.getState().disposed) void storeRef.getState().refreshCatalog()
+  })
+  const disposeStore = storeRef.getState().dispose
+  storeRef.setState({
+    dispose: () => {
+      unsubscribeResources()
+      disposeStore()
+    },
+  })
   return storeRef
 }

@@ -13,7 +13,7 @@ test.describe.configure({ mode: 'serial' })
 const PROVIDER_ID = 'huan-auth-test'
 const SYNTHETIC_KEY = 'synthetic-e2e-key'
 
-const messageInput = (page: Page) => page.getByRole('textbox', { name: 'Message input' })
+const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
 const authDialog = (page: Page) => page.getByRole('dialog', { name: '模型认证' })
 const providerRow = (page: Page) =>
   authDialog(page).locator(
@@ -56,7 +56,7 @@ test('顶栏与 /login 打开同一面板；未知 provider 不发送给模型',
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
   await expect(page.getByRole('status').filter({ hasText: '未知 provider' })).toBeVisible()
-  await expect(page.locator('[data-slot="aui_user-message-root"]')).toHaveCount(0)
+  await expect(page.locator('[data-slot="huan-message"][data-role="user"]')).toHaveCount(0)
 
   // 已知 provider 打开同一面板并聚焦目标行。
   await messageInput(page).fill(`/login ${PROVIDER_ID}`)
@@ -90,11 +90,11 @@ test('API key 登录成功；密钥不出现在页面与认证快照，模型目
   // 页面文本与认证快照都不包含合成密钥。
   expect(await page.content()).not.toContain(SYNTHETIC_KEY)
   expect(await snapshotJson(page)).not.toContain(SYNTHETIC_KEY)
-  await expect(page.locator('[data-slot="aui_user-message-root"]')).toHaveCount(0)
+  await expect(page.locator('[data-slot="huan-message"][data-role="user"]')).toHaveCount(0)
 
   // 登录后模型选择器会按认证版本重读目录，合成模型进入可用列表。
   await page.keyboard.press('Escape')
-  const composer = page.locator('[data-slot="aui_composer-shell"]')
+  const composer = page.locator('[data-slot="huan-composer"]')
   await composer.getByRole('combobox').click()
   await expect(page.getByRole('option', { name: /认证测试模型/ })).toBeVisible()
   await page.keyboard.press('Escape')

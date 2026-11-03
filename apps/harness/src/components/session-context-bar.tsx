@@ -20,6 +20,7 @@ import {
 import { PiModelSelector } from '@/components/pi-model-selector'
 import { RuntimeOperationsPanel } from '@/components/runtime-operations'
 import { Button } from '@/components/ui/button'
+import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
 import { useSessionsStore, useWorkspaceStore } from '@/state/app-context'
 import { SessionTreeDialog } from './session-tree-dialog'
 
@@ -42,6 +43,9 @@ export function SessionContextBar() {
   const openAssign = useSessionsStore((state) => state.openAssign)
   const setThreadArchived = useSessionsStore((state) => state.setThreadArchived)
   const archiveBusy = useSessionsStore((state) => state.archiveBusy)
+  // 详情/删除弹层由 store 打开、没有 DialogTrigger：关闭后把焦点还给入口按钮。
+  const detailsRef = useRestoreTriggerFocus(useSessionsStore((state) => state.details.open))
+  const deleteRef = useRestoreTriggerFocus(useSessionsStore((state) => state.deleteConfirm.open))
 
   if (selection?.kind === 'new') {
     return (
@@ -57,7 +61,7 @@ export function SessionContextBar() {
           <Trans>发送首条消息时创建；管理面板可按该起始目录打开。</Trans>
         </span>
         <div className="ms-auto flex items-center gap-2">
-          <PiModelSelector />
+          <PiModelSelector owner="context-bar" />
           <RuntimeOperationsPanel />
         </div>
       </div>
@@ -123,7 +127,7 @@ export function SessionContextBar() {
       )}
 
       <div className="ms-auto flex items-center gap-2">
-        <PiModelSelector />
+        <PiModelSelector owner="context-bar" />
         <RuntimeOperationsPanel />
       </div>
       <SessionTreeDialog />
@@ -138,6 +142,7 @@ export function SessionContextBar() {
         <Trans>克隆到新会话</Trans>
       </Button>
       <Button
+        ref={detailsRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
@@ -163,6 +168,7 @@ export function SessionContextBar() {
         {metadata.archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
       </Button>
       <Button
+        ref={deleteRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs text-destructive"

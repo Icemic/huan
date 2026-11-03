@@ -140,7 +140,8 @@ export const createHostFeatureStore = (
       if (state.disposed || state.refreshing) return
       set({ refreshing: true })
       try {
-        await browser.serviceStore.getState().loadHostInfo()
+        // 手动重新查询必须绕过在途/缓存结果，拿到宿主当前值。
+        await browser.serviceStore.getState().loadHostInfo({ force: true })
       } finally {
         if (!get().disposed) set({ refreshing: false })
       }

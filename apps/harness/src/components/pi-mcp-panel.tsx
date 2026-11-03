@@ -44,6 +44,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
 import { useMcpStore } from '@/state/app-context'
 import {
   listDraftServers,
@@ -1187,6 +1188,7 @@ export function McpDialog() {
   const startAuth = useMcpStore((state) => state.startAuth)
   const mcpAuth = useServiceStore((state) => state.mcpAuth)
   const mcpAuthError = useServiceStore((state) => state.mcpAuthError)
+  const triggerRef = useRestoreTriggerFocus(open)
 
   useEffect(() => {
     if (!open || !target) return
@@ -1228,6 +1230,7 @@ export function McpDialog() {
   return (
     <>
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
@@ -1303,12 +1306,12 @@ export function McpDialog() {
 
               {notice && <Notice>{notice}</Notice>}
               {error && (
-                <p role="status" className="text-destructive text-xs">
+                <p role="status" data-slot="huan-mcp-error" className="text-destructive text-xs">
                   {error}
                 </p>
               )}
               {targetError && (
-                <p role="status" className="text-destructive text-xs">
+                <p role="status" data-slot="huan-mcp-error" className="text-destructive text-xs">
                   {targetError}
                 </p>
               )}

@@ -53,7 +53,7 @@ test('运行期通知/状态/widget/标题与定向编辑器指令可见且可�
 
   const directive = page.locator('[data-slot="huan-editor-directive"]')
   await expect(directive).toContainText('HOSTUI-编辑内容')
-  const input = page.getByRole('textbox', { name: 'Message input' })
+  const input = page.getByRole('textbox', { name: '消息输入' })
   // 不自动覆盖：先由用户确认应用。
   await expect(input).toHaveValue('')
   await directive.getByRole('button', { name: '应用' }).click()
@@ -73,14 +73,14 @@ test('定向编辑器指令只在发起窗口可应用，另一窗口保留草�
   const second = await context.newPage()
   await openApp(second)
   await threadListItem(second, title).click()
-  const secondInput = second.getByRole('textbox', { name: 'Message input' })
+  const secondInput = second.getByRole('textbox', { name: '消息输入' })
   await secondInput.fill('另一窗口草稿')
   await sendMessage(page, '/host-ui')
   const directive = page.locator('[data-slot="huan-editor-directive"]')
   await expect(directive).toBeVisible()
   await expect(second.locator('[data-slot="huan-editor-directive"]')).toHaveCount(0)
   await directive.getByRole('button', { name: '应用' }).click()
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toHaveValue('HOSTUI-编辑内容')
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue('HOSTUI-编辑内容')
   await expect(secondInput).toHaveValue('另一窗口草稿')
   await second.close()
 })
@@ -116,21 +116,31 @@ test('启动请求可在发起窗口关闭后由另一窗口接管', async ({ pa
   await createWorkspaceApi(request, name, [{ alias: 'p', path: project.path }])
   await openApp(page)
   await workspaceGroup(page, name).getByRole('button', { name: '新建会话', exact: true }).click()
-  const card = page
+  const newSession = page.getByRole('dialog', { name: '新建会话' })
+  // 项目装配在创建请求里发生：启动期信任请求此时进入宿主交互。
+  await newSession.getByRole('button', { name: '开始新会话' }).click()
+  const interaction = page.getByRole('dialog', { name: '宿主交互' })
+  const card = interaction
     .locator('[data-slot="huan-host-interaction"]')
     .filter({ hasText: 'HOSTUI-项目信任' })
-  await expect(card).toBeVisible()
+  await expect(card).toBeVisible({ timeout: 20_000 })
+
+  // 启动交互是宿主级请求：另一窗口能看到同一请求，并在发起窗口关闭后接管。
   const second = await context.newPage()
-  // 继承中的启动交互会先以模态显示，应用背景此时不可操作。
   await second.goto('/')
   const inherited = second
+    .getByRole('dialog', { name: '宿主交互' })
     .locator('[data-slot="huan-host-interaction"]')
     .filter({ hasText: 'HOSTUI-项目信任' })
-  await expect(inherited).toBeVisible()
+  await expect(inherited).toBeVisible({ timeout: 20_000 })
   await page.close()
   await inherited.getByRole('button', { name: '允许' }).click()
   await expect(inherited).toHaveCount(0)
-  await startNewSession(second, name)
+
+  // 发起窗口已关闭：接管窗口从目录里找到刚创建的会话并继续对话。
+  const thread = second.locator('[data-slot="huan-session-trigger"]').first()
+  await expect(thread).toBeVisible({ timeout: 20_000 })
+  await thread.click()
   await selectModel(second)
   await sendMessage(second, `接管后发送-${run}`)
   await expect(assistantMessages(second).last()).toContainText(DEFAULT_REPLY)
@@ -151,28 +161,29 @@ test('启动期项目信任与 session_start 请求在会话创建中可发现/�
   const group = workspaceGroup(page, workspaceName)
   await group.getByRole('button', { name: '新建会话', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '新建会话' })
+  await dialog.getByRole('button', { name: '开始新会话' }).click()
 
-  // 资源目录查询亦可能先触发信任；必须先完成顶层交互，才能继续底层模态。
-  const panel = page.getByRole('region', { name: '宿主交互' })
-  const trustCard = panel
+  // 装配期的项目信任请求先出现；应答后才真正创建会话。
+  const trustCard = page
+    .getByRole('dialog', { name: '宿主交互' })
     .locator('[data-slot="huan-host-interaction"]')
     .filter({ hasText: 'HOSTUI-项目信任' })
   await expect(trustCard).toBeVisible({ timeout: 20_000 })
   await trustCard.getByRole('button', { name: '允许' }).click()
-  await dialog.getByRole('button', { name: '开始新会话' }).click()
-
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible()
+
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toBeVisible()
   await selectModel(page)
   // 实际 Pi 会话在首条消息时才创建：session_start 请求会阻塞这条发送。
   await sendMessage(page, `启动交互后对话-${run}`)
 
-  const startupCard = panel
+  const startupCard = page
+    .getByRole('dialog', { name: '宿主交互' })
     .locator('[data-slot="huan-host-interaction"]')
     .filter({ hasText: 'HOSTUI-启动确认' })
   await expect(startupCard).toBeVisible({ timeout: 20_000 })
   await startupCard.getByRole('button', { name: '允许' }).click()
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
-  // 启动期请求完成后宿主通道清空。
-  await expect(panel).toHaveCount(0)
+  // 启动期请求完成后宿主交互弹层消失。
+  await expect(page.getByRole('dialog', { name: '宿主交互' })).toHaveCount(0)
 })

@@ -213,7 +213,7 @@ export function getModelReadiness(
     return {
       state: 'missing-credentials',
       provider: selection.provider,
-      message: '所选模型缺少凭据，请配置对应 provider 的认证后重启宿主。',
+      message: '所选模型缺少凭据，请在模型认证面板登录对应 provider 后重新查询。',
     }
   }
   return { state: 'ready', selection, source }

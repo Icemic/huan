@@ -29,7 +29,12 @@ export type ModelFocus = 'model' | 'thinking'
 export interface ModelOpenOptions {
   target?: ModelTarget
   focus?: ModelFocus
+  /** 触发面板的选择器实例；同一时刻只有一个实例渲染弹层。 */
+  owner?: string
 }
+
+/** 默认面板持有者：输入区选择器；命令打开也归到它。 */
+export const DEFAULT_MODEL_PANEL_OWNER = 'composer'
 
 /** 模型选择 feature 状态。 */
 export interface ModelFeatureState {
@@ -39,6 +44,8 @@ export interface ModelFeatureState {
   target: ModelTarget | undefined
   targetKey: string
   focus: ModelFocus | undefined
+  /** 当前面板由哪个选择器实例持有；其他实例不渲染弹层。 */
+  panelOwner: string
   busy: string | undefined
   notice: string | undefined
   error: string | undefined
@@ -111,6 +118,7 @@ export const createModelFeatureStore = (
       target: undefined,
       targetKey: 'none',
       focus: undefined,
+      panelOwner: DEFAULT_MODEL_PANEL_OWNER,
       busy: undefined,
       notice: undefined,
       error: undefined,
@@ -129,6 +137,7 @@ export const createModelFeatureStore = (
           target,
           targetKey: modelTargetKey(target),
           focus: openOptions?.focus,
+          panelOwner: openOptions?.owner ?? DEFAULT_MODEL_PANEL_OWNER,
           busy: undefined,
           notice: undefined,
           error: undefined,
@@ -149,6 +158,7 @@ export const createModelFeatureStore = (
           target: undefined,
           targetKey: 'none',
           focus: undefined,
+          panelOwner: DEFAULT_MODEL_PANEL_OWNER,
           busy: undefined,
           notice: undefined,
           error: undefined,

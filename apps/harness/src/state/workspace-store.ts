@@ -267,6 +267,7 @@ export const createWorkspaceFeatureStore = (
   let memberSeed = 0
   let newSessionEpoch = 0
   let trustEpoch = 0
+  let formEpoch = 0
   const memberEpochs = new Map<string, number>()
   const nextMemberKey = () => {
     memberSeed += 1
@@ -466,6 +467,12 @@ export const createWorkspaceFeatureStore = (
         if (get().disposed) return
         if (!browser.serviceStore.getState().workspacesById[workspaceId]) return
         applyExpanded(workspaceId)
+        // 明确点了工作区：空白新会话目标跟着换到该工作区的起始项目；
+        // 已打开会话的窗口不被切换。
+        const selection = browser.windowStore.getState().selection
+        if (selection && selection.kind !== 'new') return
+        const startProjectPath = get().startProjectFor(workspaceId)
+        if (startProjectPath) get().beginNewSession(workspaceId, startProjectPath)
       },
 
       toggleWorkspace: (workspaceId) => {
@@ -652,6 +659,7 @@ export const createWorkspaceFeatureStore = (
       },
 
       openWorkspaceForm: (workspaceId) => {
+        formEpoch += 1
         const state = get()
         if (state.disposed) return
         if (workspaceId) {
@@ -907,6 +915,7 @@ export const createWorkspaceFeatureStore = (
 
       closeWorkspaceForm: () => {
         if (get().disposed) return
+        formEpoch += 1
         set({ form: emptyForm() })
       },
 
@@ -990,7 +999,14 @@ export const createWorkspaceFeatureStore = (
           return
         }
         set({ form: { ...form, busy: true, message: undefined } })
-        const submittedForm = get().form
+        const submittedEpoch = formEpoch
+        // 保存期间成员检查可能刷新路径状态；只有用户改过的草稿才阻止自动关闭。
+        const submittedDraft = JSON.stringify({
+          mode: form.mode,
+          workspaceId: form.workspaceId ?? null,
+          name,
+          projects,
+        })
         try {
           const result =
             form.mode === 'edit' && form.workspaceId
@@ -1004,9 +1020,9 @@ export const createWorkspaceFeatureStore = (
           if (get().disposed) return
           if (!result.ok) {
             if (result.workspace) browser.serviceStore.getState().applyWorkspace(result.workspace)
-            if (get().form === submittedForm) {
+            if (formEpoch === submittedEpoch) {
               // 冲突仍保留提交原文，用户自行重读处理，不能用服务端值盖掉草稿。
-              set({ form: { ...submittedForm, busy: false, message: mutationErrorText(result) } })
+              set({ form: { ...get().form, busy: false, message: mutationErrorText(result) } })
             }
             return
           }
@@ -1035,11 +1051,21 @@ export const createWorkspaceFeatureStore = (
           } catch {
             // 工作区保存已成功；会话目录刷新失败只影响列表，下一次显式刷新恢复。
           }
-          if (get().disposed) return
-          if (get().form === submittedForm) set({ form: emptyForm() })
+          if (get().disposed || formEpoch !== submittedEpoch) return
+          const currentForm = get().form
+          const currentDraft = JSON.stringify({
+            mode: currentForm.mode,
+            workspaceId: currentForm.workspaceId ?? null,
+            name: currentForm.name.trim(),
+            projects: currentForm.members
+              .filter((member) => member.alias.trim() || member.path.trim())
+              .map((member) => ({ alias: member.alias.trim(), path: member.path.trim() })),
+          })
+          if (currentDraft === submittedDraft) set({ form: emptyForm() })
+          else set({ form: { ...currentForm, busy: false } })
           get().showNotice(form.mode === 'edit' ? '工作区已更新。' : '工作区已创建。')
         } catch {
-          if (get().disposed || get().form !== submittedForm) return
+          if (get().disposed || formEpoch !== submittedEpoch) return
           set({
             form: {
               ...get().form,

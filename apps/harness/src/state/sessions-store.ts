@@ -1754,11 +1754,8 @@ export const createSessionsFeatureStore = (
         const panel = state.details
         const threadId = panel.threadId
         if (state.disposed || !panel.open || !threadId || panel.renameBusy) return
+        // 空名称是显式“清空名称”，标题回退为首条消息；不是错误。
         const value = panel.renameValue.trim()
-        if (!value) {
-          set({ details: { ...panel, renameError: '会话名称不能为空。' } })
-          return
-        }
         set({ details: { ...panel, renameBusy: true, renameError: undefined } })
         try {
           await client.renameThread(threadId, value)
@@ -1771,10 +1768,10 @@ export const createSessionsFeatureStore = (
               renameBusy: false,
               renameValue:
                 current.details.renameValue.trim() === value ? value : current.details.renameValue,
-              notice: '会话已命名。',
+              notice: value ? '会话已命名。' : '会话名称已清空。',
             },
           })
-          notify('会话已命名。')
+          notify(value ? '会话已命名。' : '会话名称已清空。')
         } catch (error) {
           const current = get()
           if (current.disposed || current.details.threadId !== threadId) return

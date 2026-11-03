@@ -57,7 +57,7 @@ const treeDialog = (page: Page) => page.getByRole('dialog', { name: '会话树' 
 const treeRows = (page: Page) => treeDialog(page).locator('[data-slot="huan-tree-row"]')
 
 async function openTree(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '会话树' }).click({ force: true })
+  await page.getByRole('button', { name: '会话树', exact: true }).click({ force: true })
   await expect(treeDialog(page)).toBeVisible()
   await expect(treeRows(page).first()).toBeVisible()
 }
@@ -173,6 +173,14 @@ async function chooseWorkspace(page: Page, dialog: ReturnType<typeof importDialo
   await page.getByRole('option', { name, exact: true }).click()
 }
 
+/** 确认导入并打开结果（面板显式提供“打开已导入会话”）。 */
+async function confirmImport(_page: Page, dialog: ReturnType<typeof importDialog>): Promise<void> {
+  await dialog.getByRole('button', { name: '确认导入' }).click()
+  await expect(dialog.getByRole('status')).toContainText('会话已导入', { timeout: 20_000 })
+  await dialog.getByRole('button', { name: '打开已导入会话' }).click()
+  await expect(dialog).toHaveCount(0, { timeout: 20_000 })
+}
+
 /** 走完整路径导入 GUI 流程（预览 + 确认 + 自动切入）。 */
 async function importPath(
   page: Page,
@@ -185,8 +193,7 @@ async function importPath(
   await dialog.getByLabel('宿主 JSONL 路径').fill(sourcePath)
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible()
-  await dialog.getByRole('button', { name: '确认导入' }).click()
-  await expect(dialog).toHaveCount(0, { timeout: 20_000 })
+  await confirmImport(page, dialog)
   await expect(userMessages(page).first()).toContainText(expectedText)
 }
 
@@ -216,7 +223,7 @@ test('历史消息 fork 创建独立空分支，父子双窗互不影响并可�
   await openThreadInWorkspace(page2, workspaceName, first)
   await expect(userMessages(page2)).toHaveCount(2)
   const parentDraft = `父窗口草稿-${run}`
-  await page2.getByRole('textbox', { name: 'Message input' }).fill(parentDraft)
+  await page2.getByRole('textbox', { name: '消息输入' }).fill(parentDraft)
 
   // 树用户行也提供 fork 入口；取消后不创建任何会话。
   await openTree(page)
@@ -231,21 +238,21 @@ test('历史消息 fork 创建独立空分支，父子双窗互不影响并可�
   // 历史用户消息入口 fork 第一条消息。
   const firstBubble = userMessages(page).first()
   await firstBubble.hover()
-  await firstBubble.getByRole('button', { name: '从这条消息分叉' }).click()
+  await firstBubble.getByRole('button', { name: '从这条用户消息分叉' }).click()
   const dialog = page.getByRole('dialog', { name: '从这条消息分叉' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '创建独立分支' }).click()
   await expect(dialog).toHaveCount(0, { timeout: 20_000 })
 
   // 发起窗口切入空子会话并恢复原文；父窗口历史与草稿不动。
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toHaveValue(first)
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(first)
   await expect(userMessages(page)).toHaveCount(0)
   await expect(userMessages(page2)).toHaveCount(2)
-  await expect(page2.getByRole('textbox', { name: 'Message input' })).toHaveValue(parentDraft)
+  await expect(page2.getByRole('textbox', { name: '消息输入' })).toHaveValue(parentDraft)
 
   // 父窗口继续发送，子会话不受影响。
-  await page2.getByRole('textbox', { name: 'Message input' }).fill(parentQuestion)
-  await page2.getByRole('button', { name: 'Send message' }).click()
+  await page2.getByRole('textbox', { name: '消息输入' }).fill(parentQuestion)
+  await page2.getByRole('button', { name: '发送消息' }).click()
   await expect(userMessages(page2)).toHaveCount(3)
   await expect(userMessages(page2).last()).toContainText(parentQuestion)
   await expect(userMessages(page)).toHaveCount(0)
@@ -307,7 +314,7 @@ test('克隆当前活动路径排除废弃分支；父子各自发送互不污�
 
   const parentId = await threadIdByTitle(request, first)
   // 上下文栏 clone 当前落点。
-  await page.getByRole('button', { name: '克隆到新会话' }).click()
+  await page.getByRole('button', { name: '克隆到新会话', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '克隆当前会话' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '克隆为独立会话' }).click()
@@ -381,8 +388,7 @@ test('路径导入拒绝非法 JSONL；cwd 非成员时必须选择替代目录�
   await dialog.getByRole('button', { name: '预览导入' }).click()
   await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible()
   await expect(dialog.getByText(/将使用所选成员作为替代起始目录/)).toBeVisible()
-  await dialog.getByRole('button', { name: '确认导入' }).click()
-  await expect(dialog).toHaveCount(0, { timeout: 20_000 })
+  await confirmImport(page, dialog)
   await expect(userMessages(page).first()).toContainText(text)
 
   // 导入会话确实以所选成员为 cwd，而不是源文件的缺失路径。
@@ -413,8 +419,7 @@ test('上传 JSONL 导入后列表自动更新并可继续发送', async ({ page
   await expect(dialog.locator('[data-slot="huan-import-preview"]')).toContainText(
     `e2e-upload-${run}`,
   )
-  await dialog.getByRole('button', { name: '确认导入' }).click()
-  await expect(dialog).toHaveCount(0, { timeout: 20_000 })
+  await confirmImport(page, dialog)
   await expect(userMessages(page).first()).toContainText(text)
   await expect(threadListItem(page, text)).toBeVisible()
 
@@ -501,8 +506,7 @@ test('同 ID 冲突可作为独立副本导入，保留完整树且不覆盖已�
   await expect(conflict.getByText('同 ID 内容不同')).toBeVisible()
   await expect(conflict.getByRole('button', { name: '确认导入' })).toBeDisabled()
   await conflict.getByRole('checkbox', { name: '作为独立副本导入' }).check()
-  await conflict.getByRole('button', { name: '确认导入' }).click()
-  await expect(conflict).toHaveCount(0, { timeout: 20_000 })
+  await confirmImport(page, conflict)
   await expect(userMessages(page).first()).toContainText(secondText)
 
   // 副本保留完整树：未知扩展条目作为非活动节点存在。
@@ -521,4 +525,107 @@ test('同 ID 冲突可作为独立副本导入，保留完整树且不覆盖已�
   await openTree(page)
   await treeDialog(page).getByRole('button', { name: '全部', exact: true }).click()
   await expect(treeRows(page).filter({ hasText: 'future_entry' })).toHaveCount(1)
+})
+
+test('分叉在途时关闭弹层并输入新草稿，迟到成功不切换也不覆盖', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const { workspaceName } = await prepareWorkspace(request, '迟到分叉')
+  const question = `迟到分叉问题-${run}`
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendMessage(page, question)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(threadListItem(page, question)).toBeVisible()
+
+  const bubble = userMessages(page).first()
+  await bubble.hover()
+  await bubble.getByRole('button', { name: '从这条用户消息分叉' }).click()
+  const dialog = page.getByRole('dialog', { name: '从这条消息分叉' })
+  await expect(dialog).toBeVisible()
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/fork', async (route) => {
+    await gate
+    await route.continue()
+  })
+  try {
+    const responded = page.waitForResponse((response) => response.url().endsWith('/fork'))
+    await dialog.getByRole('button', { name: '创建独立分支' }).click()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const draft = `迟到分叉草稿-${run}`
+    await page.getByRole('textbox', { name: '消息输入' }).fill(draft)
+    release()
+    const response = await responded
+    expect(response.ok()).toBe(true)
+    // 迟到成功不得把窗口切到子会话，也不得覆盖本窗口新草稿。
+    await page.waitForTimeout(500)
+    await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(draft)
+    await expect(userMessages(page).first()).toContainText(question)
+    await expect(page.getByRole('dialog', { name: '从这条消息分叉' })).toHaveCount(0)
+  } finally {
+    await page.unroute('**/fork')
+  }
+})
+
+test('导入预览在途时关闭重开并换文件，迟到结果不写入新面板', async ({
+  page,
+  request,
+}, testInfo) => {
+  const run = Date.now().toString(36)
+  const { workspaceName, projectPath } = await prepareWorkspace(request, '迟到导入')
+  const first = await writeSource(
+    'late-a.jsonl',
+    sessionJsonl({ id: `e2e-late-a-${run}`, cwd: projectPath, text: `迟到导入甲-${run}` }),
+  )
+  const second = await writeSource(
+    'late-b.jsonl',
+    sessionJsonl({ id: `e2e-late-b-${run}`, cwd: projectPath, text: `迟到导入乙-${run}` }),
+  )
+  await openApp(page)
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/threads/import/preview', async (route) => {
+    await gate
+    await route.continue()
+  })
+  try {
+    const firstDialog = await openImport(page)
+    await chooseWorkspace(page, firstDialog, workspaceName)
+    await firstDialog.getByLabel('宿主 JSONL 路径').fill(first)
+    const stalePreviewed = page.waitForResponse((response) =>
+      response.url().includes('/threads/import/preview'),
+    )
+    await firstDialog.getByRole('button', { name: '预览导入' }).click()
+    // 预览在途时关闭面板，换一个文件重开：旧结果不得写进新面板。
+    await page.keyboard.press('Escape')
+    await expect(firstDialog).toHaveCount(0)
+    const dialog = await openImport(page)
+    await chooseWorkspace(page, dialog, workspaceName)
+    await dialog.getByLabel('宿主 JSONL 路径').fill(second)
+    release()
+    expect((await stalePreviewed).ok()).toBe(true)
+    await page.waitForTimeout(500)
+    await expect(dialog.locator('[data-slot="huan-import-preview"]')).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: '确认导入' })).toBeDisabled()
+
+    // 新面板仍可正常预览自己的文件。
+    await dialog.getByRole('button', { name: '预览导入' }).click()
+    await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(dialog.locator('[data-slot="huan-import-preview"]')).toContainText(
+      `e2e-late-b-${run}`,
+    )
+    void testInfo
+  } finally {
+    await page.unroute('**/threads/import/preview')
+  }
 })

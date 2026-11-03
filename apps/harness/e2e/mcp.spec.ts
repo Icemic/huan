@@ -45,7 +45,7 @@ async function captureMcp(page: Page, name: string): Promise<void> {
 }
 
 const mcpDialog = (page: Page) => page.getByRole('dialog', { name: 'MCP 服务器' })
-const messageInput = (page: Page) => page.getByRole('textbox', { name: 'Message input' })
+const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
 
 type FixtureInfo = {
   stdioFixturePath: string
@@ -486,7 +486,7 @@ test('项目未信任不读取配置，revision 冲突与非法配置保留草�
     // 模拟另一个窗口/进程修改同一文件。
     await writeProjectMcp(request, project.path, '{"mcpServers":{},"externalChange":true}\n')
     await dialog.getByRole('button', { name: '保存 MCP 配置' }).click()
-    await expect(dialog.locator('[data-slot="huan-mcp-notice"]')).toContainText('保存冲突')
+    await expect(dialog.locator('[data-slot="huan-mcp-error"]')).toContainText('保存冲突')
     await expect(editor).toHaveValue(/"draftOnly":true/)
 
     // 显式重新读取才覆盖草稿；有未保存改动时先要求确认丢弃。

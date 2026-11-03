@@ -244,6 +244,27 @@ describe('workspace-store：目录变化与工作区表单', () => {
     expect(browser.serviceStore.getState().workspacesById.w1?.name).toBe('其他窗口')
   })
 
+  it('同内容表单关闭重开也不被旧保存结果关闭', async () => {
+    const { client } = createClient()
+    const browser = createBrowser(client)
+    const store = createStore(browser, memoryStorage())
+    await store.getState().refresh()
+    store.getState().openWorkspaceForm('w1')
+    let finish!: (value: Awaited<ReturnType<HarnessClient['updateWorkspace']>>) => void
+    vi.mocked(client.updateWorkspace).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    const save = store.getState().saveWorkspaceForm()
+    store.getState().closeWorkspaceForm()
+    store.getState().openWorkspaceForm('w1')
+    finish({ ok: true, workspace: workspace('w1', '旧保存', '/a') })
+    await save
+    expect(store.getState().form.open).toBe(true)
+    expect(store.getState().form.workspaceId).toBe('w1')
+  })
+
   it('创建表单保存后更新唯一工作区实体、关闭表单并给出提示', async () => {
     const { client } = createClient()
     const browser = createBrowser(client)

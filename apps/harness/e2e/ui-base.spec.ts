@@ -1,13 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-  assistantMessages,
-  createProject,
-  createWorkspaceApi,
-  DEFAULT_REPLY,
-  openApp,
-  sendMessage,
-  workspaceGroup,
-} from './helpers.js'
+import { assistantMessages, DEFAULT_REPLY, openApp, sendMessage } from './helpers.js'
 
 test.describe.configure({ mode: 'serial' })
 
@@ -29,8 +21,7 @@ test.afterEach(async () => {
 
 test('模型选择器支持键盘搜索、独立 Thinking 与空白会话草稿', async ({ page }) => {
   await openApp(page)
-  const composer = page.locator('[data-slot="aui_composer-shell"]')
-  const trigger = composer.getByRole('combobox')
+  const trigger = page.locator('[data-slot="huan-composer"]').getByRole('combobox')
   const search = page.getByRole('combobox', { name: '搜索模型' })
 
   // 键盘打开搜索，输入过滤后可直接回车选中。
@@ -65,7 +56,7 @@ test('模型选择器支持键盘搜索、独立 Thinking 与空白会话草稿'
 test('图片附件预览关闭后恢复焦点，移除不触发预览', async ({ page }) => {
   await openApp(page)
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Add Attachment', exact: true }).click()
+  await page.getByRole('button', { name: '添加图片附件', exact: true }).click()
   const upload = await chooser
   await upload.setFiles({
     name: 'pixel.png',
@@ -75,16 +66,16 @@ test('图片附件预览关闭后恢复焦点，移除不触发预览', async ({
       'base64',
     ),
   })
-  const preview = page.getByRole('button', { name: 'Preview pixel.png', exact: true })
+  const preview = page.getByRole('button', { name: '预览附件 pixel.png', exact: true })
   await expect(preview).toBeVisible()
   await preview.click()
-  const dialog = page.getByRole('dialog', { name: 'Preview pixel.png', exact: true })
+  const dialog = page.getByRole('dialog', { name: '附件预览', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('img')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   await expect(preview).toBeFocused()
-  await page.getByRole('button', { name: 'Remove pixel.png', exact: true }).click()
+  await page.getByRole('button', { name: '移除附件 pixel.png', exact: true }).click()
   await expect(preview).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
@@ -105,7 +96,7 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
   expect(await page.evaluate(() => localStorage.getItem('huan.theme'))).toBe('one-dark')
 
   await page.reload()
-  await expect(page.getByRole('region', { name: 'Pi host status' })).toBeVisible()
+  await expect(page.locator('[data-slot="huan-header"]')).toBeVisible()
   await expect(html).toHaveClass(/one-dark/)
   await expect(trigger).toContainText('One Dark')
 
@@ -125,7 +116,7 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
     }
     return {
       theme: height('[data-slot="theme-selector-trigger"]'),
-      send: height('[aria-label="Send message"]'),
+      send: height('[aria-label="发送消息"]'),
       model: height('[data-slot="model-selector-trigger"]'),
       radius: getComputedStyle(document.documentElement).getPropertyValue('--radius').trim(),
       font: getComputedStyle(document.body).fontFamily,
@@ -146,33 +137,25 @@ test('主题切换写入本地存储，刷新与跟随系统均可恢复', async
   expect(await page.evaluate(() => localStorage.getItem('huan.theme'))).toBe('system')
 })
 
-test('Dialog 内 Popover 按 Escape 逐层关闭并恢复焦点', async ({ page, request }) => {
-  const run = Date.now().toString(36)
-  const project = await createProject(request, `escape-${run}`)
-  const name = `层级弹层-${run}`
-  await createWorkspaceApi(request, name, [{ alias: 'layer', path: project.path }])
-
+test('Dialog 内弹层按 Escape 逐层关闭并恢复焦点', async ({ page }) => {
   await openApp(page)
-  const group = workspaceGroup(page, name)
-  const manage = group.getByRole('button', { name: '管理工作区', exact: true })
-  await manage.click()
-  const dialog = page.getByRole('dialog', { name: '管理工作区' })
+  const opener = page.getByRole('button', { name: '设置与资源', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: '设置与资源' })
   await expect(dialog).toBeVisible()
 
-  const memberActions = dialog.getByRole('button', { name: '成员操作' })
-  await memberActions.click()
-  const popover = page.locator('[data-slot="popover-content"]')
-  await expect(popover).toBeVisible()
-  await expect(page.getByRole('button', { name: '移除成员' })).toBeVisible()
-
-  // 第一次 Escape 只关闭内层 Popover，焦点回到触发按钮。
+  // Dialog 内的 Select 是独立弹层：第一次 Escape 只关闭它并回到触发按钮。
+  const trigger = dialog.getByRole('combobox', { name: '转向队列模式' })
+  await trigger.click()
+  const listbox = page.getByRole('listbox')
+  await expect(listbox).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(popover).toHaveCount(0)
+  await expect(listbox).toHaveCount(0)
   await expect(dialog).toBeVisible()
-  await expect(memberActions).toBeFocused()
+  await expect(trigger).toBeFocused()
 
-  // 第二次 Escape 才关闭 Dialog，焦点回到“管理工作区”入口。
+  // 第二次 Escape 才关闭 Dialog，焦点回到顶栏入口。
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(manage).toBeFocused()
+  await expect(opener).toBeFocused()
 })

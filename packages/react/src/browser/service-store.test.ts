@@ -182,6 +182,27 @@ describe('service-store：唯一元数据与运行数据', () => {
     expect(store.getState().providerAuth?.seq).toBe(3)
   })
 
+  it('相同seq的live首帧仍使旧冷读失效，保留模型回退与活动状态', async () => {
+    const client = createClient()
+    const pending = deferred<HarnessThreadSnapshot>()
+    vi.mocked(client.getThread).mockReturnValue(pending.promise)
+    const store = createHarnessServiceStore({ client })
+    const load = store.getState().loadThread('t1')
+    const fallback = { reason: 'restore-failed' as const, message: '原模型不可用' }
+    store.getState().applyThreadEvent('t1', {
+      type: 'snapshot',
+      threadId: 't1',
+      seq: 0,
+      snapshot: snapshot({ seq: 0, metadata: metadata({ modelFallback: fallback }) }),
+    })
+    pending.resolve(snapshot({ seq: 0 }))
+    await load
+    expect(store.getState().threadsById.t1?.modelFallback).toEqual(fallback)
+    vi.mocked(client.listThreads).mockResolvedValue([metadata()])
+    await store.getState().refreshThreads()
+    expect(store.getState().threadsById.t1?.modelFallback).toEqual(fallback)
+  })
+
   it('扫描期间被事件更新的实体不被旧列表覆盖', async () => {
     const client = createClient()
     const pending = deferred<HarnessThreadMetadata[]>()

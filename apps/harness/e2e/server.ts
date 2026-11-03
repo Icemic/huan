@@ -12,7 +12,7 @@ import { serve } from '@hono/node-server'
 import { createHarnessHost, workspaceStateFile } from '@huan/core'
 import { createIsolatedPiEnv, TEST_RESOURCE_ISOLATION } from '@huan/core/testing'
 import type { HarnessClient } from '@huan/protocol'
-import { createServer as createViteServer, preview } from 'vite'
+import { build, createServer as createViteServer, preview } from 'vite'
 import { createApp } from '../server/app.js'
 import type { ServerConfig } from '../server/config.js'
 import {
@@ -24,6 +24,7 @@ import {
 } from './config.js'
 import { startMcpFixtures } from './mcp-oauth-fixture.js'
 import { installModelControl } from './model-control.js'
+import { renderReviewPlugin } from './render-review.js'
 
 // 不继承个人 Pi 配置与默认模型；所有作用域都显式落在临时目录。
 for (const key of [
@@ -77,6 +78,72 @@ export default function (pi) {
     handler: async (_args, ctx) => {
       const ok = await ctx.ui.confirm('HOSTUI-工具确认', '允许这次操作？')
       ctx.ui.notify('HOSTUI-确认结果:' + ok, 'info')
+    },
+  })
+  // 展示层探针：工具图片、嵌套子调用与工具关联的多行编辑器请求。
+  const pixel =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='
+  pi.registerTool({
+    name: 'e2e-image',
+    label: '图片探针',
+    description: '返回纯图片或图文混合结果',
+    parameters: {
+      type: 'object',
+      properties: { mode: { type: 'string' } },
+      additionalProperties: false,
+    },
+    execute: async (_callId, params) => {
+      const image = { type: 'image', data: pixel, mimeType: 'image/png' }
+      return params?.mode === 'pure'
+        ? { content: [image] }
+        : { content: [{ type: 'text', text: 'IMAGE-MIXED-TEXT' }, image] }
+    },
+  })
+  pi.registerTool({
+    name: 'e2e-child-ask',
+    label: '子工具探针',
+    description: '子工具：先上报固定进度，再等待一次确认',
+    parameters: {
+      type: 'object',
+      properties: { note: { type: 'string' } },
+      additionalProperties: false,
+    },
+    execute: async (_callId, params, _signal, onUpdate, ctx) => {
+      // 确认前先发一次固定进度：GUI 必须能看到子调用的部分输出与参数，
+      // 而不是只有名字行。
+      const progress = 'CHILD-PROGRESS:' + (params?.note ?? '(empty)')
+      onUpdate?.({ content: [{ type: 'text', text: progress }], details: { progress } })
+      const ok = await ctx.ui.confirm('E2E 子工具确认', '允许子工具继续？')
+      return { content: [{ type: 'text', text: ok ? 'CHILD-ALLOWED' : 'CHILD-DENIED' }] }
+    },
+  })
+  pi.registerTool({
+    name: 'e2e-nested',
+    label: '嵌套探针',
+    description: '通过 executeTool 调用子工具',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    execute: async (_callId, _params, _signal, _onUpdate, ctx) => {
+      const outcome = await ctx.executeTool('e2e-child-ask', { note: 'nested-progress-arg' })
+      return {
+        content: [{ type: 'text', text: outcome.isError ? 'NESTED-CHILD-ERROR' : 'NESTED-PARENT-DONE' }],
+      }
+    },
+  })
+  pi.registerTool({
+    name: 'e2e-editor',
+    label: '编辑器探针',
+    description: '请求多行编辑器原文',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    execute: async (_callId, _params, _signal, _onUpdate, ctx) => {
+      const answer = await ctx.ui.editor('E2E 编辑器请求', '第一行原文\\n第二行原文')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'EDITOR-ANSWER:' + String(answer ?? '').replace(/\\n/g, '|'),
+          },
+        ],
+      }
     },
   })
   pi.on('project_trust', async (_event, ctx) => {
@@ -604,14 +671,29 @@ app.post('/__e2e__/disconnect', (c) => {
 })
 
 // 生产性能验证复用相同隔离宿主，只切换静态页面服务。
+const appRoot = resolve(import.meta.dirname, '..')
+
+async function startProductionPreview() {
+  // 按当前源码构建临时产物：旧 dist 可能滞后，也无法带上仅 e2e 的观测探针。
+  const outDir = resolve(tempParent, 'preview')
+  await build({
+    root: appRoot,
+    logLevel: 'warn',
+    build: { outDir, emptyOutDir: true },
+    plugins: [renderReviewPlugin()],
+  })
+  return preview({
+    root: appRoot,
+    build: { outDir },
+    preview: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
+  })
+}
+
 const vite =
   process.env.HUAN_E2E_PREVIEW === '1'
-    ? await preview({
-        root: resolve(import.meta.dirname, '..'),
-        preview: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
-      })
+    ? await startProductionPreview()
     : await createViteServer({
-        root: resolve(import.meta.dirname, '..'),
+        root: appRoot,
         server: { host: '127.0.0.1', port: E2E_APP_PORT, strictPort: true },
       })
 if ('listen' in vite) await vite.listen()

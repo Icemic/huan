@@ -36,6 +36,15 @@ function shellAvailable(): boolean {
   }
 }
 
+/** 有界等待文件出现；用于确认命令已启动，避免固定延时或无限等待。 */
+async function waitForFile(path: string, timeoutMs: number, message: string): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!existsSync(path)) {
+    if (Date.now() > deadline) throw new Error(message)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
 describe('模板解析', () => {
   it('支持 $NAME、${NAME}、$$ 与 $!', async () => {
     const env = { TOKEN: 'secret-value', HOST: 'example.test' }
@@ -154,16 +163,31 @@ describe('!command', () => {
     ).resolves.toBe('shell-ok')
     expect(Date.now() - started).toBeLessThan(10_000)
 
+    const dir = await mkdtemp(join(tmpdir(), 'huan-mcp-command-cancel-'))
+    const fixture = fileURLToPath(
+      new URL('./test-fixtures/command-tree.mjs', import.meta.url),
+    ).replaceAll('\\', '/')
     const controller = new AbortController()
-    const pending = resolveMcpValue(
-      '!node -e "setTimeout(() => process.stdout.write(\'late\'), 1000)"',
-      'test',
-      { cwd: process.cwd(), signal: controller.signal },
+    const pending = resolveMcpValue(`!node "${fixture}"`, 'test', {
+      cwd: dir,
+      signal: controller.signal,
+    })
+    // 立即接住拒绝，测试清理期间也不会产生未处理拒绝。
+    const outcome = pending.then(
+      () => undefined,
+      (error: unknown) => error,
     )
-    const abortedAt = Date.now()
-    setTimeout(() => controller.abort(), 50)
-    await expect(pending).rejects.toMatchObject({ code: 'command-cancelled' })
-    expect(Date.now() - abortedAt).toBeLessThan(900)
+    try {
+      // 先等启动标记确认命令已运行，再执行取消，不用固定延时猜测启动完成。
+      // 取消耗时包含 Windows taskkill 回收进程树，不设固定上限；回收由下一用例断言。
+      await waitForFile(join(dir, 'command-pids.json'), 5000, '默认 shell 命令未启动')
+      controller.abort()
+      expect(await outcome).toMatchObject({ code: 'command-cancelled' })
+    } finally {
+      controller.abort()
+      await outcome
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it.skipIf(!shellAvailable())('取消默认 shell 后已等待子孙进程回收', async () => {
@@ -183,11 +207,7 @@ describe('!command', () => {
     )
     try {
       const path = join(dir, 'command-pids.json')
-      const deadline = Date.now() + 5000
-      while (!existsSync(path)) {
-        if (Date.now() > deadline) throw new Error('进程树未启动')
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      }
+      await waitForFile(path, 5000, '进程树未启动')
       const pids = JSON.parse(await readFile(path, 'utf8')) as number[]
       controller.abort()
       expect(await outcome).toMatchObject({ code: 'command-cancelled' })

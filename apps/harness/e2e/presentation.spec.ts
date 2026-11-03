@@ -1,0 +1,344 @@
+/**
+ * 最终展示模型验收：工具图片、嵌套子调用与待答请求、工具编辑原文、未知
+ * 数据回退、历史模型回退原因。
+ *
+ * 数据来自真实 Pi SDK：合成模型由测试控制端点驱动，工具由隔离用户空间的
+ * 扩展探针注册；不访问个人空间，也不使用付费模型。
+ */
+import { expect, test } from '@playwright/test'
+import { E2E_HOST_URL } from './config.js'
+import {
+  assistantMessages,
+  createProject,
+  createWorkspaceApi,
+  DEFAULT_REPLY,
+  messageInput,
+  openApp,
+  resetStream,
+  selectModel,
+  sendMessage,
+  startNewSession,
+  threadListItem,
+  userMessages,
+} from './helpers.js'
+
+test.describe.configure({ mode: 'serial' })
+
+test.afterEach(async ({ request }) => {
+  await resetStream(request)
+})
+
+/** 配置脚本化模型轮次（工具调用或文本）。 */
+async function scriptTurns(
+  request: import('@playwright/test').APIRequestContext,
+  turns: unknown[],
+): Promise<void> {
+  const response = await request.post(`${E2E_HOST_URL}/__e2e__/model-turns`, {
+    data: { turns },
+  })
+  expect(response.ok()).toBe(true)
+}
+
+/** 展开已完成（非错误）的工具折叠行。 */
+async function expandTool(page: import('@playwright/test').Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: `已运行 ${name}` }).click()
+}
+
+test('工具图片：纯图片与图文混合结果在会话与重开后可见', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+
+  // 图文混合：文本与图片同时呈现。
+  await scriptTurns(request, [{ tool: { name: 'e2e-image', args: {} } }, { text: '混合完成' }])
+  await sendMessage(page, `混合图片-${run}`)
+  await expect(assistantMessages(page).last()).toContainText('混合完成')
+  await expandTool(page, 'e2e-image')
+  const mixedCard = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-image' }).last()
+  await expect(mixedCard).toContainText('IMAGE-MIXED-TEXT')
+  const mixedImages = mixedCard.locator('[data-slot="huan-tool-images"] img')
+  await expect(mixedImages).toHaveCount(1)
+  await expect(mixedImages.first()).toHaveAttribute('alt', '工具 e2e-image 输出图片 1')
+
+  // 纯图片：没有文本也要能看到图片，而不是空结果。
+  await scriptTurns(request, [
+    { tool: { name: 'e2e-image', args: { mode: 'pure' } } },
+    { text: '纯图片完成' },
+  ])
+  await sendMessage(page, `纯图片-${run}`)
+  await expect(assistantMessages(page).last()).toContainText('纯图片完成')
+  const toolCards = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-image' })
+  const pureCard = toolCards.last()
+  await pureCard.getByRole('button').first().click()
+  await expect(pureCard.locator('[data-slot="huan-tool-images"] img')).toHaveCount(1)
+
+  // 重开历史：图片来自持久结果，不依赖内存中的执行状态。
+  const title = `混合图片-${run}`
+  await page.reload()
+  await threadListItem(page, title).click()
+  const historyCard = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-image' }).last()
+  await historyCard.getByRole('button').first().click()
+  await expect(historyCard.locator('[data-slot="huan-tool-images"] img')).toHaveCount(1)
+})
+
+test('嵌套工具：父子关系、进度与待答请求可发现可操作', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+
+  await scriptTurns(request, [{ tool: { name: 'e2e-nested', args: {} } }, { text: '嵌套完成' }])
+  await sendMessage(page, `嵌套工具-${run}`)
+
+  // 子工具阻塞在确认请求上：应答入口在输入区上方，带工具关联标识。
+  const requestCard = page
+    .locator('[data-slot="huan-host-ui-request"]')
+    .filter({ hasText: 'E2E 子工具确认' })
+  await expect(requestCard).toBeVisible({ timeout: 20_000 })
+  await expect(requestCard.locator('[data-slot="huan-request-tool"]')).toContainText('工具关联')
+  // 工具行明确显示等待交互，而不是“已完成”。请求归属到正在执行的父工具调用。
+  const pendingParent = page.getByRole('button', { name: '等待交互：e2e-nested' })
+  await expect(pendingParent).toBeVisible()
+  // 展开父项可见带 parentToolCallId 的子调用行（父子关系来自执行事件）。
+  await pendingParent.click()
+  const nested = page.locator('[data-slot="huan-nested-tools"]').last()
+  await expect(nested).toBeVisible()
+  const childLine = nested.locator('[data-parent-tool-call-id]').first()
+  await expect(childLine).toHaveAttribute('data-parent-tool-call-id', /^call_/)
+  await expect(nested).toContainText('e2e-child-ask')
+  // 子工具在确认前上报了固定进度：展开子调用后，部分输出与参数都必须在正文可见，
+  // 不能只核对名字行。
+  await childLine.click()
+  const childCard = nested
+    .locator('[data-slot="trace"]')
+    .filter({ hasText: 'e2e-child-ask' })
+    .last()
+  await expect(childCard).toContainText('CHILD-PROGRESS:nested-progress-arg')
+  await expect(childCard).toContainText('"note": "nested-progress-arg"')
+  await expect(childCard).toContainText('工具仍在运行，以下为部分输出。')
+
+  await requestCard.getByRole('button', { name: '允许' }).click()
+  await expect(assistantMessages(page).last()).toContainText('嵌套完成', { timeout: 20_000 })
+  await expect(page.getByRole('button', { name: '等待交互：e2e-nested' })).toHaveCount(0)
+
+  // 历史记录保留有界子调用摘要与父工具输出。
+  await expandTool(page, 'e2e-nested')
+  const parentCard = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-nested' }).last()
+  await expect(parentCard).toContainText('NESTED-PARENT-DONE')
+  const summary = parentCard.locator('[data-slot="huan-nested-calls"]')
+  await expect(summary).toContainText('子调用摘要')
+  await expect(summary).toContainText('e2e-child-ask')
+  await expect(summary).toContainText('nested-progress-arg')
+})
+
+test('工具关联的编辑器请求保留原文与多行编辑', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+
+  await scriptTurns(request, [{ tool: { name: 'e2e-editor', args: {} } }, { text: '编辑器完成' }])
+  await sendMessage(page, `编辑器原文-${run}`)
+
+  const requestCard = page
+    .locator('[data-slot="huan-host-ui-request"]')
+    .filter({ hasText: 'E2E 编辑器请求' })
+  await expect(requestCard).toBeVisible({ timeout: 20_000 })
+  const editor = requestCard.getByRole('textbox', { name: '交互编辑器' })
+  // 工具关联的 editor 请求必须带原文预填，并与游离请求行为一致。
+  await expect(editor).toHaveValue('第一行原文\n第二行原文')
+  await editor.fill('第一行原文\n第二行原文\n第三行修订')
+  await requestCard.getByRole('button', { name: '提交' }).click()
+  await expect(assistantMessages(page).last()).toContainText('编辑器完成', { timeout: 20_000 })
+  await expect(requestCard).toHaveCount(0)
+  // 工具收到的是完整多行原文（换行在结果里以 | 呈现）。
+  await expandTool(page, 'e2e-editor')
+  const editorCard = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-editor' }).last()
+  await expect(editorCard).toContainText('EDITOR-ANSWER:第一行原文|第二行原文|第三行修订')
+})
+
+/** 写入导入源文件并返回宿主可读的绝对路径。 */
+async function writeSource(
+  _request: import('@playwright/test').APIRequestContext,
+  testInfo: import('@playwright/test').TestInfo,
+  name: string,
+  content: string,
+): Promise<string> {
+  const { writeFile } = await import('node:fs/promises')
+  const file = testInfo.outputPath(name)
+  await writeFile(file, content)
+  return file
+}
+
+const TIMESTAMP = '2026-11-02T00:00:00.000Z'
+
+/** 构造带额外条目的 Pi JSONL（用于未知数据与模型回退场景）。 */
+function sessionJsonl(options: {
+  id: string
+  cwd: string
+  text: string
+  model?: { provider: string; model: string }
+  extraEntries?: Record<string, unknown>[]
+}): string {
+  const { id, cwd, text, model = { provider: 'huan-test', model: 'test-model-a' } } = options
+  const userTimestamp = Date.parse(TIMESTAMP) + 1
+  const header = { type: 'session', version: 3, id, timestamp: TIMESTAMP, cwd }
+  const entries: Record<string, unknown>[] = [
+    {
+      type: 'message',
+      id: 'entry-user',
+      parentId: null,
+      timestamp: new Date(userTimestamp).toISOString(),
+      message: { role: 'user', content: [{ type: 'text', text }], timestamp: userTimestamp },
+    },
+    {
+      type: 'message',
+      id: 'entry-assistant',
+      parentId: 'entry-user',
+      timestamp: new Date(userTimestamp + 1).toISOString(),
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: '导入回答' }],
+        api: 'openai-completions',
+        provider: model.provider,
+        model: model.model,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: userTimestamp + 1,
+      },
+    },
+    ...(options.extraEntries ?? []),
+  ]
+  return `${[header, ...entries].map((entry) => JSON.stringify(entry)).join('\n')}\n`
+}
+
+/** 经 GUI 从宿主路径导入并打开会话。 */
+async function importSource(
+  page: import('@playwright/test').Page,
+  sourcePath: string,
+  workspaceName: string,
+): Promise<void> {
+  await page.getByRole('button', { name: '导入 JSONL', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '导入 JSONL 会话' })
+  await dialog.getByRole('combobox', { name: '目标工作区' }).click()
+  await page.getByRole('option', { name: workspaceName, exact: true }).click()
+  await dialog.getByLabel('宿主 JSONL 路径').fill(sourcePath)
+  await dialog.getByRole('button', { name: '预览导入' }).click()
+  await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible({
+    timeout: 20_000,
+  })
+  await dialog.getByRole('button', { name: '确认导入' }).click()
+  await expect(dialog.getByRole('status')).toContainText('会话已导入', { timeout: 20_000 })
+  await dialog.getByRole('button', { name: '打开已导入会话' }).click()
+  await expect(dialog).toHaveCount(0)
+}
+
+test('未知数据条目可读，不因缺专用 renderer 丢失', async ({ page, request }, testInfo) => {
+  const run = Date.now().toString(36)
+  const project = await createProject(request, `presentation-${run}`)
+  const workspaceName = `展示工作区-${run}`
+  await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+  const text = `未知数据-${run}`
+  const source = await writeSource(
+    request,
+    testInfo,
+    'unknown.jsonl',
+    sessionJsonl({
+      id: `e2e-unknown-${run}`,
+      cwd: project.path,
+      text,
+      extraEntries: [
+        {
+          type: 'message',
+          id: 'entry-future',
+          parentId: 'entry-assistant',
+          timestamp: new Date(Date.parse(TIMESTAMP) + 3).toISOString(),
+          message: { role: 'future-role', payload: { marker: `FUTURE-${run}` } },
+        },
+      ],
+    }),
+  )
+  await openApp(page)
+  await importSource(page, source, workspaceName)
+  await expect(userMessages(page).first()).toContainText(text)
+  const unknown = page.locator('[data-slot="huan-unknown-data"]').last()
+  await expect(unknown).toBeVisible()
+  await expect(unknown).toContainText('future-role')
+  await expect(unknown).toContainText(`FUTURE-${run}`)
+})
+
+test('历史模型不可用时展示受控回退原因且不泄露原始错误', async ({ page, request }, testInfo) => {
+  const run = Date.now().toString(36)
+  const project = await createProject(request, `fallback-${run}`)
+  const workspaceName = `回退工作区-${run}`
+  await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+  const text = `回退会话-${run}`
+  const source = await writeSource(
+    request,
+    testInfo,
+    'fallback.jsonl',
+    sessionJsonl({
+      id: `e2e-fallback-${run}`,
+      cwd: project.path,
+      text,
+      model: { provider: 'huan-test', model: 'ghost-model' },
+    }),
+  )
+  await openApp(page)
+  // 可用历史与无消息历史都没有回退提示。
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendMessage(page, `正常会话-${run}`)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(page.locator('[data-slot="huan-session-fallback"]')).toHaveCount(0)
+
+  await importSource(page, source, workspaceName)
+  await expect(userMessages(page).first()).toContainText(text)
+  // 先确认宿主已经记录按会话投影的回退原因（进展点来自真实宿主），再看界面。
+  await expect
+    .poll(
+      async () => {
+        const response = await request.get(`${E2E_HOST_URL}/api/pi/threads?refresh=true`)
+        const listed = (await response.json()) as Array<{
+          title?: string
+          modelFallback?: { reason?: string }
+          config?: { provider?: string; modelId?: string }
+        }>
+        const hit = listed.find((item) => item.title === text)
+        return hit?.modelFallback?.reason
+      },
+      { timeout: 20_000 },
+    )
+    .toBe('restore-failed')
+  // 不手动重扫或reload；live首帧必须自动更新回退原因。
+  const fallback = page.locator('[data-slot="huan-session-fallback"]')
+  await expect(fallback).toBeVisible({ timeout: 20_000 })
+  await expect(fallback).toContainText('huan-test/ghost-model')
+  await expect(fallback).not.toContainText('Error:')
+  await expect(fallback).not.toContainText('at ')
+
+  // 宿主状态面板按会话展示同一受控原因。
+  await page.getByRole('button', { name: '宿主状态' }).click()
+  const status = page.getByRole('dialog', { name: '宿主状态' })
+  const sessionFallback = status.locator('[data-slot="huan-model-fallback"]')
+  await expect(sessionFallback).toContainText('历史恢复时原模型不可用')
+  await expect(sessionFallback).toContainText('原模型 huan-test/ghost-model')
+  await expect(sessionFallback).toContainText('当前使用')
+  await expect(sessionFallback).not.toContainText('Error:')
+  await page.keyboard.press('Escape')
+  await expect(status).toHaveCount(0)
+
+  // 会话仍可继续对话（使用有效模型）。
+  await messageInput(page).fill(`回退后继续-${run}`)
+  await selectModel(page)
+  await sendMessage(page, `回退后继续-${run}`)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+})

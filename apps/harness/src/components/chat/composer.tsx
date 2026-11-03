@@ -290,9 +290,19 @@ export function ChatComposer() {
   // 无选择时明确落到当前工作区起始目录，允许直接输入首条消息。
   useEffect(() => {
     if (selection || readOnly) return
+    // 工作区目录到达后才固定目标，让目标带上工作区身份（见 ensureTarget）。
+    if (workspaceState === undefined && activeWorkspaceId === undefined) return
     if (activeWorkspaceId === undefined && workspaceIds.length === 0 && !hostWorkspacePath) return
     ensureTarget()
-  }, [activeWorkspaceId, ensureTarget, hostWorkspacePath, readOnly, selection, workspaceIds.length])
+  }, [
+    activeWorkspaceId,
+    ensureTarget,
+    hostWorkspacePath,
+    readOnly,
+    selection,
+    workspaceIds.length,
+    workspaceState,
+  ])
 
   // 本窗切换目标后才移动焦点；其他窗口与弹层内输入不受影响。
   useEffect(() => {
@@ -367,6 +377,10 @@ export function ChatComposer() {
         : {}),
       now: Date.now(),
       completionOpen: completion !== undefined && completion.items.length > 0,
+      completionExact:
+        completion !== undefined &&
+        completion.items.length > 0 &&
+        (completion.items[completion.index]?.insertText.trim() ?? '') === element.value.trim(),
       caretStart: element.selectionStart,
       caretEnd: element.selectionEnd,
       valueLength: element.value.length,

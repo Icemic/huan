@@ -9,6 +9,7 @@ import { expect, test } from '@playwright/test'
 import {
   assistantMessages,
   configureStream,
+  DEFAULT_REPLY,
   openApp,
   releaseSegment,
   resetStream,
@@ -23,7 +24,7 @@ import {
 test.describe.configure({ mode: 'serial' })
 
 const messageInput = (page: import('@playwright/test').Page) =>
-  page.getByRole('textbox', { name: 'Message input' })
+  page.getByRole('textbox', { name: '消息输入' })
 
 test.afterEach(async ({ request }) => {
   await resetStream(request)
@@ -107,7 +108,7 @@ test('图片在不支持图像的模型下被拒绝，文字与附件保留', as
   await openApp(page)
   await selectModel(page, 'Test Model B')
   const chooserPromise = page.waitForEvent('filechooser')
-  await page.getByRole('button', { name: 'Add Attachment' }).click()
+  await page.getByRole('button', { name: '添加图片附件' }).click()
   const chooser = await chooserPromise
   await chooser.setFiles({
     name: 'dot.png',
@@ -117,15 +118,15 @@ test('图片在不支持图像的模型下被拒绝，文字与附件保留', as
       'base64',
     ),
   })
-  await expect(page.locator('.aui-attachment-tile')).toHaveCount(1)
+  await expect(page.locator('[data-slot="huan-composer-attachment"]')).toHaveCount(1)
   await messageInput(page).fill('图片能力测试')
-  await page.getByRole('button', { name: 'Send message' }).click()
+  await page.getByRole('button', { name: '发送消息' }).click()
 
   await expect(page.locator('[data-slot="huan-composer-notice"]')).toContainText(
     '未声明图像输入能力',
   )
   await expect(messageInput(page)).toHaveValue('图片能力测试')
-  await expect(page.locator('.aui-attachment-tile')).toHaveCount(1)
+  await expect(page.locator('[data-slot="huan-composer-attachment"]')).toHaveCount(1)
   await expect(userMessages(page)).toHaveCount(0)
 })
 
@@ -142,10 +143,10 @@ test('粘贴图片生成浏览器附件，可预览移除', async ({ page }) => 
       new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
     )
   })
-  const tile = page.locator('.aui-attachment-tile')
+  const tile = page.locator('[data-slot="huan-composer-attachment"]')
   await expect(tile).toHaveCount(1)
-  await expect(page.getByRole('button', { name: 'Preview paste.png', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Remove paste.png', exact: true }).click()
+  await expect(page.getByRole('button', { name: '预览附件 paste.png', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '移除附件 paste.png', exact: true }).click()
   await expect(tile).toHaveCount(0)
 })
 
@@ -158,7 +159,7 @@ test('两个窗口的草稿互不覆盖，刷新只恢复本窗口文字', async
   await messageInput(second).fill('窗口二草稿')
   await expect(messageInput(page)).toHaveValue('窗口一草稿')
   await second.reload()
-  await expect(second.getByRole('region', { name: 'Pi host status' })).toBeVisible()
+  await expect(second.locator('[data-slot="huan-header"]')).toBeVisible()
   await expect(messageInput(second)).toHaveValue('窗口二草稿')
   await expect(messageInput(page)).toHaveValue('窗口一草稿')
   await second.close()
@@ -169,7 +170,7 @@ test('草稿刷新恢复、长输入取消与应用、窗口历史回到空输�
   await selectModel(page)
   await messageInput(page).fill('刷新后恢复的草稿')
   await page.reload()
-  await expect(page.getByRole('region', { name: 'Pi host status' })).toBeVisible()
+  await expect(page.locator('[data-slot="huan-header"]')).toBeVisible()
   await expect(messageInput(page)).toHaveValue('刷新后恢复的草稿')
   // 模型草稿不持久化：刷新后重新选择测试模型再发送。
   await selectModel(page)
@@ -265,7 +266,7 @@ test('运行中显式转向/后续、队列标注与整体取回', async ({ page
       name: '转向',
     })
     .click()
-  await page.getByRole('button', { name: 'Send message' }).click()
+  await page.getByRole('button', { name: '发送消息' }).click()
   const queue = page.locator('[data-slot="huan-composer-queue"]')
   await expect(queue).toContainText('转向')
   await expect(queue).toContainText('转向内容')
@@ -277,7 +278,7 @@ test('运行中显式转向/后续、队列标注与整体取回', async ({ page
       name: '后续',
     })
     .click()
-  await page.getByRole('button', { name: 'Send message' }).click()
+  await page.getByRole('button', { name: '发送消息' }).click()
   await expect(queue).toContainText('后续内容')
 
   await page.locator('[data-slot="huan-queue-retrieve"]').click()
@@ -286,5 +287,64 @@ test('运行中显式转向/后续、队列标注与整体取回', async ({ page
   expect(value).toContain('转向内容')
   expect(value).toContain('后续内容')
 
-  await page.getByRole('button', { name: 'Stop generating' }).click()
+  await page.getByRole('button', { name: '停止当前运行' }).click()
+})
+
+test('异步命令完成不清除同目标的新草稿', async ({ page }) => {
+  const run = Date.now().toString(36)
+  await openApp(page)
+  // 延迟模型目录请求：命令完成时用户已经输入了新草稿。
+  await page.route('**/api/pi/models*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await route.continue()
+  })
+  try {
+    await messageInput(page).fill('/model test-model-b')
+    await messageInput(page).press('Escape')
+    await messageInput(page).press('Enter')
+    const draft = `同目标新草稿-${run}`
+    await messageInput(page).fill(draft)
+    await expect(page.locator('[data-slot="huan-composer-notice"]')).toContainText('新会话将使用', {
+      timeout: 20_000,
+    })
+    // 命令只作用于自己的草稿版本，不能清掉之后输入的文本。
+    await expect(messageInput(page)).toHaveValue(draft)
+  } finally {
+    await page.unroute('**/api/pi/models*')
+  }
+})
+
+test('窗口输入历史只记录本窗口提交，其他窗口的消息不进入', async ({ page, context }) => {
+  const run = Date.now().toString(36)
+  const base = `历史基线-${run}`
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+  await sendMessage(page, base)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+
+  const second = await context.newPage()
+  await openApp(second)
+  await threadListItem(second, base).click()
+  await selectModel(second)
+
+  // 另一窗口发送：本窗口历史不应记入这条消息。
+  const fromFirst = `他窗消息-${run}`
+  await sendMessage(page, fromFirst)
+  await expect(userMessages(page).last()).toContainText(fromFirst)
+
+  await messageInput(second).press('ArrowUp')
+  await expect(messageInput(second)).toHaveValue('')
+  await messageInput(second).press('ArrowUp')
+  await expect(messageInput(second)).toHaveValue('')
+
+  // 本窗口自己提交后才进入本窗口历史。
+  const own = `本窗消息-${run}`
+  await sendMessage(second, own)
+  await expect(assistantMessages(second).last()).toContainText(DEFAULT_REPLY)
+  await messageInput(second).press('ArrowUp')
+  await expect(messageInput(second)).toHaveValue(own)
+  await messageInput(second).press('ArrowUp')
+  await expect(messageInput(second)).toHaveValue(own)
+  await second.close()
 })

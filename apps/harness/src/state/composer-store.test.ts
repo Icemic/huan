@@ -388,6 +388,32 @@ describe('composer feature：内置命令、Shell 与普通提交', () => {
     ])
   })
 
+  it('异步model命令不裁剪后来输入的同前缀文本，重复选相同模型仍可消费命令', async () => {
+    const fake = createFakeClient()
+    const { browser, composer } = createApp(fake.client)
+    const draftId = selectNew(browser)
+    await composer.getState().refreshCatalog()
+    const command = '/model provider/model'
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const models = await fake.client.getAvailableModels()
+    vi.mocked(fake.client.getAvailableModels).mockImplementationOnce(async () => {
+      await gate
+      return models
+    })
+    browser.windowStore.getState().editDraftText(draftId, command)
+    const submit = composer.getState().submit()
+    browser.windowStore.getState().editDraftText(draftId, `${command} 这是新编辑`)
+    release()
+    await submit
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe(`${command} 这是新编辑`)
+    browser.windowStore.getState().editDraftText(draftId, command)
+    await composer.getState().submit()
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
   it('/model 在新会话目标写草稿模型预选', async () => {
     const fake = createFakeClient()
     const { browser, composer } = createApp(fake.client)

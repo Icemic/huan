@@ -38,7 +38,8 @@ export type ModelSelectorRootProps = {
   onEffortChange?: (effort: string) => void
   open?: boolean
   defaultOpen?: boolean
-  onOpenChange?: (open: boolean) => void
+  /** 关闭/打开原因透传（来自 Base UI 的 eventDetails.reason）。 */
+  onOpenChange?: (open: boolean, reason?: string) => void
   children: ReactNode
 }
 
@@ -111,7 +112,7 @@ function ModelSelectorRoot({
         }}
         open={open}
         defaultOpen={defaultOpen}
-        onOpenChange={(next) => onOpenChange?.(next)}
+        onOpenChange={(next, details) => onOpenChange?.(next, details.reason)}
         filter={filterModel}
         autoHighlight
       >

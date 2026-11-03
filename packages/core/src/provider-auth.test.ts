@@ -616,8 +616,12 @@ describe('认证 broker：真实 ModelRuntime 持久化与重启', () => {
   ): Promise<ModelRuntime> => {
     const runtime = await ModelRuntime.create({
       authPath: join(dir, 'auth.json'),
-      modelsPath: join(dir, 'models.json'),
-      refreshOnCreate: false,
+      // 模型目录用内存存储：临时目录只承载 auth.json。registerNativeProvider 会自行
+      // 发起一次后台刷新（写 models-store.json），晚到的写入会与用例结束后的临时
+      // 目录清理竞争（Windows 上表现为 ENOTEMPTY）。
+      modelsPath: null,
+      // 与宿主 createSharedModelRuntime 一致，创建时先读取已存凭据快照。
+      refreshOnCreate: true,
       allowModelNetwork: false,
       ...options,
     })

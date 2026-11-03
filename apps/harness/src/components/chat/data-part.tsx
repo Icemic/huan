@@ -114,14 +114,16 @@ function BashExecutionPart({ part }: { part: HarnessDataViewPart }) {
 function SummaryPart({
   part,
   title,
+  slot,
   children,
 }: {
   part: HarnessDataViewPart
   title: ReactNode
+  slot: string
   children?: ReactNode
 }) {
   return (
-    <Trace className="my-2">
+    <Trace data-slot={slot} className="my-2">
       <TraceCollapsible>
         <TraceCollapsibleTrigger>
           <TraceLine className="text-xs">
@@ -143,6 +145,7 @@ function CompactionSummaryPart({ part }: { part: HarnessDataViewPart }) {
   return (
     <SummaryPart
       part={part}
+      slot="huan-compaction-summary"
       title={
         <>
           <Trans>上下文已压缩</Trans>
@@ -159,7 +162,7 @@ function CompactionSummaryPart({ part }: { part: HarnessDataViewPart }) {
 
 function BranchSummaryPart({ part }: { part: HarnessDataViewPart }) {
   return (
-    <SummaryPart part={part} title={<Trans>分支摘要</Trans>}>
+    <SummaryPart part={part} slot="huan-branch-summary" title={<Trans>分支摘要</Trans>}>
       <div className="text-xs whitespace-pre-wrap">{asText(part.data.summary)}</div>
     </SummaryPart>
   )
@@ -170,6 +173,7 @@ function CustomMessagePart({ part }: { part: HarnessDataViewPart }) {
   return (
     <SummaryPart
       part={part}
+      slot="huan-custom-message"
       title={
         <>
           <Trans>扩展消息</Trans>
@@ -182,15 +186,17 @@ function CustomMessagePart({ part }: { part: HarnessDataViewPart }) {
 
 function UnknownDataPart({ part }: { part: HarnessDataViewPart }) {
   return (
-    <CodeBlock className="my-2" size="sm">
-      <CodeBlockHeader>
-        <CodeBlockTitle>{part.name}</CodeBlockTitle>
-        <CodeBlockActions>
-          <CodeBlockCopyButton value={safeJson(part.data)} />
-        </CodeBlockActions>
-      </CodeBlockHeader>
-      <CodeBlockContent className="max-h-64">{safeJson(part.data)}</CodeBlockContent>
-    </CodeBlock>
+    <div data-slot="huan-unknown-data">
+      <CodeBlock className="my-2" size="sm">
+        <CodeBlockHeader>
+          <CodeBlockTitle>{part.name}</CodeBlockTitle>
+          <CodeBlockActions>
+            <CodeBlockCopyButton value={safeJson(part.data)} />
+          </CodeBlockActions>
+        </CodeBlockHeader>
+        <CodeBlockContent className="max-h-64">{safeJson(part.data)}</CodeBlockContent>
+      </CodeBlock>
+    </div>
   )
 }
 

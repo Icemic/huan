@@ -12,18 +12,30 @@ export type TooltipIconButtonProps = ComponentPropsWithRef<typeof Button> & {
 
 /** 图标按钮 + Base UI Tooltip；触发器通过 render 复用同一个 Button 节点。 */
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(
-  ({ children, tooltip, side = 'bottom', className, ...rest }, ref) => {
+  (
+    {
+      children,
+      tooltip,
+      side = 'bottom',
+      className,
+      variant = 'ghost',
+      size = 'icon-xs',
+      type = 'button',
+      ...rest
+    },
+    ref,
+  ) => {
     return (
       <Tooltip>
         <TooltipTrigger
           delay={0}
           render={
             <Button
-              variant="ghost"
-              size="icon"
-              type="button"
+              variant={variant}
+              size={size}
+              type={type}
               {...rest}
-              className={cn('size-6 p-1 active:scale-90', className)}
+              className={cn('p-1 active:scale-90', className)}
               ref={ref}
             >
               {children}

@@ -8,7 +8,7 @@
 
 import type { HarnessModelInfo, HarnessThinkingLevel } from '@huan/protocol'
 import { draftIdOf, selectHarnessModelCatalog, useServiceStore, useWindowStore } from '@huan/react'
-import { memo, useEffect, useMemo } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import {
   type ModelOption,
   ModelSelectorContent,
@@ -39,7 +39,12 @@ const targetKeyOf = (target: ModelTarget | undefined): string => {
   return `w:${target.workspaceId ?? ''}:${target.workspacePath}`
 }
 
-export const PiModelSelector = memo(function PiModelSelector() {
+export const PiModelSelector = memo(function PiModelSelector({
+  owner = 'composer',
+}: {
+  /** 选择器实例标识；只有触发的实例渲染弹层。 */
+  owner?: string
+}) {
   const selection = useWindowStore((state) => state.selection)
   const metadata = useServiceStore((state) =>
     selection?.kind === 'thread' ? state.threadsById[selection.threadId] : undefined,
@@ -68,6 +73,7 @@ export const PiModelSelector = memo(function PiModelSelector() {
 
   const open = useModelStore((state) => state.open)
   const panelTargetKey = useModelStore((state) => state.targetKey)
+  const panelOwner = useModelStore((state) => state.panelOwner)
   const busy = useModelStore((state) => state.busy)
   const notice = useModelStore((state) => state.notice)
   const error = useModelStore((state) => state.error)
@@ -101,7 +107,26 @@ export const PiModelSelector = memo(function PiModelSelector() {
   }, [currentTarget, currentTargetKey, authRevision, metadata?.modelCatalogRevision, loadCatalog])
 
   // 选择器可见目标必须仍是当前窗口目标；切换选择时由 bootstrap 关闭旧面板。
-  const visible = open && panelTargetKey === currentTargetKey
+  // 同一时刻只有一个实例展开弹层：避免上下文栏与输入区两个同名 popup。
+  const visible = open && panelOwner === owner && panelTargetKey === currentTargetKey
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const wasVisible = useRef(false)
+  // 选中条目后 Base UI 会关闭弹层；焦点在弹层卸载时可能落到不可见的
+  // 第一个表单控件上，这里在关闭后把焦点交回触发按钮。
+  const restoreFocus = useRef(false)
+  useEffect(() => {
+    if (wasVisible.current && !visible && restoreFocus.current) {
+      restoreFocus.current = false
+      requestAnimationFrame(() => {
+        const triggerElement = rootRef.current?.querySelector<HTMLElement>(
+          '[data-slot="model-selector-trigger"]',
+        )
+        triggerElement?.focus()
+      })
+    }
+    if (wasVisible.current !== visible) restoreFocus.current = false
+    wasVisible.current = visible
+  }, [visible])
   const options = useMemo(() => toModelOptions(models), [models])
   const scopeKeys = metadata?.scopedModelKeys
   const selectableModels =
@@ -117,6 +142,7 @@ export const PiModelSelector = memo(function PiModelSelector() {
 
   return (
     <div
+      ref={rootRef}
       className="flex min-w-0 items-center gap-1"
       data-slot="huan-model-selector"
       data-model-fallback={fallback?.reason}
@@ -130,13 +156,16 @@ export const PiModelSelector = memo(function PiModelSelector() {
         effort={effort ?? ''}
         onEffortChange={(level) => void chooseThinking(level as HarnessThinkingLevel)}
         open={visible}
-        onOpenChange={(next) => {
-          if (next) void openPanel()
-          else close()
+        onOpenChange={(next, reason) => {
+          if (next) {
+            void openPanel({ owner })
+            return
+          }
+          if (reason === 'item-press') restoreFocus.current = true
+          close()
         }}
       >
         <ModelSelectorTrigger
-          size="sm"
           variant="ghost"
           aria-label="选择模型"
           disabled={!currentTarget || readOnly}

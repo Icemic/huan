@@ -48,13 +48,11 @@ test('空白页显示默认模型错误、目录及来源，选有效模型后�
   const info = await controlInfo(request)
   await openApp(page)
 
-  const hostStatus = page.getByRole('region', { name: 'Pi host status' })
-  await expect(hostStatus.getByText('启动默认模型未配置或不可用')).toBeVisible()
-
-  await hostStatus.getByText('宿主信息与诊断').click()
+  await page.getByRole('button', { name: '宿主状态' }).click()
+  const hostStatus = page.getByRole('dialog', { name: '宿主状态' })
+  await expect(hostStatus.getByText('默认模型不可用：所选模型不在注册表中')).toBeVisible()
   await expect(hostStatus.getByText(info.workspacePath)).toBeVisible()
   await expect(hostStatus.getByText(`${info.agentDir} (显式参数)`)).toBeVisible()
-  await expect(hostStatus.getByText('显式参数')).toBeVisible()
   await expect(hostStatus.getByText('e2e-missing-provider / e2e-missing-model')).toBeVisible()
 
   await page.bringToFront()
@@ -64,6 +62,8 @@ test('空白页显示默认模型错误、目录及来源，选有效模型后�
   expect(summary.workspacePath).toBe(info.workspacePath)
   expect(summary.agentDir).toBe(info.agentDir)
   expect(summary.defaultModel.readiness.state).toBe('unavailable-model')
+  await page.keyboard.press('Escape')
+  await expect(hostStatus).toHaveCount(0)
 
   // 选有效模型后，空白会话可以创建并发送首条消息。
   await selectModel(page)
@@ -184,5 +184,5 @@ test('两页面订阅同一会话可同步，关闭其中一个页面不终止�
   await expect(assistantMessages(page2).last()).toContainText(`${segment1}${segment2}`, {
     timeout: 20_000,
   })
-  await expect(page2.getByRole('button', { name: 'Send message' })).toBeVisible()
+  await expect(page2.getByRole('button', { name: '发送消息' })).toBeVisible()
 })

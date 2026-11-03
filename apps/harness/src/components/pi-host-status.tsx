@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
 import { useAuthStore, useHostStore } from '@/state/app-context'
 
 const sourceLabel = (source: HarnessConfigSource) => {
@@ -84,6 +85,7 @@ export function PiHostStatus() {
   const closeStatus = useHostStore((state) => state.closeStatus)
   const refreshHostInfo = useHostStore((state) => state.refreshHostInfo)
   const openAuth = useAuthStore((state) => state.openPanel)
+  const triggerRef = useRestoreTriggerFocus(statusOpen)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   const readiness = host?.defaultModel.readiness
@@ -103,6 +105,7 @@ export function PiHostStatus() {
   return (
     <>
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"

@@ -127,7 +127,9 @@ export async function createIsolatedPiEnv(
     agentDir,
     workspace,
     defaultSessionDir: (cwd = workspace) => defaultSessionDir(agentDir, cwd),
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    // Windows 删除已退出进程的目录可能短暂失败；沿用 Node 的有界重试，
+    // 失败最终仍抛出。锁持有者未确认，不能据此认定为系统原因或关闭 AR-34。
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
   }
 }
 

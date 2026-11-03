@@ -138,7 +138,7 @@ export function SessionDetailsDialog() {
             <Button
               variant="outline"
               size="sm"
-              disabled={panel.renameBusy || !panel.renameValue.trim()}
+              disabled={panel.renameBusy}
               onClick={() => void renameThread()}
             >
               {panel.renameBusy && <Loader2Icon aria-hidden className="size-3.5 animate-spin" />}

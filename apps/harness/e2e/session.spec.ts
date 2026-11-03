@@ -128,13 +128,15 @@ test('搜索限定名称与首条消息，范围/排序/仅命名过滤生效', 
   await page.getByLabel('搜索会话').fill('')
 
   // 清空名称恢复为未命名，首条消息标题仍可搜索。
-  const namedRow = sessionRow(page, `A命名-${run}`)
-  await namedRow.hover()
-  await namedRow.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '重命名', exact: true }).click()
-  const renameInput = page.getByRole('textbox', { name: '重命名会话' })
-  await renameInput.fill('')
-  await renameInput.press('Enter')
+  await threadListItem(page, `A命名-${run}`).click()
+  const context = page.locator('[data-slot="huan-session-context"]')
+  await context.getByRole('button', { name: '详情', exact: true }).click()
+  const details = page.getByRole('dialog', { name: '会话详情' })
+  await details.getByRole('textbox', { name: '会话名称' }).fill('')
+  await details.getByRole('button', { name: '保存名称' }).click()
+  await expect(details.getByRole('status')).toContainText('会话名称已清空')
+  await page.keyboard.press('Escape')
+  await expect(details).toHaveCount(0)
   await expect(threadListItem(page, `首条丙-${run}`)).toBeVisible()
   await page.getByLabel('仅命名', { exact: true }).check()
   await expect(triggers).toHaveCount(1)
@@ -203,7 +205,8 @@ test('显式刷新发现外部新增会话，未刷新时保持宿主缓存', as
   await expect(unassignedGroup).not.toContainText(externalTitle)
 
   // 显式刷新清除作用域缓存后重新扫描，外部会话出现在未归属分组。
-  await page.getByRole('button', { name: '刷新工作区', exact: true }).click()
+  // 按钮在扫描期间禁用，这里用文档化的另一入口（窗口重新聚焦）触发新扫描。
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   await expect(unassignedGroup).toContainText(externalTitle)
   await expect(sessionRow(page, externalTitle)).toBeVisible()
   releaseOld()
@@ -230,10 +233,10 @@ test('详情展示累计统计与路径，归档/恢复可从全部会话操作'
   const row = sessionRow(page, title)
   await expect(row).toBeVisible()
 
-  // 详情：只读统计、完整会话文件路径与上下文。
-  await row.hover()
-  await row.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '详情', exact: true }).click()
+  // 详情：只读统计、完整会话文件路径与上下文（选中会话后由上下文栏打开）。
+  await row.locator('[data-slot="huan-session-trigger"]').click()
+  const context = page.locator('[data-slot="huan-session-context"]')
+  await context.getByRole('button', { name: '详情', exact: true }).click()
   const details = page.getByRole('dialog', { name: '会话详情' })
   await expect(details).toBeVisible()
   await expect(details).toContainText('用户 1')
@@ -244,20 +247,18 @@ test('详情展示累计统计与路径，归档/恢复可从全部会话操作'
   // 手动刷新详情不改变统计口径。
   await details.getByRole('button', { name: '刷新详情' }).click()
   await expect(details).toContainText('用户 1')
-  await details.getByRole('button', { name: '关闭', exact: true }).first().click()
+  await page.keyboard.press('Escape')
   await expect(details).toHaveCount(0)
-  await expect(row.getByRole('button', { name: '会话操作' })).toBeFocused()
+  // 关闭后焦点回到打开它的上下文栏入口。
+  await expect(context.getByRole('button', { name: '详情', exact: true })).toBeFocused()
 
   // 归档：普通视图隐藏，归档视图可见，恢复后回到普通视图。
-  await row.hover()
-  await row.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '归档', exact: true }).click()
+  await context.getByRole('button', { name: '归档', exact: true }).click()
   await expect(threadListItem(page, title)).toHaveCount(0)
   await page.getByLabel('已归档会话', { exact: true }).check()
   await expect(threadListItem(page, title)).toBeVisible()
-  await threadListItem(page, title).hover()
-  await page.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '恢复', exact: true }).click()
+  await threadListItem(page, title).click()
+  await context.getByRole('button', { name: '取消归档', exact: true }).click()
   await page.getByLabel('已归档会话', { exact: true }).uncheck()
   await expect(threadListItem(page, title)).toBeVisible()
 
@@ -270,13 +271,13 @@ test('详情展示累计统计与路径，归档/恢复可从全部会话操作'
   expect(external.ok()).toBe(true)
   await page.getByRole('button', { name: '刷新工作区', exact: true }).click()
   const unassignedRow = sessionRow(page, unassignedTitle)
-  await unassignedRow.hover()
-  await unassignedRow.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '详情', exact: true }).click()
+  await unassignedRow.locator('[data-slot="huan-session-trigger"]').click()
+  await context.getByRole('button', { name: '详情', exact: true }).click()
   const unassignedDetails = page.getByRole('dialog', { name: '会话详情' })
   await expect(unassignedDetails).toContainText('未归属')
   await expect(unassignedDetails).toContainText('用户 1')
-  await unassignedDetails.getByRole('button', { name: '关闭', exact: true }).first().click()
+  await page.keyboard.press('Escape')
+  await expect(unassignedDetails).toHaveCount(0)
 })
 
 test('删除需确认：取消保留会话，确认后会话消失且刷新不复活', async ({ page, request }) => {
@@ -293,9 +294,9 @@ test('删除需确认：取消保留会话，确认后会话消失且刷新不�
   await expect(row).toBeVisible()
 
   // 取消：不写数据、不删除文件。
-  await row.hover()
-  await row.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await row.locator('[data-slot="huan-session-trigger"]').click()
+  const context = page.locator('[data-slot="huan-session-context"]')
+  await context.getByRole('button', { name: '删除', exact: true }).click()
   const confirm = page.getByRole('dialog', { name: '删除会话' })
   await expect(confirm).toContainText(title)
   await expect(confirm).toContainText('.jsonl')
@@ -305,9 +306,7 @@ test('删除需确认：取消保留会话，确认后会话消失且刷新不�
   await expect(threadListItem(page, title)).toBeVisible()
 
   // 确认：会话从列表消失，显式刷新后也不复活。
-  await row.hover()
-  await row.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '删除', exact: true }).click()
+  await context.getByRole('button', { name: '删除', exact: true }).click()
   await page
     .getByRole('dialog', { name: '删除会话' })
     .getByRole('button', { name: '删除会话' })

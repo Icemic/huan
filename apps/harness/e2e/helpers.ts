@@ -4,28 +4,44 @@ import { DEFAULT_TEST_REPLY, E2E_HOST_URL } from './config.js'
 /** 合成模型的默认回复。 */
 export const DEFAULT_REPLY = DEFAULT_TEST_REPLY
 
+/** 助手消息行（最终组件的稳定标记，不依赖旧 aui DOM）。 */
 export const assistantMessages = (page: Page) =>
-  page.locator('[data-slot="aui_assistant-message-root"]')
+  page.locator('[data-slot="huan-message"][data-role="assistant"]')
 
-export const userMessages = (page: Page) => page.locator('[data-slot="aui_user-message-root"]')
+/** 用户消息行。 */
+export const userMessages = (page: Page) =>
+  page.locator('[data-slot="huan-message"][data-role="user"]')
 
-/** 打开页面并等待宿主状态区渲染（空白页即可见）。 */
+/** 输入框（最终组件使用中文可访问名）。 */
+export const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
+
+/** 发送按钮。 */
+export const sendButton = (page: Page) => page.getByRole('button', { name: '发送消息' })
+
+/** 等待页面完成宿主信息与目标解析，输入框可用。 */
+export async function waitForApp(page: Page): Promise<void> {
+  await expect(page.locator('[data-slot="huan-header"]')).toBeVisible()
+  await expect(messageInput(page)).toBeVisible()
+  await expect(messageInput(page)).toBeEnabled()
+}
+
+/** 打开页面并等待应用就绪（空白页即可用）。 */
 export async function openApp(page: Page): Promise<void> {
   await page.goto('/')
-  await expect(page.getByRole('region', { name: 'Pi host status' })).toBeVisible()
+  await waitForApp(page)
 }
 
 /** 从输入区的模型选择器选一个宿主真实注册表中的模型。 */
 export async function selectModel(page: Page, name = 'Test Model A'): Promise<void> {
-  const composer = page.locator('[data-slot="aui_composer-shell"]')
-  await composer.getByRole('combobox').click()
-  await page.getByRole('option', { name: new RegExp(name) }).click()
-  await expect(composer.getByRole('combobox')).toContainText(name)
+  const trigger = page.locator('[data-slot="huan-composer"]').getByRole('combobox')
+  await trigger.click()
+  await page.locator('[data-slot="model-selector-content"]').getByRole('option', { name }).click()
+  await expect(trigger).toContainText(name)
 }
 
 export async function sendMessage(page: Page, text: string): Promise<void> {
-  await page.getByRole('textbox', { name: 'Message input' }).fill(text)
-  await page.getByRole('button', { name: 'Send message' }).click()
+  await messageInput(page).fill(text)
+  await sendButton(page).click()
 }
 
 /** 会话列表项（按标题定位，避免依赖列表顺序）。 */
@@ -36,15 +52,19 @@ export const threadListItem = (page: Page, title: string) =>
 export const sessionRow = (page: Page, title: string) =>
   page.locator('[data-slot="huan-session-row"]').filter({ hasText: title })
 
-/** 经会话操作菜单重命名（侧栏与宿主列表都应以新名称刷新）。 */
+/** 经会话详情重命名（侧栏与宿主列表都应以新名称刷新）。 */
 export async function renameThread(page: Page, title: string, nextTitle: string): Promise<void> {
-  const row = sessionRow(page, title)
-  await row.hover()
-  await row.getByRole('button', { name: '会话操作' }).click()
-  await page.getByRole('button', { name: '重命名', exact: true }).click()
-  const input = page.getByRole('textbox', { name: '重命名会话' })
+  await threadListItem(page, title).click()
+  const context = page.locator('[data-slot="huan-session-context"]')
+  await context.getByRole('button', { name: '详情', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '会话详情' })
+  await expect(dialog).toBeVisible()
+  const input = dialog.getByRole('textbox', { name: '会话名称' })
   await input.fill(nextTitle)
-  await input.press('Enter')
+  await dialog.getByRole('button', { name: '保存名称' }).click()
+  await expect(dialog.getByRole('status')).toContainText('会话已命名')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
   await expect(threadListItem(page, nextTitle)).toBeVisible()
 }
 
@@ -62,9 +82,9 @@ export async function startNewSession(page: Page, workspaceName?: string): Promi
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '开始新会话' }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toBeVisible()
+  await expect(messageInput(page)).toBeVisible()
   // 新会话必须真正切到空白线程，否则首条消息会落到旧会话。
-  await expect(page.locator('[data-slot="aui_user-message-root"]')).toHaveCount(0)
+  await expect(userMessages(page)).toHaveCount(0)
 }
 
 /** 直接经真实 HTTP 路由创建工作区（用于准备多工作区场景）。 */

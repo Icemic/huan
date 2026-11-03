@@ -18,7 +18,7 @@ import {
 
 test.describe.configure({ mode: 'serial' })
 
-const messageInput = (page: Page) => page.getByRole('textbox', { name: 'Message input' })
+const messageInput = (page: Page) => page.getByRole('textbox', { name: '消息输入' })
 const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置与资源' })
 const settingsNotice = (page: Page) =>
   settingsDialog(page).locator('[data-slot="huan-settings-notice"]')
@@ -85,7 +85,7 @@ test('会话内 /reload 重载资源、刷新命令目录且不新增消息', as
   await messageInput(page).fill('/reload')
   await messageInput(page).press('Escape')
   await messageInput(page).press('Enter')
-  await expect(composerNotice(page)).toContainText('资源已重载')
+  await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
   // 命令自身不进入会话历史：仍只有首条用户消息。
   await expect(userMessages(page)).toHaveCount(1)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
@@ -139,7 +139,7 @@ test('双窗口共享资源版本：另一窗口重载后本窗口命令目录�
   const second = await page.context().newPage()
   await openApp(second)
   await threadListItem(second, '双窗口会话').click()
-  await expect(second.locator('[data-slot="aui_user-message-root"]')).toHaveCount(1)
+  await expect(second.locator('[data-slot="huan-message"][data-role="user"]')).toHaveCount(1)
 
   // 第二窗口的资源面板此时看到的还是自己的 loader（尚未加载新扩展）。
   await second.getByRole('button', { name: '设置与资源' }).click()
@@ -149,7 +149,7 @@ test('双窗口共享资源版本：另一窗口重载后本窗口命令目录�
 
   await messageInput(page).fill('/reload')
   await messageInput(page).press('Enter')
-  await expect(composerNotice(page)).toContainText('资源已重载')
+  await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
 
   // 资源版本经快照/事件传播：另一窗口的资源面板与命令目录按需重读。
   await expect(secondDialog).toContainText('reload-shared.js')
@@ -173,7 +173,7 @@ test('重载期间 session_start 确认可页面应答，结束后恢复', async
     // 重载处于启动期：回答后同一请求结算并完成重载。
     await card.getByRole('button', { name: '允许' }).click()
     await expect(card).toHaveCount(0)
-    await expect(composerNotice(page)).toContainText('资源已重载')
+    await expect(composerNotice(page)).toContainText('已重载并应用到当前会话')
     await expect(userMessages(page)).toHaveCount(1)
   } finally {
     await removeTestFile(request, 'workspace', '.pi/ask-startup')

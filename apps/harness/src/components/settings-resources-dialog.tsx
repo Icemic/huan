@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
 import { useHarnessApp, useSettingsStore, useWorkspaceStore } from '@/state/app-context'
 import {
   type SettingsTarget,
@@ -579,6 +580,8 @@ export function SettingsResourcesDialog() {
     syncResourceRevision(metadata?.resourceRevision)
   }, [metadata?.resourceRevision, open, syncResourceRevision])
 
+  const triggerRef = useRestoreTriggerFocus(open)
+
   const openDialog = () => {
     void openPanelAction(resolvedTarget)
   }
@@ -586,6 +589,7 @@ export function SettingsResourcesDialog() {
   if (!open) {
     return (
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
@@ -973,7 +977,7 @@ function ResourcePane({
         <Button
           size="sm"
           variant="outline"
-          aria-label="切换指令与系统提示文本"
+          aria-label={showText ? '隐藏指令/系统提示文本' : '显示指令/系统提示文本'}
           disabled={busy}
           onClick={onToggleText}
         >

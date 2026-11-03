@@ -450,8 +450,21 @@ export const createRuntimeFeatureStore = (
           .split('\n')
           .map((line) => line.trim())
           .filter(Boolean)
-        const selected =
-          lines.length === 0 ? true : lines.some((pattern) => patternMatchesModel(pattern, key))
+        if (lines.length === 0) {
+          // 空 patterns 表示全部：取消一个模型要写出其余模型的明确列表，
+          // 否则“从全部里移除一项”会被当成通配语法错误而静默失败。
+          const rest = allModels
+            .filter((item) => `${item.provider}/${item.modelId}` !== key)
+            .map((item) => `${item.provider}/${item.modelId}`)
+          set({
+            patternsText: rest.join('\n'),
+            patternRevision: state.patternRevision + 1,
+            notice: undefined,
+            error: undefined,
+          })
+          return
+        }
+        const selected = lines.some((pattern) => patternMatchesModel(pattern, key))
         if (selected) {
           // 只移除明确写出该模型的行；通配模式匹配到的模型必须在原文里调整。
           const exact = (pattern: string): boolean => stripThinkingSuffix(pattern) === key
@@ -465,19 +478,6 @@ export const createRuntimeFeatureStore = (
             })
             return
           }
-          set({
-            patternsText: next.join('\n'),
-            patternRevision: state.patternRevision + 1,
-            notice: undefined,
-            error: undefined,
-          })
-          return
-        }
-        if (lines.length === 0) {
-          // 空 patterns 表示全部：取消一个模型需要写出其余模型的明确列表。
-          const next = allModels
-            .filter((item) => `${item.provider}/${item.modelId}` !== key)
-            .map((item) => `${item.provider}/${item.modelId}`)
           set({
             patternsText: next.join('\n'),
             patternRevision: state.patternRevision + 1,
@@ -517,9 +517,10 @@ export const createRuntimeFeatureStore = (
             ...(submitted.saveAsDefault ? { saveAsDefault: true } : {}),
           })
           // 范围属于会话权威；即使面板已关闭也同步目录元数据（scopedModelKeys）。
+          // 目录扫描直接读取 live 元数据，比冷快照更能覆盖“无新事件”的范围修改。
           void browser.serviceStore
             .getState()
-            .loadThread(target.threadId, { force: true })
+            .refreshThreads()
             .catch(() => undefined)
           const current = get()
           if (current.disposed || request !== actionRequest) return
@@ -651,7 +652,8 @@ export const createRuntimeFeatureStore = (
         if (state.disposed || !target?.threadId || (state.busy && state.busy !== 'compact')) return
         const panel = state.targetEpoch
         const targetKey = state.targetKey
-        const request = ++actionRequest
+        // 不推进 action 代次：在途压缩的「已取消」结果仍要写回面板提示。
+        const request = actionRequest
         set({ busy: 'compact-abort', notice: undefined, error: undefined })
         try {
           const result = await browser.client.abortThreadCompaction(target.threadId)

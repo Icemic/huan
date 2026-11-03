@@ -101,7 +101,7 @@ test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, r
   await expect(includeCard).toContainText(`printf 'shell-live-${run}'`, { timeout: 10_000 })
   await expect(includeCard).toContainText('退出码 0')
   await expect(includeCard).not.toContainText('不进入上下文')
-  await includeCard.locator('summary').click()
+  await includeCard.getByRole('button').first().click()
   await expect(includeCard).toContainText(`shell-live-${run}-done`)
 
   // `!!`：选择排除上下文后，历史卡片明确标注。
@@ -132,26 +132,37 @@ test('Shell 双窗实时、断线重连与独立取消', async ({ page, context,
   const second = await context.newPage()
   await openApp(second)
   await threadListItem(second, title).click()
-  await expect(second.locator('[data-slot="aui_user-message-root"]').first()).toContainText(title)
+  await expect(
+    second.locator('[data-slot="huan-message"][data-role="user"]').first(),
+  ).toContainText(title)
 
   const dialog = await openPanel(page)
-  const command = `sleep 30 # ${run}`
+  const command = `printf 'shell-a-${run}'; sleep 6; printf 'shell-b-${run}'`
   await dialog.getByRole('textbox', { name: 'Shell 命令' }).fill(command)
   await dialog.getByRole('button', { name: '运行 Shell' }).click()
   await expect(dialog.getByText('运行中', { exact: true })).toBeVisible()
+  await expect(dialog.locator('[data-slot="huan-shell-output"]')).toContainText(`shell-a-${run}`)
 
   // 另一窗口无需刷新即可看到同一运行状态。
   const secondDialog = await openPanel(second)
   await expect(secondDialog.getByText(command)).toBeVisible()
   await expect(secondDialog.getByText('运行中', { exact: true })).toBeVisible()
 
-  // 断开事件流后，重连快照仍保留运行中的 Shell 状态。
+  // 断开事件流：客户端读到 EOF 后重连；断开期间产生的新输出必须补上，
+  // 只看到断开前的旧文字不足以证明重新订阅成功（命令随后完成并落为历史卡片）。
   await disconnectClients(request)
-  await page.waitForTimeout(500)
-  await expect(secondDialog.getByText('运行中', { exact: true })).toBeVisible()
+  const firstCard = page.locator('[data-slot="huan-bash-message"]').last()
+  await expect(firstCard).toContainText(`shell-b-${run}`, { timeout: 20_000 })
+  const secondCard = second.locator('[data-slot="huan-bash-message"]').last()
+  await expect(secondCard).toContainText(`shell-b-${run}`, { timeout: 20_000 })
+  await expect(secondCard).toContainText(`shell-a-${run}`)
 
-  // 取消 Shell 不影响模型运行（当前空闲）；取消结果持久化为历史卡片，
-  // 两个窗口都收到同一完成态（空闲会话不保留重复的运行卡）。
+  // 独立取消：再起一个长时间运行的 Shell，在另一窗口取消；两个窗口都收到
+  // 同一取消完成态（空闲会话不保留重复的运行卡）。
+  const cancelCommand = `sleep 30 # ${run}`
+  await page.getByRole('textbox', { name: 'Shell 命令' }).fill(cancelCommand)
+  await page.getByRole('button', { name: '运行 Shell' }).click()
+  await expect(secondDialog.getByText('运行中', { exact: true })).toBeVisible()
   await secondDialog.getByRole('button', { name: '取消 Shell' }).click()
   await closePanel(second)
   await closePanel(page)
@@ -159,7 +170,7 @@ test('Shell 双窗实时、断线重连与独立取消', async ({ page, context,
   const cancelledSecond = second.locator('[data-slot="huan-bash-message"]').last()
   await expect(cancelledFirst).toContainText('已取消')
   await expect(cancelledSecond).toContainText('已取消')
-  await expect(cancelledSecond).toContainText(command)
+  await expect(cancelledSecond).toContainText(cancelCommand)
   await second.close()
 })
 
@@ -216,7 +227,9 @@ test('手动压缩成功、自动压缩保存与取消后恢复', async ({ page,
   const recovery = `取消后恢复-${run}`
   await sendMessage(page, recovery)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
-  await expect(page.locator('[data-slot="aui_user-message-root"]').last()).toContainText(recovery)
+  await expect(page.locator('[data-slot="huan-message"][data-role="user"]').last()).toContainText(
+    recovery,
+  )
 
   // 还原用户设置，避免影响后续浏览器用例。
   const restore = await openPanel(page)
@@ -252,7 +265,7 @@ test('模型目录刷新、范围保存与 Thinking max / input 能力', async (
   await expect(dialog.getByRole('status')).toContainText('会话范围已应用到当前会话')
   await closePanel(page)
 
-  const composer = page.locator('[data-slot="aui_composer-shell"]')
+  const composer = page.locator('[data-slot="huan-composer"]')
   await composer.getByRole('combobox').click()
   await expect(page.getByRole('option', { name: 'Test Model B huan-test' })).toHaveAttribute(
     'data-disabled',

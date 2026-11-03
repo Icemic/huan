@@ -550,7 +550,12 @@ import { appendFileSync } from 'node:fs'
     expect(busyShell.status).toBe('busy')
     if (busyShell.status !== 'busy') throw new Error('Shell 中应返回 busy')
     expect(busyShell.message).toContain('Shell')
-    await host.abortThreadBash(threadId)
+    expect(await host.abortThreadBash(threadId)).toEqual({ status: 'requested' })
+    // 中止后等待 Shell 真正结算，避免把仍在退出中的进程留给临时目录清理。
+    await waitFor(async () => {
+      const snapshot = await host.getThread(threadId)
+      return snapshot.bash?.status === 'running' ? undefined : true
+    })
   })
 
   it('dispose 中重载被取消并排空，不泄漏阻断请求', async () => {

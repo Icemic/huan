@@ -606,6 +606,12 @@ const projectFrom = (
         break
       }
 
+      case 'system': {
+        // 系统提示快照是会话元数据（含绝对路径与工具清单），不是对话轮次；
+        // 未知角色仍走下面的可读回退，这里只跳过已知的 system 记录。
+        break
+      }
+
       case 'branchSummary': {
         flush(false)
         const branch = message as HarnessBranchSummaryMessage

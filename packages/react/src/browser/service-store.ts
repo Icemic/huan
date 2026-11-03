@@ -120,8 +120,11 @@ export interface HarnessServiceState {
   mcpAuthError: string | undefined
   disposed: boolean
 
-  /** 读取宿主信息；成功后回调存储作用域（由组合根接入窗口状态）。 */
-  loadHostInfo: () => Promise<HarnessHostInfo | undefined>
+  /**
+   * 读取宿主信息；成功后回调存储作用域（由组合根接入窗口状态）。
+   * 并发调用共享同一次请求，`force` 等待在途结果后再读一次。
+   */
+  loadHostInfo: (options?: { force?: boolean }) => Promise<HarnessHostInfo | undefined>
   /** 刷新会话目录；带扫描代次，旧结果不覆盖新扫描。 */
   refreshThreads: (query?: HarnessThreadQuery) => Promise<void>
   /** 刷新工作区目录；失败保留上一次成功定义并记录受控错误。 */
@@ -214,6 +217,7 @@ const RUNTIME_METADATA_FIELDS = [
   'contextUsage',
   'treeOperation',
   'reload',
+  'modelFallback',
 ] as const satisfies readonly (keyof HarnessThreadMetadata)[]
 
 /** 目录扫描结果合并：覆盖目录字段，保留运行中字段。 */
@@ -285,6 +289,7 @@ export const createHarnessServiceStore = (
 ): StoreApi<HarnessServiceState> => {
   const { client, onHostInfo } = options
   let hostEpoch = 0
+  let hostPromise: Promise<HarnessHostInfo | undefined> | undefined
   let catalogEpoch = 0
   let workspaceEpoch = 0
   let providerAuthSeq = -1
@@ -354,26 +359,40 @@ export const createHarnessServiceStore = (
     return {
       ...createInitialState(),
 
-      loadHostInfo: async () => {
+      loadHostInfo: async (loadOptions) => {
         if (get().disposed) return undefined
+        // 根启动与工作区初始化会同时读取宿主信息：共享在途请求，不让后到的
+        // 调用作废前一次结果（否则调用方拿到 undefined 并误判为宿主不可用）。
+        if (hostPromise) {
+          const shared = await hostPromise
+          if (!loadOptions?.force || get().disposed) return shared
+        }
         const epoch = ++hostEpoch
         set({ hostLoading: true, hostError: undefined })
-        try {
-          const host = await client.getHostInfo()
-          if (get().disposed || epoch !== hostEpoch) return undefined
-          // 同版部署：一次明确比较；不匹配立即停止业务初始化，不做范围协商。
-          if (host.protocolVersion !== HARNESS_PROTOCOL_VERSION) {
-            throw new Error(
-              `协议版本不匹配：宿主 ${host.protocolVersion}，页面 ${HARNESS_PROTOCOL_VERSION}；请更新页面或宿主。`,
-            )
+        const request = (async (): Promise<HarnessHostInfo | undefined> => {
+          try {
+            const host = await client.getHostInfo()
+            if (get().disposed || epoch !== hostEpoch) return undefined
+            // 同版部署：一次明确比较；不匹配立即停止业务初始化，不做范围协商。
+            if (host.protocolVersion !== HARNESS_PROTOCOL_VERSION) {
+              throw new Error(
+                `协议版本不匹配：宿主 ${host.protocolVersion}，页面 ${HARNESS_PROTOCOL_VERSION}；请更新页面或宿主。`,
+              )
+            }
+            set({ host, hostLoading: false, hostError: undefined })
+            onHostInfo?.(host)
+            return host
+          } catch (error) {
+            if (get().disposed || epoch !== hostEpoch) return undefined
+            set({ hostLoading: false, hostError: errorText(error) })
+            return undefined
           }
-          set({ host, hostLoading: false, hostError: undefined })
-          onHostInfo?.(host)
-          return host
-        } catch (error) {
-          if (get().disposed || epoch !== hostEpoch) return undefined
-          set({ hostLoading: false, hostError: errorText(error) })
-          return undefined
+        })()
+        hostPromise = request
+        try {
+          return await request
+        } finally {
+          if (hostPromise === request) hostPromise = undefined
         }
       },
 
@@ -488,7 +507,9 @@ export const createHarnessServiceStore = (
           ...resolved,
           loading: true,
           error: undefined,
-          models: [],
+          // 同一目标与版本的目录只刷新不变量：保留上一次结果，避免弹层重新
+          // 打开时瞬间变空（键盘 Tab 会直接离开原本存在的 Thinking 控件）。
+          models: currentEntries[key]?.models ?? [],
         })
         // 旧版本条目的代次与在途句柄一并释放，晚到响应不得重新写入。
         for (const oldKey of Object.keys(currentEntries)) {
@@ -599,11 +620,20 @@ export const createHarnessServiceStore = (
 
       applyThreadEvent: (threadId, event) => {
         if (get().disposed) return
+        // 实时首帧即使序号与冷读相同也代表新的权威边界，旧读取必须失效。
+        if (event.type === 'snapshot') {
+          loadEpochByThread.set(threadId, getLoadEpoch(threadId) + 1)
+          loadPromiseByThread.delete(threadId)
+        }
         set((state) => applyEvents(state, threadId, [event]))
       },
 
       applyThreadEvents: (threadId, events) => {
         if (get().disposed || events.length === 0) return
+        if (events.some((event) => event.type === 'snapshot')) {
+          loadEpochByThread.set(threadId, getLoadEpoch(threadId) + 1)
+          loadPromiseByThread.delete(threadId)
+        }
         set((state) => applyEvents(state, threadId, events))
       },
 
@@ -683,6 +713,7 @@ export const createHarnessServiceStore = (
       dispose: () => {
         if (get().disposed) return
         hostEpoch += 1
+        hostPromise = undefined
         catalogEpoch += 1
         workspaceEpoch += 1
         loadEpochByThread.clear()

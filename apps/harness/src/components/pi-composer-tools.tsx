@@ -43,9 +43,10 @@ export const focusTextareaAt = (
   inputRef: RefObject<HTMLTextAreaElement | null>,
   position: number,
 ): void => {
-  requestAnimationFrame(() => {
+  // 等待本次 React 提交即可；延迟到下一帧会移动后来输入的光标，甚至打断填入。
+  queueMicrotask(() => {
     const element = inputRef.current
-    if (!element) return
+    if (!element?.isConnected) return
     element.focus()
     const caret = Math.min(Math.max(position, 0), element.value.length)
     element.setSelectionRange(caret, caret)

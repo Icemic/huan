@@ -20,6 +20,8 @@ export interface ComposerKeyInput {
   /** 当前时间（毫秒），由调用方传入以便测试。 */
   now: number
   completionOpen: boolean
+  /** 当前高亮补全与已输入文本完全一致（例如整条命令名），Enter 直接执行。 */
+  completionExact?: boolean
   caretStart: number
   caretEnd: number
   valueLength: number
@@ -55,6 +57,10 @@ export const resolveComposerKey = (input: ComposerKeyInput): ComposerKeyAction =
   if (input.completionOpen) {
     if (input.key === 'ArrowDown') return { type: 'completion', delta: 1 }
     if (input.key === 'ArrowUp') return { type: 'completion', delta: -1 }
+    // 已经输入完整条目时 Enter 直接执行，不再要求先接受补全。
+    if (input.key === 'Enter' && input.completionExact === true) {
+      return { type: 'send', steer: false }
+    }
     if (input.key === 'Enter' || input.key === 'Tab') return { type: 'completion-accept' }
     return IGNORE
   }

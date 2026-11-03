@@ -52,7 +52,7 @@ const treeRows = (page: Page) => treeDialog(page).locator('[data-slot="huan-tree
 
 async function openTree(page: Page): Promise<void> {
   // 运行中宿主仍会持续推送事件；强制点击避免等待一个非必要的主线程稳定窗口。
-  await page.getByRole('button', { name: '会话树' }).click({ force: true })
+  await page.getByRole('button', { name: '会话树', exact: true }).click({ force: true })
   await expect(treeDialog(page)).toBeVisible()
   await expect(treeRows(page).first()).toBeVisible()
 }
@@ -88,7 +88,7 @@ test('树面板展示真实分支、标签与过滤，用户节点导航按确�
 
   // 非空草稿：导航前必须显式确认替换。
   const draft = `树草稿-${run}`
-  await page.getByRole('textbox', { name: 'Message input' }).fill(draft)
+  await page.getByRole('textbox', { name: '消息输入' }).fill(draft)
   await openTree(page)
   const dialog = treeDialog(page)
   // 对话过滤只显示用户/助手；全部还会显示模型/Thinking 等状态节点。
@@ -124,7 +124,7 @@ test('树面板展示真实分支、标签与过滤，用户节点导航按确�
   await dialog.getByRole('button', { name: '确认跳转' }).click()
   await expect(dialog.getByText('已跳转到所选节点。')).toBeVisible()
   await dialog.getByRole('button', { name: '关闭' }).first().click()
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toHaveValue(first)
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(first)
 
   // 从该用户节点继续发送，形成第二个分支。
   await sendMessage(page, branch)
@@ -159,24 +159,24 @@ test('双窗口导航同步，其他窗口保留本地草稿且不接收 editorT
   await threadListItem(page2, first).click()
   await expect(userMessages(page2).first()).toContainText(first)
   const draft = `第二窗口草稿-${run}`
-  await page2.getByRole('textbox', { name: 'Message input' }).fill(draft)
+  await page2.getByRole('textbox', { name: '消息输入' }).fill(draft)
 
   await openTree(page)
   await navigateToRow(page, first)
   await treeDialog(page).getByRole('button', { name: '确认跳转' }).click()
   await expect(treeDialog(page).getByText('已跳转到所选节点。')).toBeVisible()
   await treeDialog(page).getByRole('button', { name: '关闭' }).first().click()
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toHaveValue(first)
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(first)
 
   // 另一个窗口只更新历史与落点，不动本地草稿，也不接收 editorText。
   await expect(userMessages(page2)).toHaveCount(0)
-  await expect(page2.getByRole('textbox', { name: 'Message input' })).toHaveValue(draft)
+  await expect(page2.getByRole('textbox', { name: '消息输入' })).toHaveValue(draft)
 
   // 发起窗口继续发送后，另一窗口同步看到新分支。
   await sendMessage(page, branch)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
   await expect(userMessages(page2).filter({ hasText: branch })).toBeVisible()
-  await expect(page2.getByRole('textbox', { name: 'Message input' })).toHaveValue(draft)
+  await expect(page2.getByRole('textbox', { name: '消息输入' })).toHaveValue(draft)
 })
 
 test('运行中停止并跳转取回整体队列，不自动发送', async ({ page, request }) => {
@@ -220,7 +220,7 @@ test('运行中停止并跳转取回整体队列，不自动发送', async ({ pa
   const recovered = page.locator('[data-slot="huan-recovered-queue"]')
   await expect(recovered).toContainText(queued)
   await treeDialog(page).getByRole('button', { name: '关闭' }).first().click()
-  const composer = page.getByRole('textbox', { name: 'Message input' })
+  const composer = page.getByRole('textbox', { name: '消息输入' })
   await expect(composer).toHaveValue(first)
   await expect(userMessages(page)).toHaveCount(0)
   await expect(recovered).toContainText('不会自动发送')
@@ -245,7 +245,7 @@ test('分支摘要进行中可取消，取消后活动落点与草稿不变', as
   await sendMessage(page, first)
   await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
 
-  await page.getByRole('textbox', { name: 'Message input' }).fill(draft)
+  await page.getByRole('textbox', { name: '消息输入' }).fill(draft)
   await configureStream(request, ['摘要生成中'])
   await openTree(page)
   await navigateToRow(page, first)
@@ -267,6 +267,52 @@ test('分支摘要进行中可取消，取消后活动落点与草稿不变', as
 
   // 关闭面板后才检查被模态遮挡的输入框与历史（取消不改变活动落点与草稿）。
   await dialog.getByRole('button', { name: '关闭' }).first().click()
-  await expect(page.getByRole('textbox', { name: 'Message input' })).toHaveValue(draft)
+  await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(draft)
   await expect(userMessages(page).first()).toContainText(first)
+})
+
+test('导航在途时关闭面板并输入新草稿，迟到结果不覆盖', async ({ page, request }) => {
+  const run = Date.now().toString(36)
+  const { workspaceName } = await prepareWorkspace(request, '迟到')
+  const first = `迟到第一问-${run}`
+  await openApp(page)
+  await startNewSession(page, workspaceName)
+  await selectModel(page)
+  await sendMessage(page, first)
+  await expect(assistantMessages(page).last()).toContainText(DEFAULT_REPLY)
+  await expect(threadListItem(page, first)).toBeVisible()
+
+  await openTree(page)
+  const dialog = treeDialog(page)
+  const row = treeRows(page).filter({ hasText: first }).first()
+  await row.hover()
+  await row.getByRole('button', { name: '跳转到此节点' }).click()
+  const panel = dialog.locator('[data-slot="huan-tree-navigate-panel"]')
+  await panel.getByRole('checkbox', { name: /确认替换当前输入框草稿/ }).check()
+
+  // 延迟导航响应，制造“请求在途时用户关闭面板并输入新草稿”的真实竞态。
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/tree/navigate', async (route) => {
+    await gate
+    await route.continue()
+  })
+  try {
+    const responded = page.waitForResponse((response) => response.url().includes('/tree/navigate'))
+    await panel.getByRole('button', { name: '确认跳转' }).click()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    const draft = `迟到新草稿-${run}`
+    await page.getByRole('textbox', { name: '消息输入' }).fill(draft)
+    release()
+    expect((await responded).ok()).toBe(true)
+    // 迟到的导航结果不得替换关闭面板之后输入的新草稿，也不得重开面板。
+    await page.waitForTimeout(500)
+    await expect(page.getByRole('textbox', { name: '消息输入' })).toHaveValue(draft)
+    await expect(treeDialog(page)).toHaveCount(0)
+  } finally {
+    await page.unroute('**/tree/navigate')
+  }
 })

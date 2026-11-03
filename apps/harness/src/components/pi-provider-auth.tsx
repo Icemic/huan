@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
 import { useAuthStore } from '@/state/app-context'
 
 const sourceLabel = (source: HarnessProviderAuthSource | undefined): string | undefined => {
@@ -456,10 +457,12 @@ export function ProviderAuthDialog() {
   const notice = useAuthStore((state) => state.notice)
   const openPanel = useAuthStore((state) => state.openPanel)
   const closePanel = useAuthStore((state) => state.closePanel)
+  const triggerRef = useRestoreTriggerFocus(open)
 
   if (!open) {
     return (
       <Button
+        ref={triggerRef}
         variant="ghost"
         size="sm"
         className="h-6 gap-1 px-1.5 text-xs"
