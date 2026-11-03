@@ -6,6 +6,7 @@ import {
   mapColdMetadata,
   mapQueuedMessages,
   mapSessionInfo,
+  projectSessionRecord,
 } from './metadata.js'
 
 const baseInfo = {
@@ -124,6 +125,102 @@ describe('mapSessionInfo 标题占位值处理', () => {
   it('纯空白首条消息回退文件名', () => {
     const metadata = mapSessionInfo({ ...baseInfo, firstMessage: '   ' })
     expect(metadata.title).toBe('2026-10-17T00-00-00-000Z_abc.jsonl')
+  })
+})
+
+describe('projectSessionRecord（Pi SessionInfo 时间语义）', () => {
+  const header = {
+    timestamp: '2026-10-17T00:00:00.000Z',
+    parentSession: 'C:/sessions/parent.jsonl',
+  }
+  const message = (role: string, timestamp?: number) => ({
+    role,
+    content: [{ type: 'text', text: `${role} 内容` }],
+    ...(timestamp !== undefined ? { timestamp } : {}),
+  })
+  const messageEntry = (timestamp: string, value: unknown) => ({
+    type: 'message',
+    timestamp,
+    message: value,
+  })
+
+  it('创建时间取 header；活动时间取全文件 user/assistant 最大值（顺序无关）', () => {
+    const projection = projectSessionRecord({
+      header,
+      entries: [
+        messageEntry('2026-10-17T00:00:01.000Z', message('user', 1_600_000_000_100)),
+        {
+          type: 'session_info',
+          timestamp: '2026-10-17T00:00:09.000Z',
+        },
+        messageEntry('2026-10-17T00:00:08.000Z', message('user', 1_600_000_000_900)),
+        messageEntry('2026-10-17T00:00:03.000Z', message('assistant', 1_600_000_000_300)),
+        messageEntry('2026-10-17T00:00:07.000Z', message('toolResult', 1_600_000_000_800)),
+      ],
+    })
+    expect(projection).toEqual({
+      firstUserMessageText: 'user 内容',
+      createdAt: '2026-10-17T00:00:00.000Z',
+      updatedAt: new Date(1_600_000_000_900).toISOString(),
+      parentSessionPath: 'C:/sessions/parent.jsonl',
+    })
+  })
+
+  it('message.timestamp 优先；缺失时回退 entry.timestamp', () => {
+    const withMessageTime = projectSessionRecord({
+      header,
+      entries: [messageEntry('2026-10-17T00:00:09.000Z', message('user', 1_600_000_000_500))],
+    })
+    expect(withMessageTime.updatedAt).toBe(new Date(1_600_000_000_500).toISOString())
+
+    const withEntryTime = projectSessionRecord({
+      header,
+      entries: [
+        messageEntry('2026-10-17T00:00:07.000Z', message('assistant')),
+        messageEntry('2026-10-17T00:00:08.000Z', message('user')),
+      ],
+    })
+    expect(withEntryTime.updatedAt).toBe('2026-10-17T00:00:08.000Z')
+  })
+
+  it('无有效活动时间时回退 header.timestamp', () => {
+    const projection = projectSessionRecord({
+      header,
+      entries: [
+        messageEntry('2026-10-17T00:00:09.000Z', message('toolResult', 1_600_000_000_900)),
+        messageEntry('2026-10-17T00:00:08.000Z', message('user', 0)),
+        messageEntry('2026-10-17T00:00:07.000Z', message('assistant', -1)),
+      ],
+    })
+    expect(projection.createdAt).toBe('2026-10-17T00:00:00.000Z')
+    expect(projection.updatedAt).toBe('2026-10-17T00:00:00.000Z')
+  })
+
+  it('NaN 活动时间与 Pi 一样使最终结果回退 header（不保留此前有效值）', () => {
+    const projection = projectSessionRecord({
+      header,
+      entries: [
+        messageEntry('2026-10-17T00:00:08.000Z', message('user', 1_600_000_000_900)),
+        messageEntry('2026-10-17T00:00:09.000Z', message('assistant', Number.NaN)),
+      ],
+    })
+    expect(projection.updatedAt).toBe('2026-10-17T00:00:00.000Z')
+  })
+
+  it('无 header 时不伪造创建时间，活动时间仍按消息投影', () => {
+    const projection = projectSessionRecord({
+      header: null,
+      entries: [messageEntry('2026-10-17T00:00:08.000Z', message('assistant', 1_600_000_000_900))],
+    })
+    expect(projection.createdAt).toBeUndefined()
+    expect(projection.updatedAt).toBe(new Date(1_600_000_000_900).toISOString())
+    expect(projection.parentSessionPath).toBeUndefined()
+  })
+
+  it('无 header 且无有效活动时间时省略时间', () => {
+    const projection = projectSessionRecord({ header: null, entries: [] })
+    expect(projection.createdAt).toBeUndefined()
+    expect(projection.updatedAt).toBeUndefined()
   })
 })
 

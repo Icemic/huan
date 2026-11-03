@@ -39,6 +39,71 @@ export function extractMessageText(message: unknown): string | undefined {
 /** Pi 对「无可用文本消息」的占位值（SessionInfo.firstMessage 的兜底）。 */
 export const NO_MESSAGES_PLACEHOLDER = '(no messages)'
 
+/** 会话记录投影所需的最小输入形状（SessionHeader/SessionEntry 的结构子集）。 */
+export type SessionRecordProjectionInput = {
+  header: { timestamp?: unknown; parentSession?: unknown } | null
+  entries: readonly { type?: unknown; timestamp?: unknown; message?: unknown }[]
+}
+
+/** 全文件记录投影（与 Pi SessionInfo 的标题/时间/血缘口径一致）。 */
+export type SessionRecordProjection = {
+  firstUserMessageText?: string
+  createdAt?: string
+  updatedAt?: string
+  parentSessionPath?: string
+}
+
+/**
+ * 一次遍历会话记录，投影首条用户消息、创建/最近活动时间与父会话路径。
+ *
+ * 时间语义对齐 Pi `SessionInfo`：created 取 header.timestamp；updatedAt 取全文件
+ * user/assistant 消息的最大活动时间（message.timestamp 优先，缺失时回退
+ * entry.timestamp）；无有效（> 0）活动时间时回退 header 时间。列表、快照与
+ * 热详情共用该投影，避免打开会话后时间丢失。不读取文件 mtime。
+ */
+export function projectSessionRecord(input: SessionRecordProjectionInput): SessionRecordProjection {
+  const header = input.header
+  const headerTime =
+    typeof header?.timestamp === 'string' ? new Date(header.timestamp).getTime() : Number.NaN
+  let firstUserMessageText: string | undefined
+  let lastActivityTime: number | undefined
+  for (const entry of input.entries) {
+    if (entry.type !== 'message') continue
+    const message = entry.message
+    if (message === null || typeof message !== 'object') continue
+    const record = message as { role?: unknown; content?: unknown; timestamp?: unknown }
+    // 与 Pi 相同：只统计带 content 的 user/assistant 消息，工具结果/设置条目不推进。
+    if (typeof record.role !== 'string' || !('content' in record)) continue
+    if (record.role !== 'user' && record.role !== 'assistant') continue
+    let activityTime: number | undefined
+    if (typeof record.timestamp === 'number') activityTime = record.timestamp
+    else if (typeof entry.timestamp === 'string') {
+      const parsed = Date.parse(entry.timestamp)
+      if (!Number.isNaN(parsed)) activityTime = parsed
+    }
+    if (activityTime !== undefined) {
+      lastActivityTime = Math.max(lastActivityTime ?? 0, activityTime)
+    }
+    // 标题只取全文件顺序的首条有文本用户消息；继续遍历以计算活动时间。
+    if (record.role !== 'user' || firstUserMessageText !== undefined) continue
+    const text = extractMessageText(record)
+    if (text) firstUserMessageText = text
+  }
+  const createdTime = Number.isNaN(headerTime) ? undefined : headerTime
+  const modifiedTime =
+    typeof lastActivityTime === 'number' && lastActivityTime > 0 ? lastActivityTime : createdTime
+  const parentSessionPath =
+    typeof header?.parentSession === 'string' && header.parentSession
+      ? header.parentSession
+      : undefined
+  return {
+    ...(firstUserMessageText ? { firstUserMessageText } : {}),
+    ...(createdTime !== undefined ? { createdAt: new Date(createdTime).toISOString() } : {}),
+    ...(modifiedTime !== undefined ? { updatedAt: new Date(modifiedTime).toISOString() } : {}),
+    ...(parentSessionPath ? { parentSessionPath } : {}),
+  }
+}
+
 /**
  * 统一标题归一化（热/冷路径共用）。
  *

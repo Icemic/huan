@@ -239,8 +239,8 @@ export class SessionCatalog {
       const liveView = this.live
       const live = liveView?.get(info.id)
       if (live && liveView) {
-        // live 元数据本身不带时间（事件路径避免逐次 stat）；列表补上目录时间，
-        // 使「继续最近」等排序与冷条目同一口径。
+        // live 元数据自带完整时间投影；不再用目录扫描结果覆盖，否则打开会话前
+        // 缓存的旧时间会盖掉后续消息的真实活动时间。
         result.push({
           ...liveView.metadataOf(live),
           ...(workspace
@@ -249,8 +249,6 @@ export class SessionCatalog {
                 workspaceRevision: workspace.revision,
               }
             : {}),
-          createdAt: info.created.toISOString(),
-          updatedAt: info.modified.toISOString(),
         })
       } else {
         // 冷条目也要叠加归档标记与工作区归属（过滤与呈现口径一致）。
@@ -422,23 +420,13 @@ export class SessionCatalog {
    * 只读详情：热会话直接使用 SDK 统计，冷会话按 SDK 同口径聚合全文件条目。
    */
   async threadDetailsOf(threadId: string): Promise<HarnessThreadDetails> {
-    const info = await this.findSessionInfo(threadId)
     const liveView = this.live
     const record = liveView?.get(threadId)
     if (record && liveView) {
       // 热会话：`getSessionStats()` 是权威口径（全文件累计），上下文复用同一会话。
       const stats = record.session.getSessionStats()
       return {
-        metadata: {
-          ...liveView.metadataOf(record),
-          ...(info
-            ? {
-                createdAt: info.created.toISOString(),
-                updatedAt: info.modified.toISOString(),
-                ...(info.parentSessionPath ? { parentSessionPath: info.parentSessionPath } : {}),
-              }
-            : {}),
-        },
+        metadata: liveView.metadataOf(record),
         stats: {
           userMessages: stats.userMessages,
           assistantMessages: stats.assistantMessages,
@@ -452,6 +440,7 @@ export class SessionCatalog {
         branchEntryCount: record.sessionManager.getBranch().length,
       }
     }
+    const info = await this.findSessionInfo(threadId)
     if (!info) throw new Error(`Unknown thread: ${threadId}`)
     const cold = this.loadColdSession(info)
     return {

@@ -82,7 +82,7 @@ apps/harness
 - **Session Host**：以 Pi SDK `createAgentSession` / `AgentSessionRuntime` 为基础，管理会话生命周期（新建、恢复、切换）、事件订阅与清理、模型与 Thinking 配置。
 - **Tool & Extension 装配**：按应用 profile 装配工具集、扩展与 inline 扩展；CLI 内置扩展（codemode / tool_search / MCP）需要由应用显式注入（上游核对结论）。
 - **Host UI 桥**：绑定 `ExtensionUIContext`，将 `confirm / select / input / editor` 请求传给 UI。版本化应用自定义 `kind` 是早期拟议能力，当前接口未提供。
-- **快照投影**：将 Pi 事件映射为 GUI 协议，并生成已加载与未加载会话快照；当前不提供此前文档所称的统一 `rawPiEvent` 透传。
+- **快照投影**：将 Pi 事件映射为 GUI 协议，并生成已加载与未加载会话快照；当前不提供此前文档所称的统一 `rawPiEvent` 透传。live元数据统一从SessionManager的header和全文件记录投影创建时间、最近活动时间、首条用户消息与血缘；活动时间按Pi目录语义取全文件user/assistant消息最大时间戳。列表、HTTP/SSE快照与热详情共用该投影，前端仍按完整快照替换，不保留缺省字段作为补偿。
 
 ### 3.2 关键语义约束
 

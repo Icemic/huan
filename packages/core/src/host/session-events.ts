@@ -24,7 +24,7 @@ import { mapSessionEvent } from '../event-mapping.js'
 import type { HostInteractions } from '../host-interactions.js'
 import type { HostUiBridge } from '../host-ui.js'
 import { createHostUiBridge } from '../host-ui.js'
-import { extractMessageText, mapQueuedMessages, normalizeTitle } from '../metadata.js'
+import { mapQueuedMessages, normalizeTitle, projectSessionRecord } from '../metadata.js'
 import { getModelReadiness } from '../model-catalog.js'
 import { sessionTreeRevision } from '../session-tree.js'
 import type { WorkspaceStore } from '../workspace-store.js'
@@ -171,9 +171,18 @@ export class SessionEvents {
     const model = session.model
     const usage = session.getContextUsage()
     const queued = mapQueuedMessages(session.getSteeringMessages(), session.getFollowUpMessages())
-    const title = this.deriveLiveTitle(record)
+    // 一次全文件投影同时供标题、时间与血缘使用；逐 token 事件不经过本方法。
+    const projection = projectSessionRecord({
+      header: record.sessionManager.getHeader(),
+      entries: record.sessionManager.getEntries(),
+    })
     const explicitName = session.sessionName?.trim()
-    const firstMessageText = this.firstUserMessageTextOf(record)
+    const firstMessageText = projection.firstUserMessageText
+    const title = normalizeTitle({
+      explicitName,
+      firstMessageText,
+      sessionFilePath: session.sessionFile,
+    })
     const treeOperation = this.treeOperationView(record)
     return {
       id: record.threadId,
@@ -188,6 +197,10 @@ export class SessionEvents {
       retryActive: session.isRetrying,
       retryAttempt: session.retryAttempt,
       workspacePath: record.workspacePath,
+      // 与冷读目录同一口径；列表不得再用旧扫描结果覆盖。
+      ...(projection.createdAt ? { createdAt: projection.createdAt } : {}),
+      ...(projection.updatedAt ? { updatedAt: projection.updatedAt } : {}),
+      ...(projection.parentSessionPath ? { parentSessionPath: projection.parentSessionPath } : {}),
       ...this.workspaceFields(record.workspaceId, record.workspaceAppliedRevision),
       messageCount: session.messages.length,
       leafId: record.sessionManager.getLeafId(),
@@ -218,40 +231,6 @@ export class SessionEvents {
       resourceRevision: record.resourceRevision,
       ...(record.reload ? { reload: { ...record.reload } } : {}),
     }
-  }
-
-  /**
-   * 热会话标题：显式会话名 > 首条用户消息（截断 60）> 会话文件名。
-   *
-   * 关键：首条用户消息必须从**会话记录（全文件）**读取，而不是：
-   * - `session.messages`：压缩感知的投影，压缩后原始首条消息会被省略；
-   * - `getBranch()`：仅当前分支，而 Pi 冷目录扫全文件取首条（分支场景会不一致）。
-   * 缓存「首条消息文本」而非最终标题：改名/清空名称不影响它，无需失效。
-   */
-  private deriveLiveTitle(record: ThreadRecord): string | undefined {
-    const explicit = record.session.sessionName?.trim()
-    if (explicit) return explicit
-    const firstText = this.firstUserMessageTextOf(record)
-    return normalizeTitle({
-      firstMessageText: firstText,
-      sessionFilePath: record.session.sessionFile,
-    })
-  }
-
-  /** 从会话记录（全文件顺序）取首条用户消息文本（带缓存；仅缓存找到的值）。 */
-  private firstUserMessageTextOf(record: ThreadRecord): string | undefined {
-    if (record.firstUserMessageText !== undefined) return record.firstUserMessageText
-    for (const entry of record.sessionManager.getEntries()) {
-      if (entry.type !== 'message') continue
-      const message = (entry as { message?: { role?: string } }).message
-      if (message?.role !== 'user') continue
-      const text = extractMessageText(message)
-      if (text) {
-        record.firstUserMessageText = text
-        return text
-      }
-    }
-    return undefined
   }
 
   /** 结构操作在快照中的可见部分（仅导航/标签需要跨窗提示）。 */

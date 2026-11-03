@@ -294,8 +294,6 @@ export type ThreadRecord = {
    * `agent_start` 处中止它，否则取消后仍会发出模型请求。
    */
   sweepUnattendedRun: boolean
-  /** 缓存的首条用户消息文本（仅存找到的值；历史只追加，找到后不变）。 */
-  firstUserMessageText?: string | undefined
   /**
    * 单会话结构闸门：导航/标签/模型/Thinking/重命名/资源重载在同一窗口内互斥。
    * 同步占用（不先 await），发送在预检前检查它并明确拒绝 busy。
