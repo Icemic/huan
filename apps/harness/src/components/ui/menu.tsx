@@ -1,5 +1,7 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
+import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 import { cn } from 'cn'
+import { ScrollBar } from './scroll-area'
 
 /**
  * Base UI Menu 基础封装。
@@ -33,12 +35,31 @@ function MenuContent({
         <MenuPrimitive.Popup
           data-slot="menu-content"
           className={cn(
-            'bg-popover text-popover-foreground relative isolate z-50 max-h-(--available-height) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg p-1 shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            'bg-popover text-popover-foreground relative isolate z-50 flex max-h-(--available-height) min-w-40 origin-(--transform-origin) flex-col overflow-hidden rounded-lg p-1 shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
             className,
           )}
           {...props}
         >
-          {children}
+          {/* Popup 保留菜单弹层与过渡状态；ScrollArea 负责实际滚动，
+              两者分层避免过渡状态与滚动状态落在同一元素上。 */}
+          <ScrollAreaPrimitive.Root className="flex min-h-0 min-w-0 flex-1 flex-col rounded-[inherit]">
+            {/* List 直接渲染成 Viewport：菜单语义、键盘导航和滚动跟随都以 listElement 为准。 */}
+            <MenuPrimitive.List
+              render={
+                <ScrollAreaPrimitive.Viewport
+                  data-slot="menu-viewport"
+                  // 两个原语都管理overflow；统一使用长属性，避免默认缩写冲突。
+                  style={{ overflow: undefined, overflowX: 'hidden', overflowY: 'auto' }}
+                  className="w-full flex-1 min-h-0 min-w-0 rounded-[inherit] overscroll-contain outline-none"
+                />
+              }
+            >
+              <ScrollAreaPrimitive.Content style={{ minWidth: 0 }}>
+                {children}
+              </ScrollAreaPrimitive.Content>
+            </MenuPrimitive.List>
+            <ScrollBar />
+          </ScrollAreaPrimitive.Root>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>

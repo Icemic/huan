@@ -5,17 +5,18 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { CheckIcon, CopyIcon } from "lucide-react"
 
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 
 const codeBlockVariants = cva(
-  "group/code-block relative flex w-full min-w-0 flex-col overflow-hidden rounded-lg text-sm has-[>[data-slot=code-block-content]:focus-visible]:ring-3 has-[>[data-slot=code-block-content]:focus-visible]:ring-ring/50 data-[size=sm]:text-xs",
+  "group/code-block relative flex w-full min-w-0 flex-col overflow-hidden rounded-lg text-sm has-[>[data-slot=code-block-scroll]:focus-within]:ring-3 has-[>[data-slot=code-block-scroll]:focus-within]:ring-ring/50 data-[size=sm]:text-xs",
   {
     variants: {
       variant: {
         default:
-          "border border-input text-foreground has-[>[data-slot=code-block-content]:focus-visible]:border-ring dark:bg-input/30",
+          "border border-input text-foreground has-[>[data-slot=code-block-scroll]:focus-within]:border-ring dark:bg-input/30",
         destructive:
           "border border-destructive/30 text-destructive dark:border-destructive/40",
       },
@@ -134,33 +135,49 @@ function CodeBlockContent({
   startLine?: number
 }) {
   return (
-    <pre
-      data-slot="code-block-content"
-      data-wrap={wrap || undefined}
-      data-numbered={lineNumbers || undefined}
-      dir="ltr"
-      tabIndex={0}
-      style={{ counterReset: `line ${startLine - 1}`, ...style }}
-      className={cn(
-        "min-h-0 min-w-0 scroll-fade-x scrollbar-thin overflow-auto px-3 py-3 text-start font-mono leading-relaxed outline-none group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:scroll-fade-y data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap",
-        className
-      )}
-      {...props}
+    <ScrollArea
+      data-slot="code-block-scroll"
+      orientation={wrap ? "vertical" : "both"}
+      // 消费者的 max-h 等高度约束属于滚动容器，不能继续压在 pre 上。
+      className={cn("min-h-0 min-w-0", className)}
+      viewportProps={
+        {
+          "data-slot": "code-block-content",
+          "data-wrap": wrap || undefined,
+          "data-numbered": lineNumbers || undefined,
+          dir: "ltr",
+          tabIndex: 0,
+          className: cn(
+            "scroll-fade-x overscroll-contain outline-none focus-visible:ring-0 focus-visible:outline-none",
+            wrap && "scroll-fade-y"
+          ),
+        } as React.ComponentProps<typeof ScrollArea>["viewportProps"]
+      }
     >
-      <code
-        data-slot="code-block-code"
-        className="grid min-h-lh min-w-max content-start in-data-numbered:grid-cols-[auto_1fr] in-data-wrap:min-w-0 in-data-wrap:grid-cols-[minmax(0,1fr)]"
+      <pre
+        data-slot="code-block-pre"
+        data-wrap={wrap || undefined}
+        data-numbered={lineNumbers || undefined}
+        dir="ltr"
+        style={{ counterReset: `line ${startLine - 1}`, ...style }}
+        className="min-h-0 min-w-0 px-3 py-3 text-start font-mono leading-relaxed group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap"
+        {...props}
       >
-        {lineNumbers && typeof children === "string"
-          ? children
-              .replace(/\n$/, "")
-              .split("\n")
-              .map((line, index) => (
-                <CodeBlockLine key={index}>{line}</CodeBlockLine>
-              ))
-          : children}
-      </code>
-    </pre>
+        <code
+          data-slot="code-block-code"
+          className="grid min-h-lh min-w-max content-start in-data-numbered:grid-cols-[auto_1fr] in-data-wrap:min-w-0 in-data-wrap:grid-cols-[minmax(0,1fr)]"
+        >
+          {lineNumbers && typeof children === "string"
+            ? children
+                .replace(/\n$/, "")
+                .split("\n")
+                .map((line, index) => (
+                  <CodeBlockLine key={index}>{line}</CodeBlockLine>
+                ))
+            : children}
+        </code>
+      </pre>
+    </ScrollArea>
   )
 }
 

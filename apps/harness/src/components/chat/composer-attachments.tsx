@@ -98,7 +98,7 @@ function AttachmentItem({
             <DialogTitle className="sr-only">
               <Trans>附件预览</Trans>
             </DialogTitle>
-            <div className="flex max-h-[86dvh] w-full items-center justify-center overflow-auto">
+            <div className="flex max-h-[86dvh] w-full items-center justify-center">
               <img
                 src={url}
                 alt={attachment.fileName}

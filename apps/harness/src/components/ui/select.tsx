@@ -1,7 +1,9 @@
+import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area'
 import { Select as SelectPrimitive } from '@base-ui/react/select'
 import { cn } from 'cn'
 import { CheckIcon, ChevronDownIcon } from 'lucide-react'
 import type * as React from 'react'
+import { ScrollBar } from './scroll-area'
 
 /**
  * Base UI Select 基础封装。
@@ -83,12 +85,37 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'bg-popover text-popover-foreground relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg shadow-md ring-1 ring-foreground/10 duration-100 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
+            'bg-popover text-popover-foreground relative isolate z-50 flex max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) flex-col overflow-hidden rounded-lg shadow-md ring-1 ring-foreground/10 duration-100 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
             className,
           )}
           {...props}
         >
-          <SelectPrimitive.List>{children}</SelectPrimitive.List>
+          {/* Popup 保留 Base UI 的过渡与状态属性；ScrollArea 只负责内部滚动，
+              避免 open/closed 与滚动状态落在同一元素上互相干扰。 */}
+          <ScrollAreaPrimitive.Root className="flex min-h-0 min-w-0 flex-1 flex-col rounded-[inherit]">
+            {/* List 直接渲染成 Viewport：Base UI 的滚动跟随、滚动箭头和
+                alignItemWithTrigger 都以 listElement 为滚动元素，不能只包一层。 */}
+            <SelectPrimitive.List
+              tabIndex={-1}
+              style={{ overflowX: 'hidden' }}
+              render={
+                <ScrollAreaPrimitive.Viewport
+                  data-slot="select-list"
+                  // 两个原语都管理overflow；统一使用长属性，避免定位模式切换时缩写冲突。
+                  style={{ overflow: undefined, overflowX: 'hidden', overflowY: 'auto' }}
+                  className="w-full flex-1 min-h-0 min-w-0 rounded-[inherit] outline-none"
+                />
+              }
+            >
+              <ScrollAreaPrimitive.Content
+                data-slot="select-list-content"
+                style={{ minWidth: 0 }}
+              >
+                {children}
+              </ScrollAreaPrimitive.Content>
+            </SelectPrimitive.List>
+            <ScrollBar />
+          </ScrollAreaPrimitive.Root>
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>

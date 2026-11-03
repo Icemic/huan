@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -116,7 +117,10 @@ export function SessionDetailsDialog() {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pe-1">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          contentProps={{ className: 'flex flex-col gap-2 pe-1' }}
+        >
           <div className="flex items-end gap-2">
             <label htmlFor="huan-session-name" className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-muted-foreground text-xs">
@@ -256,7 +260,7 @@ export function SessionDetailsDialog() {
               </Field>
             </div>
           ) : null}
-        </div>
+        </ScrollArea>
 
         <DialogFooter className="flex-wrap">
           <Button

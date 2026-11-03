@@ -19,6 +19,7 @@ import {
   useModelSelectorEfforts,
   type ModelOption,
 } from './model-selection'
+import { ScrollArea } from './scroll-area'
 
 export {
   DEFAULT_EFFORT_OPTIONS,
@@ -295,35 +296,38 @@ function ModelSelectorContent({
               )}
             </div>
           </ComboboxPrimitive.Empty>
-          <ComboboxPrimitive.List
-            data-slot="model-selector-list"
-            className="max-h-72 overflow-y-auto overscroll-contain p-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+          <ScrollArea
+            data-slot="model-selector-scroll"
+            className="max-h-72 min-h-0"
+            viewportProps={{ className: 'overscroll-contain', tabIndex: -1 }}
           >
-            {(model: ModelOption) => (
-              <ComboboxPrimitive.Item
-                key={model.id}
-                value={model.id}
-                disabled={model.disabled}
-                data-slot="model-selector-item"
-                className="group/item relative flex cursor-default items-start gap-2 rounded-md py-2 ps-2 pe-8 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-              >
-                {model.icon && <ModelIcon className="mt-[3px]">{model.icon}</ModelIcon>}
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate font-medium">{model.name}</span>
-                  {model.description && (
-                    <span className="text-muted-foreground group-data-highlighted/item:text-accent-foreground/80 truncate text-xs">
-                      {model.description}
-                    </span>
-                  )}
-                </span>
-                <ComboboxPrimitive.ItemIndicator
-                  render={<span className="absolute end-2 top-2.5 flex size-4 items-center justify-center" />}
+            <ComboboxPrimitive.List data-slot="model-selector-list" className="p-1">
+              {(model: ModelOption) => (
+                <ComboboxPrimitive.Item
+                  key={model.id}
+                  value={model.id}
+                  disabled={model.disabled}
+                  data-slot="model-selector-item"
+                  className="group/item relative flex cursor-default items-start gap-2 rounded-md py-2 ps-2 pe-8 text-sm outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
-                  <CheckIcon aria-hidden className="size-4" />
-                </ComboboxPrimitive.ItemIndicator>
-              </ComboboxPrimitive.Item>
-            )}
-          </ComboboxPrimitive.List>
+                  {model.icon && <ModelIcon className="mt-[3px]">{model.icon}</ModelIcon>}
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate font-medium">{model.name}</span>
+                    {model.description && (
+                      <span className="text-muted-foreground group-data-highlighted/item:text-accent-foreground/80 truncate text-xs">
+                        {model.description}
+                      </span>
+                    )}
+                  </span>
+                  <ComboboxPrimitive.ItemIndicator
+                    render={<span className="absolute end-2 top-2.5 flex size-4 items-center justify-center" />}
+                  >
+                    <CheckIcon aria-hidden className="size-4" />
+                  </ComboboxPrimitive.ItemIndicator>
+                </ComboboxPrimitive.Item>
+              )}
+            </ComboboxPrimitive.List>
+          </ScrollArea>
           <ModelSelectorEffort />
         </ComboboxPrimitive.Popup>
       </ComboboxPrimitive.Positioner>

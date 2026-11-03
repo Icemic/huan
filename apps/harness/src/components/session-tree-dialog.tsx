@@ -38,6 +38,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { cn } from '@/lib/utils'
@@ -456,10 +457,11 @@ export function SessionTreeDialog() {
           </Button>
         </div>
 
-        <div
-          ref={listRef}
+        <ScrollArea
           data-slot="huan-tree-list"
-          className="border-border/70 min-h-24 flex-1 overflow-auto rounded-md border p-1"
+          className="border-border/70 min-h-24 flex-1 rounded-md border"
+          viewportProps={{ ref: listRef }}
+          contentProps={{ className: 'p-1' }}
         >
           {tree.loading && !tree.tree ? (
             <div className="text-muted-foreground flex items-center gap-2 p-2 text-xs">
@@ -528,7 +530,7 @@ export function SessionTreeDialog() {
               </div>
             ))
           )}
-        </div>
+        </ScrollArea>
 
         {navigation && tree.tree && (
           <div

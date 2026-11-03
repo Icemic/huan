@@ -12,6 +12,7 @@ import { Trans } from '@lingui/react/macro'
 import { useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { useChatStore, useHarnessApp, useHostStore, useSessionsStore } from '@/state/app-context'
 
@@ -289,16 +290,15 @@ export function PiThreadHostUi() {
         </div>
       ) : null}
       {notifications.length > 0 ? (
-        <ul
-          data-slot="huan-extension-notifications"
-          className="mt-1 max-h-24 space-y-0.5 overflow-auto"
-        >
-          {notifications.map((item) => (
-            <li key={item.id} data-notification-id={item.id} className={typeClass(item.type)}>
-              {item.message}
-            </li>
-          ))}
-        </ul>
+        <ScrollArea data-slot="huan-extension-notifications" className="mt-1 max-h-24">
+          <ul className="space-y-0.5">
+            {notifications.map((item) => (
+              <li key={item.id} data-notification-id={item.id} className={typeClass(item.type)}>
+                {item.message}
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
       ) : null}
     </div>
   )

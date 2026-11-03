@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { TooltipIconButton } from '@/components/ui/tooltip-icon-button'
 import { cn } from '@/lib/utils'
@@ -119,17 +120,21 @@ export function ComposerCompletionMenu({
     if (caret !== undefined) focusTextareaAt(inputRef, caret)
   }
   return (
-    <div
+    <ScrollArea
       data-slot="huan-composer-completions"
-      role="listbox"
-      aria-label={
-        completion.kind === 'file'
-          ? '文件引用补全'
-          : completion.kind === 'argument'
-            ? '命令参数补全'
-            : '命令补全'
-      }
-      className="bg-popover text-popover-foreground mb-1 max-h-64 overflow-y-auto rounded-md border p-1 shadow-sm"
+      className="bg-popover text-popover-foreground mb-1 max-h-64 rounded-md border shadow-sm"
+      viewportProps={{
+        role: 'listbox',
+        'aria-label':
+          completion.kind === 'file'
+            ? '文件引用补全'
+            : completion.kind === 'argument'
+              ? '命令参数补全'
+              : '命令补全',
+        // 键盘操作由输入框持有，视口不进 Tab 序列。
+        tabIndex: -1,
+      }}
+      contentProps={{ className: 'p-1' }}
     >
       {completion.items.map((item, index) => (
         <button
@@ -158,7 +163,7 @@ export function ComposerCompletionMenu({
           )}
         </button>
       ))}
-    </div>
+    </ScrollArea>
   )
 }
 
@@ -411,10 +416,10 @@ function CommandPaletteDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaEl
             }
           }}
         />
-        <div
-          role="listbox"
-          aria-label="命令列表"
-          className="max-h-[50dvh] overflow-y-auto rounded-md border p-1"
+        <ScrollArea
+          className="max-h-[50dvh] rounded-md border"
+          viewportProps={{ role: 'listbox', 'aria-label': '命令列表', tabIndex: -1 }}
+          contentProps={{ className: 'p-1' }}
         >
           {filtered.length === 0 ? (
             <p className="text-muted-foreground p-2 text-sm">
@@ -455,7 +460,7 @@ function CommandPaletteDialog({ inputRef }: { inputRef: RefObject<HTMLTextAreaEl
               </button>
             ))
           )}
-        </div>
+        </ScrollArea>
         {diagnostics.length > 0 && (
           <p className="text-muted-foreground text-[11px] whitespace-pre-wrap">
             {diagnostics.join('\n')}

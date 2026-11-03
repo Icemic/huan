@@ -24,6 +24,7 @@ import {
 import { memo, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -462,7 +463,7 @@ export function WorkspaceSidebar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2">
+      <ScrollArea className="flex-1" contentProps={{ className: 'p-2' }}>
         {visibleWorkspaces.length === 0 && grouped.unassigned.length === 0 ? (
           <div className="flex flex-col items-start gap-2 px-1 py-3 text-sm">
             <p className="text-muted-foreground">
@@ -506,7 +507,7 @@ export function WorkspaceSidebar() {
             )}
           </div>
         )}
-      </div>
+      </ScrollArea>
 
       <WorkspaceManagerDialog />
       <NewSessionDialog />

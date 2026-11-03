@@ -16,6 +16,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 const textOf = (node: ReactNode): string => {
@@ -116,12 +117,16 @@ const components: Components = {
     <strong className={cn('font-semibold', className)} {...props} />
   ),
   table: ({ className, ...props }) => (
-    <div className="my-3 w-full min-w-0 overflow-x-auto">
+    <ScrollArea
+      orientation="horizontal"
+      className="my-3 w-full min-w-0"
+      viewportProps={{ className: 'overscroll-x-contain' }}
+    >
       <table
         className={cn('w-full min-w-max border-separate border-spacing-0 text-sm', className)}
         {...props}
       />
-    </div>
+    </ScrollArea>
   ),
   th: ({ className, ...props }) => (
     <th
@@ -154,7 +159,9 @@ const components: Components = {
     const child = Array.isArray(children) ? children[0] : children
     if (typeof child !== 'object' || child === null || !('props' in child)) {
       return (
-        <pre className="bg-muted/30 my-3 overflow-x-auto rounded-lg p-3">{textOf(children)}</pre>
+        <ScrollArea orientation="horizontal" className="bg-muted/30 my-3 rounded-lg">
+          <pre className="p-3">{textOf(children)}</pre>
+        </ScrollArea>
       )
     }
     const props = (child as { props?: { className?: string; children?: ReactNode } }).props

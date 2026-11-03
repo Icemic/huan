@@ -14,6 +14,7 @@ import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -75,12 +76,14 @@ function OutputBlock({ run }: { run: HarnessBashRun }) {
         )}
       </div>
       {run.output && (
-        <pre
+        <ScrollArea
           data-slot="huan-shell-output"
-          className="max-h-48 overflow-auto rounded bg-muted/60 p-2 font-mono text-xs whitespace-pre-wrap"
+          className="max-h-48 rounded bg-muted/60"
+          orientation="both"
+          contentProps={{ className: 'p-2' }}
         >
-          {run.output}
-        </pre>
+          <pre className="font-mono text-xs whitespace-pre-wrap">{run.output}</pre>
+        </ScrollArea>
       )}
       {result?.error && <StatusLine tone="error">{result.error}</StatusLine>}
       {result?.fullOutputPath && (
@@ -148,7 +151,10 @@ export function RuntimeOperationsDialog() {
             <Trans>运行操作</Trans>
           </DialogTitle>
         </DialogHeader>
-        <div className="flex max-h-[70dvh] flex-col gap-3 overflow-y-auto pe-1 text-sm">
+        <ScrollArea
+          className="max-h-[70dvh] text-sm"
+          contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+        >
           {notice && (
             <div
               role="status"
@@ -306,7 +312,7 @@ export function RuntimeOperationsDialog() {
               <Trans>需要会话的操作在左侧新建会话后可用。</Trans>
             </StatusLine>
           )}
-        </div>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )

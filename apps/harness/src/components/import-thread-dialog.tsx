@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -92,7 +93,10 @@ export function ImportThreadDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pe-1 text-sm">
+        <ScrollArea
+          className="min-h-0 flex-1 text-sm"
+          contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+        >
           <div className="flex flex-col gap-1">
             <span id="huan-import-workspace-label" className="text-muted-foreground text-xs">
               <Trans>目标工作区</Trans>
@@ -381,7 +385,7 @@ export function ImportThreadDialog() {
               )}
             </div>
           )}
-        </div>
+        </ScrollArea>
 
         <DialogFooter>
           <Button variant="outline" disabled={panel.busy} onClick={closeImport}>

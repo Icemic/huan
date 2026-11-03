@@ -16,6 +16,7 @@ import type {
 } from '@huan/protocol'
 import { useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
+import { cn } from 'cn'
 import {
   ExternalLinkIcon,
   Loader2Icon,
@@ -49,6 +50,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from '@/components/ui/item'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -151,6 +153,19 @@ function Notice({ children }: { children: ReactNode }) {
     <Alert role="status" data-slot="huan-mcp-notice">
       <AlertDescription className="text-xs whitespace-pre-wrap">{children}</AlertDescription>
     </Alert>
+  )
+}
+
+/** 长文本预览：滚动上限在根节点，pre 保留换行与原始文本。 */
+function PreviewBlock({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <ScrollArea
+      className="bg-muted/60 max-h-40 rounded"
+      contentProps={{ className: 'p-2' }}
+      orientation="both"
+    >
+      <pre className={cn('min-w-0 whitespace-pre-wrap', className)}>{children}</pre>
+    </ScrollArea>
   )
 }
 
@@ -461,9 +476,7 @@ function ToolDetails({
           <span className="text-muted-foreground text-xs">
             <Trans>服务器 instructions</Trans>
           </span>
-          <pre className="max-h-40 overflow-auto rounded bg-muted/60 p-2 text-xs whitespace-pre-wrap">
-            {details.instructions}
-          </pre>
+          <PreviewBlock className="text-xs">{details.instructions}</PreviewBlock>
         </div>
       )}
       <div className="flex flex-col gap-1">
@@ -519,18 +532,14 @@ function ToolDetails({
                   )}
                   <details>
                     <summary className="text-muted-foreground cursor-pointer">inputSchema</summary>
-                    <pre className="max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                      {JSON.stringify(tool.inputSchema, null, 2)}
-                    </pre>
+                    <PreviewBlock>{JSON.stringify(tool.inputSchema, null, 2)}</PreviewBlock>
                   </details>
                   {tool.outputSchema && (
                     <details>
                       <summary className="text-muted-foreground cursor-pointer">
                         outputSchema
                       </summary>
-                      <pre className="max-h-40 overflow-auto rounded bg-muted/60 p-2 whitespace-pre-wrap">
-                        {JSON.stringify(tool.outputSchema, null, 2)}
-                      </pre>
+                      <PreviewBlock>{JSON.stringify(tool.outputSchema, null, 2)}</PreviewBlock>
                     </details>
                   )}
                 </Item>
@@ -1413,7 +1422,10 @@ export function ContextMcpDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pe-1">
+        <ScrollArea
+          className="min-h-0 flex-1"
+          contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+        >
           <Item size="xs" data-slot="huan-mcp-context-info">
             <ItemContent>
               <ItemDescription className="font-mono text-xs break-all">
@@ -1613,7 +1625,7 @@ export function ContextMcpDialog() {
               </TabsContent>
             )}
           </Tabs>
-        </div>
+        </ScrollArea>
 
         <DialogFooter>
           <Button variant="ghost" onClick={close}>

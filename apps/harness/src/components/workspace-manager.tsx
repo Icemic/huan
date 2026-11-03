@@ -37,6 +37,7 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemHeader } from '@/components/ui/item'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useMcpStore, useSettingsStore, useWorkspaceStore } from '@/state/app-context'
 import type { WorkspaceMemberDraft } from '@/state/workspace-store'
 import { ModelScopeEditor } from './model-scope-editor'
@@ -357,7 +358,7 @@ export function WorkspaceManagerDialog() {
               <Trans>添加成员</Trans>
             </Button>
           </div>
-          <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+          <ScrollArea className="max-h-72" contentProps={{ className: 'flex flex-col gap-2' }}>
             {form.members.map((member: WorkspaceMemberDraft) => (
               <Item
                 key={member.key}
@@ -467,7 +468,7 @@ export function WorkspaceManagerDialog() {
                 </ItemContent>
               </Item>
             ))}
-          </div>
+          </ScrollArea>
         </div>
 
         {disabled && (

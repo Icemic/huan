@@ -82,7 +82,7 @@ export function MessageImage({
       </DialogTrigger>
       <DialogContent className="max-w-[min(96vw,72rem)] p-2" showCloseButton>
         <DialogTitle className="sr-only">图片预览</DialogTitle>
-        <div className="flex max-h-[86dvh] w-full items-center justify-center overflow-auto">
+        <div className="flex max-h-[86dvh] w-full items-center justify-center">
           <img
             src={src}
             alt={alt}

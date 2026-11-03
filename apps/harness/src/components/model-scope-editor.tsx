@@ -11,6 +11,7 @@ import { Trans } from '@lingui/react/macro'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldDescription, FieldLabel, FieldSet } from '@/components/ui/field'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 
 /** 模型模式中的 Thinking 后缀；匹配时忽略，回写时保留原文。 */
@@ -137,62 +138,61 @@ export function ModelScopeEditor({
           <Trans>没有可用模型。</Trans>
         </p>
       ) : (
-        <FieldSet
-          aria-label="模型范围"
-          className="max-h-56 gap-0.5 overflow-y-auto rounded-lg border p-1"
-        >
-          {visibleModels.map((model, index) => {
-            const key = modelKeyOf(model)
-            const fieldId = `${idPrefix}-model-${index}`
-            const selected = modelPatternsSelectModel(patterns, model)
-            const exact = patterns.some((pattern) => isExactModelPattern(pattern, model))
-            // 通配包含的行无法用普通多选排除；最后一项取消后会变成空 patterns（全部）。
-            const lockedByPattern = !disabled && patterns.length > 0 && selected && !exact
-            const lockedAsLast =
-              !disabled &&
-              selected &&
-              (patterns.length === 0
-                ? visibleModels.length === 1
-                : patterns.every((pattern) => isExactModelPattern(pattern, model)))
-            const locked = lockedByPattern || lockedAsLast
-            return (
-              <Field
-                key={key}
-                orientation="horizontal"
-                data-slot="huan-model-scope-option"
-                data-model-key={key}
-                data-locked={locked ? 'true' : undefined}
-                title={
-                  lockedByPattern
-                    ? '该模型由高级 patterns 通配包含，请在高级模式中修改。'
-                    : lockedAsLast
-                      ? '至少保留一项模型；可改用高级 patterns 调整。'
-                      : undefined
-                }
-                className="hover:bg-accent items-start gap-2 rounded-lg px-2 py-1.5 text-sm"
-              >
-                <Checkbox
-                  id={fieldId}
-                  className="mt-1"
-                  checked={selected}
-                  disabled={disabled || locked}
-                  onCheckedChange={(checked) =>
-                    onChange(toggleModelPattern(patterns, visibleModels, model, checked))
+        <ScrollArea className="max-h-56 rounded-lg border" contentProps={{ className: 'p-1' }}>
+          <FieldSet aria-label="模型范围" className="min-w-0 gap-0.5">
+            {visibleModels.map((model, index) => {
+              const key = modelKeyOf(model)
+              const fieldId = `${idPrefix}-model-${index}`
+              const selected = modelPatternsSelectModel(patterns, model)
+              const exact = patterns.some((pattern) => isExactModelPattern(pattern, model))
+              // 通配包含的行无法用普通多选排除；最后一项取消后会变成空 patterns（全部）。
+              const lockedByPattern = !disabled && patterns.length > 0 && selected && !exact
+              const lockedAsLast =
+                !disabled &&
+                selected &&
+                (patterns.length === 0
+                  ? visibleModels.length === 1
+                  : patterns.every((pattern) => isExactModelPattern(pattern, model)))
+              const locked = lockedByPattern || lockedAsLast
+              return (
+                <Field
+                  key={key}
+                  orientation="horizontal"
+                  data-slot="huan-model-scope-option"
+                  data-model-key={key}
+                  data-locked={locked ? 'true' : undefined}
+                  title={
+                    lockedByPattern
+                      ? '该模型由高级 patterns 通配包含，请在高级模式中修改。'
+                      : lockedAsLast
+                        ? '至少保留一项模型；可改用高级 patterns 调整。'
+                        : undefined
                   }
-                />
-                <FieldLabel
-                  htmlFor={fieldId}
-                  className="min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 font-normal leading-snug"
+                  className="hover:bg-accent items-start gap-2 rounded-lg px-2 py-1.5 text-sm"
                 >
-                  <span className="w-full truncate">{model.name ?? model.modelId}</span>
-                  <span className="text-muted-foreground w-full break-all font-mono text-xs">
-                    {key}
-                  </span>
-                </FieldLabel>
-              </Field>
-            )
-          })}
-        </FieldSet>
+                  <Checkbox
+                    id={fieldId}
+                    className="mt-1"
+                    checked={selected}
+                    disabled={disabled || locked}
+                    onCheckedChange={(checked) =>
+                      onChange(toggleModelPattern(patterns, visibleModels, model, checked))
+                    }
+                  />
+                  <FieldLabel
+                    htmlFor={fieldId}
+                    className="min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 font-normal leading-snug"
+                  >
+                    <span className="w-full truncate">{model.name ?? model.modelId}</span>
+                    <span className="text-muted-foreground w-full break-all font-mono text-xs">
+                      {key}
+                    </span>
+                  </FieldLabel>
+                </Field>
+              )
+            })}
+          </FieldSet>
+        </ScrollArea>
       )}
 
       <details data-slot="huan-model-scope-advanced">

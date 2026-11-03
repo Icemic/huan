@@ -65,6 +65,7 @@ SOFTWARE.
 
 | 官方来源 | 本地文件 | 本地差异 |
 | --- | --- | --- |
+| https://ui.shadcn.com/r/styles/base-nova/scroll-area.json | `src/components/ui/scroll-area.tsx` | 受限高度使用flex布局；暴露Viewport/Content属性；横/纵/双向轨道与现有聊天悬浮细轨统一 |
 | https://ui.shadcn.com/r/styles/base-nova/tabs.json | `src/components/ui/tabs.tsx` | 补传Root的orientation；方向选择器显式使用data属性 |
 | https://ui.shadcn.com/r/styles/base-nova/field.json | `src/components/ui/field.tsx` | 本地Label/Separator路径；显式方向选择器 |
 | https://ui.shadcn.com/r/styles/base-nova/checkbox.json | `src/components/ui/checkbox.tsx` | 使用lucide CheckIcon；圆角使用现有4px token |

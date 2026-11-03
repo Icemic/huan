@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { useSettingsStore } from '@/state/app-context'
@@ -149,7 +150,10 @@ export function ContextSettingsDialog() {
         )}
 
         {target && (
-          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pe-1">
+          <ScrollArea
+            className="min-h-0 flex-1"
+            contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+          >
             {(notice || error) && (
               <Alert
                 variant={error ? 'destructive' : 'default'}
@@ -333,7 +337,7 @@ export function ContextSettingsDialog() {
             {snapshot && activeTab !== 'resources' && (
               <SettingsEffectivePreview snapshot={snapshot} />
             )}
-          </div>
+          </ScrollArea>
         )}
 
         <DialogFooter>

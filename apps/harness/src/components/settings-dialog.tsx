@@ -37,6 +37,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from '@/components/ui/field'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useSettingsUiStore } from '@/state/app-context'
@@ -124,7 +125,9 @@ function SettingsPanel({
         <h2 className="font-heading text-base leading-none font-medium">{title}</h2>
         <p className="text-muted-foreground">{description}</p>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+      <ScrollArea className="min-h-0 flex-1" contentProps={{ className: 'px-4 py-4' }}>
+        {children}
+      </ScrollArea>
       {actions ? <div className="shrink-0 border-t px-4 py-3">{actions}</div> : null}
     </TabsContent>
   )
@@ -164,9 +167,10 @@ export function SettingsDialog() {
           onValueChange={(value) => openPage(value as SettingsPage)}
           className="min-h-0 flex-1 gap-0"
         >
-          <div
+          <ScrollArea
             data-slot="huan-settings-nav"
-            className="w-36 shrink-0 overflow-y-auto border-e p-2 sm:w-44"
+            className="w-36 shrink-0 border-e sm:w-44"
+            contentProps={{ className: 'p-2' }}
           >
             <TabsList
               variant="line"
@@ -183,7 +187,7 @@ export function SettingsDialog() {
                 )
               })}
             </TabsList>
-          </div>
+          </ScrollArea>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <SettingsPanel

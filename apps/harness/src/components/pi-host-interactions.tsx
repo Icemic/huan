@@ -11,6 +11,7 @@ import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { useHostStore } from '@/state/app-context'
 
@@ -128,10 +129,11 @@ export function PiHostInteractions() {
         <DialogTitle>
           <Trans>宿主交互</Trans>
         </DialogTitle>
-        <section
-          aria-label="宿主交互"
+        <ScrollArea
           data-slot="huan-host-interactions"
-          className="grid max-h-[70vh] gap-2 overflow-auto text-sm"
+          className="max-h-[70vh] text-sm"
+          viewportProps={{ role: 'region', 'aria-label': '宿主交互' }}
+          contentProps={{ className: 'grid gap-2' }}
         >
           {snapshot.requests.length > 0 ? (
             <div className="grid gap-2">
@@ -141,35 +143,34 @@ export function PiHostInteractions() {
             </div>
           ) : null}
           {notifications.length > 0 ? (
-            <ul
-              className="mt-2 max-h-32 space-y-1 overflow-auto"
-              data-slot="huan-host-notifications"
-            >
-              {notifications.map((item) => (
-                <li key={item.id} className="flex items-start gap-2 text-xs">
-                  <span
-                    className={
-                      item.type === 'error'
-                        ? 'text-destructive'
-                        : item.type === 'warning'
-                          ? 'text-amber-700 dark:text-amber-300'
-                          : 'text-muted-foreground'
-                    }
-                  >
-                    {item.message}
-                  </span>
-                  <button
-                    type="button"
-                    className="text-muted-foreground ms-auto shrink-0 underline"
-                    onClick={() => dismissNotification(item.id)}
-                  >
-                    <Trans>忽略</Trans>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <ScrollArea data-slot="huan-host-notifications" className="mt-2 max-h-32">
+              <ul className="space-y-1">
+                {notifications.map((item) => (
+                  <li key={item.id} className="flex items-start gap-2 text-xs">
+                    <span
+                      className={
+                        item.type === 'error'
+                          ? 'text-destructive'
+                          : item.type === 'warning'
+                            ? 'text-amber-700 dark:text-amber-300'
+                            : 'text-muted-foreground'
+                      }
+                    >
+                      {item.message}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-muted-foreground ms-auto shrink-0 underline"
+                      onClick={() => dismissNotification(item.id)}
+                    >
+                      <Trans>忽略</Trans>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
           ) : null}
-        </section>
+        </ScrollArea>
       </DialogContent>
     </Dialog>
   )
