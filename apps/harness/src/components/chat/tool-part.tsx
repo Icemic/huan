@@ -19,6 +19,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Trace,
   TraceCollapsible,
@@ -237,9 +238,15 @@ function ToolNodeView({
                     <CodeBlockCopyButton value={argumentsText} />
                   </CodeBlockActions>
                 </CodeBlockHeader>
-                <CodeBlockContent wrap className="max-h-48">
-                  {argumentsText}
-                </CodeBlockContent>
+                <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
+                  <CodeBlockContent
+                    wrap
+                    className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                    style={{ maskImage: 'none' }}
+                  >
+                    {argumentsText}
+                  </CodeBlockContent>
+                </ScrollArea>
               </CodeBlock>
             ) : null}
             {part.output !== undefined ? (
@@ -252,9 +259,15 @@ function ToolNodeView({
                     <CodeBlockCopyButton value={part.output} />
                   </CodeBlockActions>
                 </CodeBlockHeader>
-                <CodeBlockContent wrap className="max-h-64">
-                  {part.output}
-                </CodeBlockContent>
+                <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-64">
+                  <CodeBlockContent
+                    wrap
+                    className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                    style={{ maskImage: 'none' }}
+                  >
+                    {part.output}
+                  </CodeBlockContent>
+                </ScrollArea>
               </CodeBlock>
             ) : null}
             <ToolImages part={part} />
@@ -265,9 +278,15 @@ function ToolNodeView({
                   <Trans>工具详情</Trans>
                 </summary>
                 <CodeBlock size="sm" className="mt-1">
-                  <CodeBlockContent wrap className="max-h-48">
-                    {safeJson(part.details)}
-                  </CodeBlockContent>
+                  <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
+                    <CodeBlockContent
+                      wrap
+                      className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                      style={{ maskImage: 'none' }}
+                    >
+                      {safeJson(part.details)}
+                    </CodeBlockContent>
+                  </ScrollArea>
                 </CodeBlock>
               </details>
             ) : null}

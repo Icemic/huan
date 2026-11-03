@@ -1,12 +1,5 @@
-"use client"
-
 import { Separator as SeparatorPrimitive } from "@base-ui/react/separator"
 import { cn } from "cn"
-
-/**
- * shadcn base-nova separator 官方源码。
- * 方向选择器改为显式 data-[orientation=...]：本仓库未引入 shadcn 的全局 tailwind.css 变体。
- */
 
 function Separator({
   className,
@@ -18,7 +11,7 @@ function Separator({
       data-slot="separator"
       orientation={orientation}
       className={cn(
-        "shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch",
+        "shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
         className
       )}
       {...props}

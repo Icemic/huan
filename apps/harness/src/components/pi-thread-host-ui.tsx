@@ -290,7 +290,10 @@ export function PiThreadHostUi() {
         </div>
       ) : null}
       {notifications.length > 0 ? (
-        <ScrollArea data-slot="huan-extension-notifications" className="mt-1 max-h-24">
+        <ScrollArea
+          data-slot="huan-extension-notifications"
+          className="mt-1 *:data-[slot=scroll-area-viewport]:max-h-24"
+        >
           <ul className="space-y-0.5">
             {notifications.map((item) => (
               <li key={item.id} data-notification-id={item.id} className={typeClass(item.type)}>

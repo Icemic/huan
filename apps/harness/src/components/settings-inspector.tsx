@@ -7,7 +7,7 @@
 import type { HarnessSettingsSnapshot } from '@huan/protocol'
 import { Trans } from '@lingui/react/macro'
 import { FieldDescription } from '@/components/ui/field'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 
 /** 折叠展示文件配置预览与顶层来源；按需展开，不自动请求正文。 */
 export function SettingsEffectivePreview({ snapshot }: { snapshot: HarnessSettingsSnapshot }) {
@@ -24,14 +24,13 @@ export function SettingsEffectivePreview({ snapshot }: { snapshot: HarnessSettin
             .map(([name, origin]) => `${name}=${origin}`)
             .join('、')}
         </FieldDescription>
-        <ScrollArea
-          className="bg-muted/50 max-h-48 rounded-md"
-          contentProps={{ className: 'p-2' }}
-          orientation="both"
-        >
-          <pre className="min-w-0 font-mono whitespace-pre-wrap">
-            {JSON.stringify(snapshot.effective.values, null, 2).slice(0, 20_000)}
-          </pre>
+        <ScrollArea className="bg-muted/50 rounded-md *:data-[slot=scroll-area-viewport]:max-h-48">
+          <div className="p-2">
+            <pre className="min-w-0 font-mono whitespace-pre-wrap">
+              {JSON.stringify(snapshot.effective.values, null, 2).slice(0, 20_000)}
+            </pre>
+          </div>
+          <ScrollBar orientation="horizontal" />
         </ScrollArea>
         {snapshot.live && snapshot.reloadRequired && (
           <FieldDescription>

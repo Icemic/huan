@@ -403,13 +403,15 @@ export function WorkspaceSidebar() {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">
-                <Trans>全部工作区（含未归属）</Trans>
-              </SelectItem>
-              <SelectItem value="workspace">
-                <Trans>当前工作区</Trans>
-              </SelectItem>
+            <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+              <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+                <SelectItem value="all">
+                  <Trans>全部工作区（含未归属）</Trans>
+                </SelectItem>
+                <SelectItem value="workspace">
+                  <Trans>当前工作区</Trans>
+                </SelectItem>
+              </ScrollArea>
             </SelectContent>
           </Select>
           <Select
@@ -428,16 +430,18 @@ export function WorkspaceSidebar() {
             >
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="recent">
-                <Trans>最近活动</Trans>
-              </SelectItem>
-              <SelectItem value="created">
-                <Trans>创建时间</Trans>
-              </SelectItem>
-              <SelectItem value="name">
-                <Trans>名称</Trans>
-              </SelectItem>
+            <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+              <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+                <SelectItem value="recent">
+                  <Trans>最近活动</Trans>
+                </SelectItem>
+                <SelectItem value="created">
+                  <Trans>创建时间</Trans>
+                </SelectItem>
+                <SelectItem value="name">
+                  <Trans>名称</Trans>
+                </SelectItem>
+              </ScrollArea>
             </SelectContent>
           </Select>
         </div>
@@ -463,50 +467,54 @@ export function WorkspaceSidebar() {
         </div>
       </div>
 
-      <ScrollArea className="flex-1" contentProps={{ className: 'p-2' }}>
-        {visibleWorkspaces.length === 0 && grouped.unassigned.length === 0 ? (
-          <div className="flex flex-col items-start gap-2 px-1 py-3 text-sm">
-            <p className="text-muted-foreground">
-              {query ? <Trans>没有匹配的会话。</Trans> : <Trans>还没有工作区。</Trans>}
-            </p>
-            {!query && (
-              <Button variant="outline" size="sm" onClick={() => openWorkspaceForm()}>
-                <PlusIcon aria-hidden className="size-4" />
-                <Trans>新建工作区</Trans>
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-1 pr-2">
-            {visibleWorkspaces.map((workspace) => (
-              <WorkspaceGroup
-                key={workspace.id}
-                workspace={workspace}
-                threads={sortThreads(grouped.byWorkspace.get(workspace.id) ?? [], sort)}
-                recentThread={recentByWorkspace.get(workspace.id)}
-                activeThreadId={activeThreadId}
-              />
-            ))}
-            {scope === 'all' && grouped.unassigned.length > 0 && (
-              <div data-slot="huan-unassigned-group" className="mt-2 flex flex-col gap-0.5">
-                <div className="text-muted-foreground flex items-center gap-1 px-2 py-1 text-xs font-medium">
-                  <Trans>未归属会话</Trans>
-                  <span>({grouped.unassigned.length})</span>
+      <ScrollArea
+        className={cn('flex min-h-0 flex-1 flex-col', '*:data-[slot=scroll-area-viewport]:flex-1')}
+      >
+        <div className="p-2">
+          {visibleWorkspaces.length === 0 && grouped.unassigned.length === 0 ? (
+            <div className="flex flex-col items-start gap-2 px-1 py-3 text-sm">
+              <p className="text-muted-foreground">
+                {query ? <Trans>没有匹配的会话。</Trans> : <Trans>还没有工作区。</Trans>}
+              </p>
+              {!query && (
+                <Button variant="outline" size="sm" onClick={() => openWorkspaceForm()}>
+                  <PlusIcon aria-hidden className="size-4" />
+                  <Trans>新建工作区</Trans>
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1 pr-2">
+              {visibleWorkspaces.map((workspace) => (
+                <WorkspaceGroup
+                  key={workspace.id}
+                  workspace={workspace}
+                  threads={sortThreads(grouped.byWorkspace.get(workspace.id) ?? [], sort)}
+                  recentThread={recentByWorkspace.get(workspace.id)}
+                  activeThreadId={activeThreadId}
+                />
+              ))}
+              {scope === 'all' && grouped.unassigned.length > 0 && (
+                <div data-slot="huan-unassigned-group" className="mt-2 flex flex-col gap-0.5">
+                  <div className="text-muted-foreground flex items-center gap-1 px-2 py-1 text-xs font-medium">
+                    <Trans>未归属会话</Trans>
+                    <span>({grouped.unassigned.length})</span>
+                  </div>
+                  <div className="ms-3 flex flex-col gap-0.5">
+                    {grouped.unassigned.map((thread) => (
+                      <SessionRow
+                        key={thread.id}
+                        thread={thread}
+                        unassigned
+                        active={activeThreadId === thread.id}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="ms-3 flex flex-col gap-0.5">
-                  {grouped.unassigned.map((thread) => (
-                    <SessionRow
-                      key={thread.id}
-                      thread={thread}
-                      unassigned
-                      active={activeThreadId === thread.id}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </ScrollArea>
 
       <WorkspaceManagerDialog />

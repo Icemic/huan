@@ -43,7 +43,10 @@ export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButton
             </Button>
           }
         />
-        <TooltipContent side={side}>{tooltip}</TooltipContent>
+        {/* 本地修正：官方旋转方块箭头会压到文字区域，调用处隐藏直系 Arrow，不改上游源码。 */}
+        <TooltipContent side={side} className="[&>[aria-hidden=true]]:hidden">
+          {tooltip}
+        </TooltipContent>
       </Tooltip>
     )
   },

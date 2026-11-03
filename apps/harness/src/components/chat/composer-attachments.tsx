@@ -21,6 +21,7 @@ import {
   AttachmentTrigger,
 } from '@/components/ui/attachment'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { useBlobUrl } from './use-blob-url'
 
 const EMPTY_IDS: readonly string[] = []
@@ -121,18 +122,24 @@ export function ComposerAttachments({ draftId }: { draftId: string | undefined }
   const removeAttachment = useWindowStore((state) => state.removeAttachment)
   if (!draftId || attachmentIds.length === 0) return null
   return (
-    <AttachmentGroup data-slot="huan-composer-attachments" className="w-full py-0">
-      {attachmentIds.map((id) => {
-        const attachment = attachmentsById[id]
-        if (!attachment) return null
-        return (
-          <AttachmentItem
-            key={id}
-            attachment={attachment}
-            onRemove={() => removeAttachment(draftId, id)}
-          />
-        )
-      })}
-    </AttachmentGroup>
+    <ScrollArea className="w-full min-w-0 data-has-overflow-x:pb-2.5">
+      <AttachmentGroup
+        data-slot="huan-composer-attachments"
+        className="w-max overflow-x-visible pt-0 pb-0"
+      >
+        {attachmentIds.map((id) => {
+          const attachment = attachmentsById[id]
+          if (!attachment) return null
+          return (
+            <AttachmentItem
+              key={id}
+              attachment={attachment}
+              onRemove={() => removeAttachment(draftId, id)}
+            />
+          )
+        })}
+      </AttachmentGroup>
+      <ScrollBar orientation="horizontal" />
+    </ScrollArea>
   )
 }

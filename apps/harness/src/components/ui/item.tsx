@@ -6,11 +6,6 @@ import { cn } from "cn"
 
 import { Separator } from "@/components/ui/separator"
 
-/**
- * shadcn base-nova item 官方源码。
- * 本地差异：Separator 改为仓库内路径。
- */
-
 function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

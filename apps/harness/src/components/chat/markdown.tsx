@@ -1,8 +1,8 @@
 /**
  * 消息 Markdown 渲染：react-markdown + remark-gfm。
  *
- * 代码块复用官方 CodeBlock 组合（语言、复制、独立横向滚动），表格与图片
- * 在内容列内自适应；不引入第二套 Markdown 解析器或高亮运行时。
+ * 代码块复用官方 CodeBlock 组合（语言、复制），由外部 ScrollArea 承担滚动，
+ * 内部 pre 保持 overflow-visible；表格横向滚动使用官方 ScrollBar。
  */
 
 import { memo, type ReactNode } from 'react'
@@ -16,7 +16,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 
 const textOf = (node: ReactNode): string => {
@@ -117,15 +117,12 @@ const components: Components = {
     <strong className={cn('font-semibold', className)} {...props} />
   ),
   table: ({ className, ...props }) => (
-    <ScrollArea
-      orientation="horizontal"
-      className="my-3 w-full min-w-0"
-      viewportProps={{ className: 'overscroll-x-contain' }}
-    >
+    <ScrollArea className="my-3 w-full min-w-0 data-has-overflow-x:pb-2.5">
       <table
         className={cn('w-full min-w-max border-separate border-spacing-0 text-sm', className)}
         {...props}
       />
+      <ScrollBar orientation="horizontal" />
     </ScrollArea>
   ),
   th: ({ className, ...props }) => (
@@ -159,8 +156,9 @@ const components: Components = {
     const child = Array.isArray(children) ? children[0] : children
     if (typeof child !== 'object' || child === null || !('props' in child)) {
       return (
-        <ScrollArea orientation="horizontal" className="bg-muted/30 my-3 rounded-lg">
-          <pre className="p-3">{textOf(children)}</pre>
+        <ScrollArea className="bg-muted/30 my-3 rounded-lg data-has-overflow-x:pb-2.5">
+          <pre className="overflow-visible p-3">{textOf(children)}</pre>
+          <ScrollBar orientation="horizontal" />
         </ScrollArea>
       )
     }
@@ -175,7 +173,13 @@ const components: Components = {
             <CodeBlockCopyButton value={code} />
           </CodeBlockActions>
         </CodeBlockHeader>
-        <CodeBlockContent className="max-h-[min(60vh,32rem)]">{code}</CodeBlockContent>
+        {/* 外部 ScrollArea 负责双向滚动与轨道；pre 取消自身滚动和边缘遮罩。 */}
+        <ScrollArea className="min-w-0 data-has-overflow-x:pb-2.5 *:data-[slot=scroll-area-viewport]:max-h-[min(60vh,32rem)]">
+          <CodeBlockContent className="overflow-visible" style={{ maskImage: 'none' }}>
+            {code}
+          </CodeBlockContent>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       </CodeBlock>
     )
   },

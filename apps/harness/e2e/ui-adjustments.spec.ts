@@ -1,5 +1,5 @@
 /**
- * UI 调整首批浏览器验收：聊天滚动条、输入焦点、工具长串换行与 Tooltip 箭头。
+ * UI 调整首批浏览器验收：聊天滚动条、输入焦点、工具长串换行与 Tooltip 箭头隐藏。
  *
  * 滚动/工具用真实 Pi SDK 与隔离用户空间；Tooltip 用测试专属夹具复用真实
  * 组件，覆盖四向、碰撞翻转与明暗主题，不向生产入口增加展示页。
@@ -42,7 +42,10 @@ async function scriptTurns(request: APIRequestContext, turns: unknown[]): Promis
   expect(response.ok()).toBe(true)
 }
 
-const scrollViewport = (page: Page) => page.locator('[data-slot="huan-chat-scroll"]')
+const chatScrollRoot = (page: Page) =>
+  page.locator('[data-slot="huan-chat-view"] > div > [data-slot="scroll-area"]').first()
+const scrollViewport = (page: Page) =>
+  chatScrollRoot(page).locator('[data-slot="scroll-area-viewport"]')
 const chatContent = (page: Page) => page.locator('[data-slot="huan-chat-content"]')
 const scrollToBottom = (page: Page) => page.locator('[data-slot="huan-scroll-to-bottom"]')
 
@@ -67,6 +70,21 @@ async function boxOf(locator: Locator) {
   const box = await locator.boundingBox()
   if (!box) throw new Error('元素没有可测量的布局框')
   return box
+}
+
+/** 代码块 pre 交回内容语义，横向滚动由父级 ScrollArea 视口承担。 */
+async function codeBlockScrollMetrics(content: Locator) {
+  return content.evaluate((element) => {
+    const root = element.closest('[data-slot="scroll-area"]')
+    const viewport = root?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]')
+    if (!viewport) throw new Error('代码块缺少父级 ScrollArea 视口')
+    const code = element.querySelector<HTMLElement>('[data-slot="code-block-code"]')
+    return {
+      scrollWidth: viewport.scrollWidth,
+      clientWidth: viewport.clientWidth,
+      codeScrollWidth: code?.scrollWidth ?? 0,
+    }
+  })
 }
 
 /** 生成长历史：短内容对照后发送足够多的行，确保消息区溢出。 */
@@ -170,13 +188,15 @@ test('消息滚动条悬浮不占宽，短到长布局稳定且拖动/键盘/回
   expect(Math.abs(longContent.width - shortContent.width)).toBeLessThan(0.5)
   expect(Math.abs((await boxOf(viewport)).width - shortViewport.width)).toBeLessThan(0.5)
 
-  const track = page.locator('[data-slot="huan-chat-scrollbar"]')
+  const track = chatScrollRoot(page).locator(
+    '[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]',
+  )
   await expect(track).toHaveCount(1)
   const trackBox = await boxOf(track)
-  const thumb = page.locator('[data-slot="huan-chat-scroll-thumb"]')
+  const thumb = track.locator('[data-slot="scroll-area-thumb"]')
   const thumbBox = await boxOf(thumb)
   const viewportBox = await boxOf(viewport)
-  expect(Math.round(trackBox.width)).toBe(8)
+  expect(Math.round(trackBox.width)).toBe(10)
   expect(trackBox.x).toBeGreaterThanOrEqual(viewportBox.x)
   expect(trackBox.x + trackBox.width).toBeLessThanOrEqual(viewportBox.x + viewportBox.width + 0.5)
   expect(thumbBox.x).toBeGreaterThanOrEqual(trackBox.x - 0.5)
@@ -269,14 +289,7 @@ test('工具参数/输出/详情显式换行且复制原文，Markdown 代码默
   for (let index = 0; index < 3; index += 1) {
     const content = contents.nth(index)
     await expect(content).toHaveAttribute('data-wrap', 'true')
-    const geometry = await content.evaluate((element) => {
-      const code = element.querySelector('[data-slot="code-block-code"]')
-      return {
-        scrollWidth: element.scrollWidth,
-        clientWidth: element.clientWidth,
-        codeScrollWidth: code?.scrollWidth ?? 0,
-      }
-    })
+    const geometry = await codeBlockScrollMetrics(content)
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1)
     expect(geometry.codeScrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1)
   }
@@ -295,18 +308,15 @@ test('工具参数/输出/详情显式换行且复制原文，Markdown 代码默
   const readClipboard = async () =>
     (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n')
   const blocks = card.locator('[data-slot="code-block"]')
-  await blocks.nth(0).getByRole('button', { name: '复制', exact: true }).click()
+  await blocks.nth(0).getByRole('button', { name: 'Copy', exact: true }).click()
   await expect.poll(readClipboard).toBe(JSON.stringify({ note }, null, 2))
-  await blocks.nth(1).getByRole('button', { name: '复制', exact: true }).click()
+  await blocks.nth(1).getByRole('button', { name: 'Copy', exact: true }).click()
   await expect.poll(readClipboard).toBe(`OUTPUT:${note}`)
 
   // 助手 Markdown 代码块保持默认：不 wrap，长行横向滚动。
   const markdown = assistantMessages(page).last().locator('[data-slot="code-block-content"]').last()
   await expect(markdown).not.toHaveAttribute('data-wrap', 'true')
-  const markdownGeometry = await markdown.evaluate((element) => ({
-    scrollWidth: element.scrollWidth,
-    clientWidth: element.clientWidth,
-  }))
+  const markdownGeometry = await codeBlockScrollMetrics(markdown)
   expect(markdownGeometry.scrollWidth).toBeGreaterThan(markdownGeometry.clientWidth)
 })
 
@@ -321,21 +331,7 @@ const tooltipCases = [
   { id: 'flip-right', side: 'left' },
 ] as const
 
-interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-const intersects = (left: Rect, right: Rect): boolean => {
-  const overlapX = Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x)
-  const overlapY =
-    Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y)
-  return overlapX > 0.5 && overlapY > 0.5
-}
-
-test('Tooltip 箭头贴边、不遮文字，四向翻转与明暗主题一致', async ({ page }) => {
+test('Tooltip 箭头隐藏不占布局，文字留在弹层内，四向翻转与明暗主题一致', async ({ page }) => {
   const backgrounds: Record<string, string> = {}
   for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/e2e/fixtures/tooltip.html?theme=${theme}`)
@@ -349,38 +345,27 @@ test('Tooltip 箭头贴边、不遮文字，四向翻转与明暗主题一致', 
       const text = page.getByTestId(`tooltip-text-${item.id}`)
       await expect(text).toBeVisible()
       const popup = text.locator('..')
-      const arrow = popup.locator('[data-slot="tooltip-arrow"]')
-      await expect(arrow).toHaveAttribute('data-side', item.side)
+      await expect(popup).toHaveAttribute('data-side', item.side)
+
+      // 官方 Arrow 仍在 DOM 中，但调用处已隐藏：不可见且没有布局框。
+      const arrow = popup.locator(':scope > [aria-hidden="true"]')
+      await expect(arrow).toHaveCount(1)
+      await expect(arrow).toBeHidden()
+      expect(await arrow.boundingBox()).toBeNull()
+
+      // 正文完整落在弹层内，不再被箭头图形挤占或遮挡。
       const popupBox = await boxOf(popup)
       const textBox = await boxOf(text)
-      const arrowBox = await boxOf(arrow)
-      expect(intersects(textBox, arrowBox)).toBe(false)
+      expect(textBox.x).toBeGreaterThanOrEqual(popupBox.x - 0.5)
+      expect(textBox.y).toBeGreaterThanOrEqual(popupBox.y - 0.5)
+      expect(textBox.x + textBox.width).toBeLessThanOrEqual(popupBox.x + popupBox.width + 0.5)
+      expect(textBox.y + textBox.height).toBeLessThanOrEqual(popupBox.y + popupBox.height + 0.5)
 
-      if (item.side === 'top' || item.side === 'bottom') {
-        expect(Math.abs(arrowBox.width - 12)).toBeLessThanOrEqual(1)
-        expect(Math.abs(arrowBox.height - 6)).toBeLessThanOrEqual(1)
-      } else {
-        expect(Math.abs(arrowBox.width - 6)).toBeLessThanOrEqual(1)
-        expect(Math.abs(arrowBox.height - 12)).toBeLessThanOrEqual(1)
-      }
-      if (item.side === 'top') {
-        expect(Math.abs(arrowBox.y - (popupBox.y + popupBox.height))).toBeLessThanOrEqual(1)
-      } else if (item.side === 'bottom') {
-        expect(Math.abs(arrowBox.y + arrowBox.height - popupBox.y)).toBeLessThanOrEqual(1)
-      } else if (item.side === 'left') {
-        expect(Math.abs(arrowBox.x - (popupBox.x + popupBox.width))).toBeLessThanOrEqual(1)
-      } else {
-        expect(Math.abs(arrowBox.x + arrowBox.width - popupBox.x)).toBeLessThanOrEqual(1)
-      }
-
-      const colors = await arrow.evaluate((element) => ({
-        arrow: getComputedStyle(element, '::before').backgroundColor,
-        popup: getComputedStyle(element.parentElement as HTMLElement).backgroundColor,
-        overflow: getComputedStyle(element).overflow,
-      }))
-      expect(colors.arrow).toBe(colors.popup)
-      expect(colors.overflow).toBe('clip')
-      backgrounds[theme] = colors.popup
+      const backgroundColor = await popup.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      )
+      expect(backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+      backgrounds[theme] = backgroundColor
     }
   }
   expect(backgrounds.light).not.toBe(backgrounds.dark)

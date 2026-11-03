@@ -16,9 +16,9 @@ import {
   LocateFixedIcon,
 } from 'lucide-react'
 import { memo } from 'react'
+import { TooltipIconButton } from '@/components/tooltip-icon-button'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Message, MessageContent, MessageFooter } from '@/components/ui/message'
-import { TooltipIconButton } from '@/components/ui/tooltip-icon-button'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useSessionsStore } from '@/state/app-context'
 import { AssistantMessageParts } from './message-body'

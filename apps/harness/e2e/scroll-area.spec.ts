@@ -3,8 +3,8 @@
  *
  * 第一部分使用真实全局设置“对话”页：在确定溢出的正文视口上验证滚轮、
  * PageDown 与轨道拖动只改变 scrollTop，页头/页脚与弹层 Root 不移动、不外溢。
- * 第二部分通过测试专用夹具复用真实 Select/Menu/Combobox/ScrollArea，覆盖
- * 键盘末项导航、max-h 高度约束与横向滚动；夹具不注册生产入口。
+ * 第二部分通过测试专用夹具复用真实官方 Select/DropdownMenu/Combobox/ScrollArea
+ * 组合，覆盖键盘末项导航、max-h 高度约束与横向滚动；夹具不注册生产入口。
  */
 import { expect, type Locator, type Page, type TestInfo, test } from '@playwright/test'
 import { openApp, openSettings, settingsDialog, settingsTab } from './helpers.js'
@@ -214,7 +214,7 @@ test('长列表：Select End 高亮末项并可见、Enter 选中，Menu End 选
   await selectTrigger.click()
   const selectItems = page.locator('[data-slot="select-item"]')
   await expect(selectItems).toHaveCount(40)
-  const selectList = page.locator('[data-slot="select-list"]')
+  const selectList = page.locator('[data-slot="select-content"] [data-slot="scroll-area-viewport"]')
   await expect(selectList).toBeVisible()
 
   const lastSelect = selectItems.last()
@@ -234,9 +234,11 @@ test('长列表：Select End 高亮末项并可见、Enter 选中，Menu End 选
   await page.getByTestId('menu-trigger').click()
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
-  const menuItems = page.locator('[data-slot="menu-item"]')
+  const menuItems = page.locator('[data-slot="dropdown-menu-item"]')
   await expect(menuItems).toHaveCount(40)
-  const menuViewport = page.locator('[data-slot="menu-viewport"]')
+  const menuViewport = page.locator(
+    '[data-slot="dropdown-menu-content"] [data-slot="scroll-area-viewport"]',
+  )
   const lastMenu = menuItems.last()
   const lastMenuText = (await lastMenu.innerText()).trim()
 
@@ -254,11 +256,11 @@ test('长列表：Combobox 搜索结果用箭头走到末项并保持可见', as
   await openScrollFixture(page)
 
   await page.getByTestId('combobox-trigger').click()
-  const search = page.locator('[data-slot="model-selector-search"]')
+  const search = page.getByTestId('combobox-search')
   await expect(search).toBeVisible()
   await search.fill('模型')
 
-  const items = page.locator('[data-slot="model-selector-item"]')
+  const items = page.locator('[data-slot="combobox-item"]')
   await expect(items).toHaveCount(30)
   const first = items.first()
   await expect(first).toHaveAttribute('data-highlighted', '')
@@ -269,9 +271,7 @@ test('长列表：Combobox 搜索结果用箭头走到末项并保持可见', as
   }
   const last = items.last()
   await expect(last).toHaveAttribute('data-highlighted', '')
-  const scroll = page.locator(
-    '[data-slot="model-selector-scroll"] [data-slot="scroll-area-viewport"]',
-  )
+  const scroll = page.locator('[data-slot="combobox-content"] [data-slot="scroll-area-viewport"]')
   await expect.poll(async () => (await metricsOf(scroll)).scrollTop).toBeGreaterThan(0)
   expectInside(await boxOf(last), await boxOf(scroll))
 })
@@ -288,11 +288,10 @@ test('ScrollArea：max-h 短内容不强撑、长内容限高，横向滚动与 
   await expect(shortRoot.locator('[data-slot="scroll-area-scrollbar"]')).toHaveCount(0)
 
   const longRoot = page.getByTestId('maxheight-long')
-  const longBox = await boxOf(longRoot)
-  expect(longBox.height).toBeGreaterThanOrEqual(159)
-  expect(longBox.height).toBeLessThanOrEqual(161)
   const longViewport = longRoot.locator('[data-slot="scroll-area-viewport"]')
   const longMetrics = await metricsOf(longViewport)
+  expect(longMetrics.clientHeight).toBeGreaterThanOrEqual(159)
+  expect(longMetrics.clientHeight).toBeLessThanOrEqual(161)
   expect(longMetrics.scrollHeight).toBeGreaterThan(longMetrics.clientHeight)
   await expect(
     longRoot.locator('[data-slot="scroll-area-scrollbar"][data-orientation="vertical"]'),

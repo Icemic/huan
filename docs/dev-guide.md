@@ -61,11 +61,17 @@ MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项�
 
 ### 4.2 代码规范
 
-- 注释一律中文（AGENTS.md 规定）。
+- 本项目新增或修改的注释一律中文；安装的上游源码原有注释保留（详见AGENTS.md）。
 - Biome 负责 lint + format：2 空格缩进、单引号、无分号；行尾统一 LF（`.gitattributes` 同步约束，避免跨平台漂移）。
 - TS strict 全开，附带 `noUncheckedIndexedAccess`、`verbatimModuleSyntax`。
 
-### 4.3 i18n（Lingui v6）
+### 4.3 UI组件安装与维护
+
+组件来源、上游文件维护与小范围修改的注释要求以[AGENTS.md](../AGENTS.md)为准。项目使用Base UI版本的shadcn/ui或ReUI组件，当前shadcn样式为`base-nova`，配置位于`apps/harness/components.json`。
+
+从包含components.json的应用目录运行官方shadcn CLI安装；使用满足依赖发布龄约束的明确版本，先预览生成内容和依赖变化。安装工具完成的路径与图标转换属于安装结果，后续以该结果为比较基准。主题在全局CSS tokens配置，业务组合放在`components/ui`之外。不得通过下载内部registry原始模板、手工改写占位图标和补写交互来冒充CLI安装结果。
+
+### 4.4 i18n（Lingui v6）
 
 - 源语言中文，首期仅 `zh-CN` 单语言包。
 - 应用入口须用 `<I18nProvider i18n={i18n}>` 包裹根组件（Lingui v6 要求，缺了会运行时报错）。

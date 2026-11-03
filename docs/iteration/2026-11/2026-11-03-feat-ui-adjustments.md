@@ -296,6 +296,55 @@ ScrollArea的Viewport承担滚动，内容层负责flex/grid布局和间距；�
 
 实施完成：删除ComposerTools、CommandPaletteDialog及其专用palette状态/插入动作，保留目录加载、诊断数据和补全执行功能。+菜单直接同步触发现有file input，未增加业务状态；图片选择后回输入框，Escape回+按钮。主agent独立review并亲验harness/server/e2e类型、4文件26项相关单测、11条不同Chromium流程通过，覆盖菜单、图片预览/重复选择/模型拒绝/粘贴、/与@补全、资源重载及跨窗目录更新和焦点ring。空文件选择用setFiles([])检查无新增附件，未模拟操作系统选择框的取消按钮。移除测试中反复移动光标重算补全的轮询后，单次输入仍通过6条相关流程。Biome、Lingui464条及文档检查完成；未执行全套测试/构建，未提交。
 
+### 5.12 基础组件来源审计与官方安装整改
+
+用户要求优先安装shadcn/ui或ReUI官方组件，避免自行基于Base UI重写或修改上游文件。规范已写入[AGENTS.md](../../../AGENTS.md)，安装约定见[开发指南](../../dev-guide.md#43-ui组件安装与维护)。本节为主agent独立审阅记录；生产代码尚未替换。此前§5.8/§5.9关于来源的说明只证明取过官方源码，不能证明安装结果保持原样。
+
+#### 审计方法与范围
+
+基线为`00b735f`，审计开始时工作区干净。检查`components/ui`全部32个文件，同时搜索目录外直接使用Base UI的实现。通过HTTPS获取当前shadcn base-nova官方registry，逐个对照源码、依赖、API和样式；忽略排版和路径转换后再判断行为差异，不根据注释或Base UI导入判定来源。当前线上源码不能反向证明旧文件最初如何生成，因此下表区分当前一致性与已知本地改写。
+
+上游响应与逐文件diff保存在本机Temp的`huan-ui-audit`，尚未运行安装CLI，也未替换应用文件。ReUI文档现已说明`@reui`使用`https://reui.io/r/{style}/{name}.json`；公开registry和`base-nova/code-block.json`可获取，但本次查询的select、dropdown-menu、combobox、scroll-area、tooltip和model-selector同名地址返回404，不能声称存在可用对应项。
+
+#### 32个文件审阅结果
+
+| 分类 | 文件 | 发现与处理建议 |
+| --- | --- | --- |
+| 与当前官方一致，仅排版或路径差异，共13个 | alert、badge、bubble、collapsible、label、message、radio-group、switch | 去除排版差异后与当前registry一致 |
+| 同上 | empty、input-group、item、input、textarea | empty增加React导入；其他为项目路径、类型导入或class顺序；不应误报为自写交互 |
+| 小范围本地变化，共5个 | avatar、button、skeleton、checkbox、trace | avatar主要为导入与class顺序；button删掉button-group状态类并加data属性；skeleton将muted换成accent；checkbox改圆角，checkbox/trace手工替换create站点占位图标。应由CLI重新生成确认，不能依据相似程度保留 |
+| 布局与行为修改，共10个 | dialog、popover、tooltip、select | dialog改变默认宽度/背景/遮罩和文案；popover增加本地API；tooltip重写箭头/间距/尺寸；select嵌入ScrollArea、移除上游滚动箭头并改默认对齐/宽度 |
+| 同上 | scroll-area、code-block、attachment | ScrollArea增加viewport/content/orientation API并重写轨道；CodeBlock改复制逻辑、滚动DOM和换行；AttachmentGroup替换为ScrollArea |
+| 同上 | tabs、field、separator | tabs补传orientation并改方向样式；field/separator改方向选择器。缺少官方全局CSS是其中一项原因，应先补正式安装要求，避免继续改组件文件 |
+| 非官方同名基础组件，共4个 | menu、model-selector、model-selection、tooltip-icon-button | menu为自写子集，应安装dropdown-menu并修改调用方；模型组件直接使用Combobox/Radio原语及本地Context，应改为业务层组合官方Combobox/RadioGroup；TooltipIconButton是应用组合，应移出ui目录 |
+
+目录外还发现`chat/chat-view.tsx`直接组合Base UI ScrollArea并维护轨道，与ui目录中的滚动实现重复。需要纳入整改，保持单一Viewport、滚动跟随及尺寸观察，不遗漏这处无“基础封装”注释的实现。
+
+#### 建议实施范围
+
+1. 从官方CLI重新安装适用的base-nova组件，增加dropdown-menu与combobox；补全其官方CSS/依赖。保留CLI转换后的源文件，业务调用方直接适配官方API，删除menu旧文件，不建设兼容导出。
+2. 模型选择的搜索、Thinking、空目录与旧模型显示放在应用组件中，组合官方Combobox/RadioGroup；不再维护通用受控/非受控模型选择器与Context。TooltipIconButton归应用组合。
+3. 全局主题tokens继续维护；布局、中文标签和复制反馈由调用方支持的props或业务组合提供。不能用调用方或全局选择器重新覆写整套上游样式，以此规避不改源文件的要求。
+4. 浏览器回归优先覆盖菜单打开与关闭回焦、Select/Combobox键盘导航、设置垂直页签、长内容滚动、模型/Thinking、图片、代码换行与原文复制、聊天自动跟随。重写针对旧自写DOM的断言，保留用户行为断言，按本轮约定仅作定向验证。
+
+需要用户决定：官方Select/DropdownMenu/Combobox/CodeBlock/AttachmentGroup包含原生overflow或隐藏滚动条；官方ScrollArea只有纵向轨道，且不提供本地viewportProps/contentProps扩展。原样安装与此前全站自定义ScrollArea外观不能同时原封不动保留。建议以上游实现优先，接受相应滚动外观变化；确有横向轨道/DOM引用等无法经官方API实现的需要时单独讨论，不擅自再改源码。Tabs当前registry仍未将解构的orientation传给Root，垂直键盘语义需在实施前确认官方修复或提出一个明确、最小的例外。
+
+用户确认保留ScrollArea目标，优先通过children、className和公开API在业务层组合，官方组件文件保持原样。主agent随后扩大为隔离实验页面和多场景验证矩阵，用户指出过度追求完备，已停止并删除实验文件；未运行浏览器实验，生产组件未改。后续直接在实际页面采用最小组合，只验证受影响操作，发现具体API障碍再讨论，不提前穷举。此前直接建议接受原生滚动外观变化的结论暂停。Tabs垂直语义问题仍单独待决策。
+
+本批回退范围为基础组件与其调用处，不修改服务端、协议或用户数据。文档与审计完成后停在范围确认，不先覆盖生产组件；历史测试结果不作为这次替换验证。
+
+#### 实施与当前限制
+
+用户要求继续后，在应用目录用`shadcn@4.23.0 add ... --overwrite --yes`安装30个官方组件与依赖，先执行dry-run核对范围；新增官方Combobox/DropdownMenu，移除自写Menu及通用模型选择器，将TooltipIconButton移出ui。CLI附带安装高亮hook与Shiki，当前业务未启用高亮。全局导入同版本`shadcn/tailwind.css`，替代自行维护的状态变体，保留主题tokens。安装后按文件hash核对30个上游组件没有再改写。
+
+调用处用内部div替代contentProps、局部视口限高替代viewportProps、children中的官方ScrollBar提供横轨；Select关闭默认选中项对齐，内部包ScrollArea。模型与Thinking由业务组件直接组合官方Combobox/RadioGroup。代码块、附件和Markdown表格外包ScrollArea，内部取消自身overflow；聊天通过官方Root公开ref找到Viewport并捕获该元素的scroll，保留单一滚动与跟随，不再直接组合Base UI轨道。
+
+主agent独立review并亲验harness/server/e2e类型及4文件26项相关单测；13条不同Chromium流程通过，覆盖设置滚轮/PageDown/拖轨、Select/Menu/Combobox末项导航和选择、横向滚动、模型/Thinking与旧模型范围、图片菜单/预览、会话树、聊天跟随/上滚阅读、工具换行与原文复制。没有新建实验工程或扩大验证矩阵；继续复用既有流程。未跑全仓测试/构建，未提交。
+
+两条定向检查曾失败：官方Tabs解构orientation却未传给Root，设置垂直页签缺少上下键语义；官方Tooltip旋转方块箭头与文字区域重叠。用户已批准Tabs补传属性、Tooltip调用处隐藏箭头，并补充规范：允许小范围修正或微调，但须在修改处附近注释原因与具体差异。Tabs已补传orientation并附注释，其他29个上游组件文件保持安装结果；Tooltip官方源码未改，业务调用与既有测试页面使用相同隐藏Arrow的className并附注释。
+
+主agent独立核对后亲验上述两条Chromium流程通过：七页垂直导航上下键恢复；Tooltip四向/碰撞、明暗与键盘触发保持，箭头隐藏不占布局且正文在弹层内。类型与本批相关代码检查通过，当前基础组件整改开发完成，累计15条不同Chromium流程通过。未跑全套测试/构建，未提交。官方内置Close/Copy仍为英文，后续按产品要求在调用处组合中文按钮。
+
 ## 6. 执行记录
 
 第一批已实施，保持未提交状态；后续反馈在本文追加批次，已完成批次保留当时证据。

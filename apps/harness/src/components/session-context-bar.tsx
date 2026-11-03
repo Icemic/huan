@@ -27,7 +27,13 @@ import {
 import { type ReactNode, type RefObject, useRef } from 'react'
 import { SessionRecoveredQueue } from '@/components/session-tree-dialog'
 import { Button } from '@/components/ui/button'
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { useRestoreFocusOnClose } from '@/hooks/use-restore-trigger-focus'
 import {
   useMcpStore,
@@ -59,7 +65,7 @@ function SessionActionsMenu({
 }) {
   const pendingAction = useRef<(() => void) | undefined>(undefined)
   return (
-    <Menu
+    <DropdownMenu
       onOpenChangeComplete={(open) => {
         if (open) return
         const action = pendingAction.current
@@ -67,36 +73,34 @@ function SessionActionsMenu({
         action?.()
       }}
     >
-      <MenuTrigger
+      <DropdownMenuTrigger
         ref={triggerRef}
         render={<Button variant="ghost" size="xs" className="h-6 gap-1 px-1.5 text-xs" />}
       >
         <EllipsisIcon aria-hidden className="size-3.5" />
         <Trans>会话操作</Trans>
-      </MenuTrigger>
-      <MenuContent>
-        {actions.map((action) => {
-          const Icon = action.icon
-          return (
-            <MenuItem
-              key={action.key}
-              disabled={action.disabled}
-              className={
-                action.destructive
-                  ? 'text-destructive data-highlighted:text-destructive'
-                  : undefined
-              }
-              onClick={() => {
-                pendingAction.current = action.onSelect
-              }}
-            >
-              <Icon aria-hidden className={action.spin ? 'size-3.5 animate-spin' : 'size-3.5'} />
-              {action.label}
-            </MenuItem>
-          )
-        })}
-      </MenuContent>
-    </Menu>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-auto overflow-hidden">
+        <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(24rem,var(--available-height))]">
+          {actions.map((action) => {
+            const Icon = action.icon
+            return (
+              <DropdownMenuItem
+                key={action.key}
+                disabled={action.disabled}
+                variant={action.destructive ? 'destructive' : 'default'}
+                onClick={() => {
+                  pendingAction.current = action.onSelect
+                }}
+              >
+                <Icon aria-hidden className={action.spin ? 'size-3.5 animate-spin' : 'size-3.5'} />
+                {action.label}
+              </DropdownMenuItem>
+            )
+          })}
+        </ScrollArea>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

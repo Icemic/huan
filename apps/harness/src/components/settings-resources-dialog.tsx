@@ -33,6 +33,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 import { useSettingsStore } from '@/state/app-context'
 import { settingsScopedDraftKey, settingsSnapshotTargetKey } from '@/state/settings-store'
 
@@ -151,192 +152,199 @@ export function ContextSettingsDialog() {
 
         {target && (
           <ScrollArea
-            className="min-h-0 flex-1"
-            contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+            className={cn(
+              'flex min-h-0 flex-1 flex-col',
+              '*:data-[slot=scroll-area-viewport]:flex-1',
+            )}
           >
-            {(notice || error) && (
-              <Alert
-                variant={error ? 'destructive' : 'default'}
-                role={error ? 'alert' : 'status'}
-                data-slot="huan-settings-notice"
-              >
-                <AlertDescription className="whitespace-pre-wrap">
-                  {error ?? notice}
-                </AlertDescription>
-              </Alert>
-            )}
+            <div className="flex flex-col gap-3 pe-1">
+              {(notice || error) && (
+                <Alert
+                  variant={error ? 'destructive' : 'default'}
+                  role={error ? 'alert' : 'status'}
+                  data-slot="huan-settings-notice"
+                >
+                  <AlertDescription className="whitespace-pre-wrap">
+                    {error ?? notice}
+                  </AlertDescription>
+                </Alert>
+              )}
 
-            {snapshot && (
-              <div
-                data-slot="huan-settings-target"
-                className="text-muted-foreground flex flex-wrap items-center gap-2"
-              >
-                <span className="font-mono break-all">{snapshot.target.workspacePath}</span>
-                <Badge variant="outline">{pathLabel}</Badge>
-                <Badge variant={snapshot.projectTrusted ? 'secondary' : 'destructive'}>
-                  {snapshot.projectTrusted ? (
-                    <Trans>项目已信任</Trans>
-                  ) : snapshot.trust.decision === 'needs-trust' ? (
-                    <Trans>项目待信任决定</Trans>
-                  ) : (
-                    <Trans>项目未信任</Trans>
-                  )}
-                </Badge>
-              </div>
-            )}
+              {snapshot && (
+                <div
+                  data-slot="huan-settings-target"
+                  className="text-muted-foreground flex flex-wrap items-center gap-2"
+                >
+                  <span className="font-mono break-all">{snapshot.target.workspacePath}</span>
+                  <Badge variant="outline">{pathLabel}</Badge>
+                  <Badge variant={snapshot.projectTrusted ? 'secondary' : 'destructive'}>
+                    {snapshot.projectTrusted ? (
+                      <Trans>项目已信任</Trans>
+                    ) : snapshot.trust.decision === 'needs-trust' ? (
+                      <Trans>项目待信任决定</Trans>
+                    ) : (
+                      <Trans>项目未信任</Trans>
+                    )}
+                  </Badge>
+                </div>
+              )}
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!ready || saving || reloading || scope !== 'project'}
-                onClick={() => void reloadFromDisk()}
-              >
-                {loading ? (
-                  <Loader2Icon aria-hidden className="animate-spin" />
-                ) : (
-                  <RefreshCwIcon aria-hidden />
-                )}
-                {reloadConfirm ? <Trans>确认重新读取文件</Trans> : <Trans>重新读取文件</Trans>}
-              </Button>
-              <Button
-                size="sm"
-                disabled={!ready || saving || reloading}
-                onClick={() => void applyResourceReload()}
-              >
-                {reloading || metadata?.reload?.status === 'running' ? (
-                  <Loader2Icon aria-hidden className="animate-spin" />
-                ) : (
-                  <RotateCwIcon aria-hidden />
-                )}
-                {target?.threadId ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
-              </Button>
-            </div>
-
-            {snapshot && !snapshot.projectTrusted && (
-              <Alert variant="destructive">
-                <AlertDescription>
-                  <Trans>
-                    项目未信任：不读取也不写入项目设置。请先允许项目；已加载资源仍可查看。
-                  </Trans>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {dirty && (
-              <FieldDescription role="status" data-slot="huan-settings-unsaved">
-                <Trans>有未保存的改动</Trans>
-              </FieldDescription>
-            )}
-
-            {file && <SettingsFileSummary file={file} />}
-
-            {parsed?.error && (
-              <Alert variant="destructive" data-slot="huan-settings-local-error">
-                <AlertTitle>
-                  <Trans>JSON 解析错误</Trans>
-                </AlertTitle>
-                <AlertDescription>{parsed.error}</AlertDescription>
-              </Alert>
-            )}
-            {draft && draft.issues.length > 0 && (
-              <Alert variant="destructive">
-                <AlertTitle>
-                  <Trans>字段校验失败</Trans>
-                </AlertTitle>
-                <AlertDescription>
-                  <ul
-                    data-slot="huan-settings-issues"
-                    className="flex list-disc flex-col gap-1 ps-4"
-                  >
-                    {draft.issues.map((issue: HarnessSettingsIssue) => (
-                      <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
-                        <span className="font-mono">{issue.path}</span> {issue.message}
-                      </li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <Tabs value={activeTab} onValueChange={(value) => setTab(value as ContextSettingsTab)}>
-              <TabsList variant="line" aria-label="项目设置视图">
-                <TabsTrigger value="common">
-                  <Trans>常用项</Trans>
-                </TabsTrigger>
-                <TabsTrigger value="json">
-                  <Trans>JSON 原文</Trans>
-                </TabsTrigger>
-                <TabsTrigger value="resources">
-                  <Trans>资源清单</Trans>
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="common" className="flex flex-col gap-3">
-                {!draft ? (
-                  <FieldDescription>
-                    <Trans>项目设置没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
-                  </FieldDescription>
-                ) : parsed?.value ? (
-                  <CommonSettingsForm
-                    value={parsed.value}
-                    onChange={updateObject}
-                    disabled={formDisabled}
-                  />
-                ) : (
-                  <FieldDescription>
-                    <Trans>先修复 JSON 解析错误，常用项表单才可用。</Trans>
-                  </FieldDescription>
-                )}
-              </TabsContent>
-
-              <TabsContent value="json">
-                {!draft ? (
-                  <FieldDescription>
-                    <Trans>项目设置没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
-                  </FieldDescription>
-                ) : (
-                  <Field data-disabled={!ready || scopeBlocked || saving}>
-                    <FieldLabel htmlFor={jsonId}>
-                      <Trans>设置 JSON</Trans>
-                    </FieldLabel>
-                    <Textarea
-                      id={jsonId}
-                      className="min-h-72 font-mono"
-                      spellCheck={false}
-                      value={draft.content}
-                      disabled={!ready || scopeBlocked || saving}
-                      onChange={(event) => updateDraft(event.target.value)}
-                    />
-                  </Field>
-                )}
-              </TabsContent>
-
-              <TabsContent value="resources" className="flex flex-col gap-3">
-                {resourceError && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{resourceError}</AlertDescription>
-                  </Alert>
-                )}
-                {!resources ? (
-                  <FieldDescription className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!ready || saving || reloading || scope !== 'project'}
+                  onClick={() => void reloadFromDisk()}
+                >
+                  {loading ? (
                     <Loader2Icon aria-hidden className="animate-spin" />
-                    <Trans>正在读取资源清单…</Trans>
-                  </FieldDescription>
-                ) : (
-                  <SettingsResourcePane
-                    resources={resources}
-                    showText={showText}
-                    busy={resourceLoading}
-                    onToggleText={() => void loadResources(!showText)}
-                  />
-                )}
-              </TabsContent>
-            </Tabs>
+                  ) : (
+                    <RefreshCwIcon aria-hidden />
+                  )}
+                  {reloadConfirm ? <Trans>确认重新读取文件</Trans> : <Trans>重新读取文件</Trans>}
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!ready || saving || reloading}
+                  onClick={() => void applyResourceReload()}
+                >
+                  {reloading || metadata?.reload?.status === 'running' ? (
+                    <Loader2Icon aria-hidden className="animate-spin" />
+                  ) : (
+                    <RotateCwIcon aria-hidden />
+                  )}
+                  {target?.threadId ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
+                </Button>
+              </div>
 
-            {snapshot && activeTab !== 'resources' && (
-              <SettingsEffectivePreview snapshot={snapshot} />
-            )}
+              {snapshot && !snapshot.projectTrusted && (
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    <Trans>
+                      项目未信任：不读取也不写入项目设置。请先允许项目；已加载资源仍可查看。
+                    </Trans>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {dirty && (
+                <FieldDescription role="status" data-slot="huan-settings-unsaved">
+                  <Trans>有未保存的改动</Trans>
+                </FieldDescription>
+              )}
+
+              {file && <SettingsFileSummary file={file} />}
+
+              {parsed?.error && (
+                <Alert variant="destructive" data-slot="huan-settings-local-error">
+                  <AlertTitle>
+                    <Trans>JSON 解析错误</Trans>
+                  </AlertTitle>
+                  <AlertDescription>{parsed.error}</AlertDescription>
+                </Alert>
+              )}
+              {draft && draft.issues.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertTitle>
+                    <Trans>字段校验失败</Trans>
+                  </AlertTitle>
+                  <AlertDescription>
+                    <ul
+                      data-slot="huan-settings-issues"
+                      className="flex list-disc flex-col gap-1 ps-4"
+                    >
+                      {draft.issues.map((issue: HarnessSettingsIssue) => (
+                        <li key={`${issue.kind}:${issue.path}:${issue.message}`}>
+                          <span className="font-mono">{issue.path}</span> {issue.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <Tabs
+                value={activeTab}
+                onValueChange={(value) => setTab(value as ContextSettingsTab)}
+              >
+                <TabsList variant="line" aria-label="项目设置视图">
+                  <TabsTrigger value="common">
+                    <Trans>常用项</Trans>
+                  </TabsTrigger>
+                  <TabsTrigger value="json">
+                    <Trans>JSON 原文</Trans>
+                  </TabsTrigger>
+                  <TabsTrigger value="resources">
+                    <Trans>资源清单</Trans>
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="common" className="flex flex-col gap-3">
+                  {!draft ? (
+                    <FieldDescription>
+                      <Trans>项目设置没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
+                    </FieldDescription>
+                  ) : parsed?.value ? (
+                    <CommonSettingsForm
+                      value={parsed.value}
+                      onChange={updateObject}
+                      disabled={formDisabled}
+                    />
+                  ) : (
+                    <FieldDescription>
+                      <Trans>先修复 JSON 解析错误，常用项表单才可用。</Trans>
+                    </FieldDescription>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="json">
+                  {!draft ? (
+                    <FieldDescription>
+                      <Trans>项目设置没有可编辑的原文（未信任、读取失败或文件过大）。</Trans>
+                    </FieldDescription>
+                  ) : (
+                    <Field data-disabled={!ready || scopeBlocked || saving}>
+                      <FieldLabel htmlFor={jsonId}>
+                        <Trans>设置 JSON</Trans>
+                      </FieldLabel>
+                      <Textarea
+                        id={jsonId}
+                        className="min-h-72 font-mono"
+                        spellCheck={false}
+                        value={draft.content}
+                        disabled={!ready || scopeBlocked || saving}
+                        onChange={(event) => updateDraft(event.target.value)}
+                      />
+                    </Field>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="resources" className="flex flex-col gap-3">
+                  {resourceError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{resourceError}</AlertDescription>
+                    </Alert>
+                  )}
+                  {!resources ? (
+                    <FieldDescription className="flex items-center gap-2">
+                      <Loader2Icon aria-hidden className="animate-spin" />
+                      <Trans>正在读取资源清单…</Trans>
+                    </FieldDescription>
+                  ) : (
+                    <SettingsResourcePane
+                      resources={resources}
+                      showText={showText}
+                      busy={resourceLoading}
+                      onToggleText={() => void loadResources(!showText)}
+                    />
+                  )}
+                </TabsContent>
+              </Tabs>
+
+              {snapshot && activeTab !== 'resources' && (
+                <SettingsEffectivePreview snapshot={snapshot} />
+              )}
+            </div>
           </ScrollArea>
         )}
 

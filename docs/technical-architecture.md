@@ -16,7 +16,7 @@
 | 前端框架 | React 19 | 函数式组件 + Hooks |
 | 构建 | Vite（应用，rolldown 内核）；tsc --noEmit（类型检查） | 开发服务器与生产构建；包零构建直引源码（见 §2 与 dev-guide §4.1） |
 | 样式 | Tailwind CSS v4 | Utility-first |
-| 基础组件 | shadcn 模式：组件源码拷入项目 | 按钮、对话框、弹层、选择器、折叠等无头逻辑统一用 Base UI；主题 tokens 与紧凑尺度参考末语工坊 |
+| 基础组件 | shadcn/ui官方CLI安装的base-nova组件 | 上游组件文件保持安装结果，业务层组合；主题tokens参考末语工坊，规则见AGENTS.md |
 | 聊天 UI | 应用内 shadcn/Base UI 组合 | 消息、输入、工具与 data 展示直接绑定 Zustand；不引入 assistant-ui 运行时 |
 | Markdown | `react-markdown` + `remark-gfm` | 应用展示层使用，保留代码块、表格与安全回退 |
 | Agent 核心 | `@earendil-works/pi-coding-agent`（Pi SDK） | AgentSession、SessionManager、工具、扩展 |
@@ -30,7 +30,7 @@
 
 **Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 17；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
 
-**UI 依赖边界（2026-11-02）**：应用自有组件统一使用 Base UI，`apps/harness` 源码与 `package.json` 不直接依赖 `radix-ui` / `cmdk`；聊天展示源码在应用内维护，不保留 assistant-ui 运行时。主题仅保存在浏览器 localStorage，不写入 Pi 配置或 huan 工作区元数据。
+**UI依赖边界（2026-11-03）**：基础组件由shadcn官方CLI安装Base UI版本，`components/ui`默认保留生成文件，小范围修正须在修改处附近注释原因与差异；当前仅Tabs补传orientation。业务组合在外层，ScrollArea通过children与布局属性组合，不在上游文件插入滚动结构。全局导入`shadcn/tailwind.css`提供状态变体，主题tokens继续由应用维护。模型选择直接组合官方Combobox/RadioGroup；无自写通用Menu/模型选择器。ReUI尚未采用，Shiki由官方CodeBlock安装带入但当前未启用高亮。应用不直接依赖`radix-ui`/`cmdk`，不保留assistant-ui运行时。主题仅保存在浏览器localStorage。来源与版本见[应用许可说明](../apps/harness/THIRD-PARTY-NOTICES.md)，本次实施记录见[UI调整§5.12](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#512-基础组件来源审计与官方安装整改)。
 
 **运行形态（首期）**：Node服务进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与进程持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 
@@ -229,7 +229,7 @@ interface CheckpointProvider {
 ```text
 apps/harness（页面、应用业务绑定与布局）
   ├── components：工作区/会话/配置/认证面板与聊天展示
-  ├── components/ui：Base UI 基础组件
+  ├── components/ui：官方安装的shadcn base-nova组件
   ├── state：应用 feature Zustand store 与 bootstrap
   └── @huan/react：transport、纯归约/投影、Zustand 实例/动作与 React selector
 ```

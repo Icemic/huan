@@ -20,7 +20,7 @@ import {
   FieldSet,
 } from '@/components/ui/field'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemTitle } from '@/components/ui/item'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 
 function ResourceSection({
   title,
@@ -51,12 +51,11 @@ const sourceLabel = (info: { source: string; scope: string; origin: string }): s
 /** 正文预览：只在显式加载后出现，保留换行与滚动上限。 */
 function ResourceText({ text }: { text: string }) {
   return (
-    <ScrollArea
-      className="bg-muted/50 max-h-40 rounded-md"
-      contentProps={{ className: 'p-2' }}
-      orientation="both"
-    >
-      <pre className="min-w-0 whitespace-pre-wrap">{text}</pre>
+    <ScrollArea className="bg-muted/50 rounded-md *:data-[slot=scroll-area-viewport]:max-h-40">
+      <div className="p-2">
+        <pre className="min-w-0 whitespace-pre-wrap">{text}</pre>
+      </div>
+      <ScrollBar orientation="horizontal" />
     </ScrollArea>
   )
 }

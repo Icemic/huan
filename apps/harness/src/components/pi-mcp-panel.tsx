@@ -50,7 +50,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from '@/components/ui/item'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -156,15 +156,14 @@ function Notice({ children }: { children: ReactNode }) {
   )
 }
 
-/** 长文本预览：滚动上限在根节点，pre 保留换行与原始文本。 */
+/** 长文本预览：滚动上限在视口，pre 保留换行与原始文本。 */
 function PreviewBlock({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <ScrollArea
-      className="bg-muted/60 max-h-40 rounded"
-      contentProps={{ className: 'p-2' }}
-      orientation="both"
-    >
-      <pre className={cn('min-w-0 whitespace-pre-wrap', className)}>{children}</pre>
+    <ScrollArea className="bg-muted/60 rounded *:data-[slot=scroll-area-viewport]:max-h-40">
+      <div className="p-2">
+        <pre className={cn('min-w-0 whitespace-pre-wrap', className)}>{children}</pre>
+      </div>
+      <ScrollBar orientation="horizontal" />
     </ScrollArea>
   )
 }
@@ -263,14 +262,16 @@ function ExposureSelect({
       <SelectTrigger id={triggerId} size="sm" aria-label={label} className="w-36">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
-        {allowInherit && <SelectItem value={INHERIT}>跟随服务器</SelectItem>}
-        {!allowInherit && allowUnset && <SelectItem value={UNSET}>未设置（默认）</SelectItem>}
-        {MCP_EXPOSURES.map((exposure) => (
-          <SelectItem key={exposure} value={exposure}>
-            {exposure}
-          </SelectItem>
-        ))}
+      <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+        <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+          {allowInherit && <SelectItem value={INHERIT}>跟随服务器</SelectItem>}
+          {!allowInherit && allowUnset && <SelectItem value={UNSET}>未设置（默认）</SelectItem>}
+          {MCP_EXPOSURES.map((exposure) => (
+            <SelectItem key={exposure} value={exposure}>
+              {exposure}
+            </SelectItem>
+          ))}
+        </ScrollArea>
       </SelectContent>
     </Select>
   )
@@ -787,10 +788,12 @@ function ServerFormFields({
               <SelectTrigger id={id('enabled')} size="sm" aria-label="启用状态" className="w-full">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={UNSET}>未设置（默认）</SelectItem>
-                <SelectItem value="true">启用</SelectItem>
-                <SelectItem value="false">停用</SelectItem>
+              <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+                <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+                  <SelectItem value={UNSET}>未设置（默认）</SelectItem>
+                  <SelectItem value="true">启用</SelectItem>
+                  <SelectItem value="false">停用</SelectItem>
+                </ScrollArea>
               </SelectContent>
             </Select>
           </Field>
@@ -1423,208 +1426,214 @@ export function ContextMcpDialog() {
         </DialogHeader>
 
         <ScrollArea
-          className="min-h-0 flex-1"
-          contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
+          className={cn(
+            'flex min-h-0 flex-1 flex-col',
+            '*:data-[slot=scroll-area-viewport]:flex-1',
+          )}
         >
-          <Item size="xs" data-slot="huan-mcp-context-info">
-            <ItemContent>
-              <ItemDescription className="font-mono text-xs break-all">
-                {workspacePath}
-              </ItemDescription>
-              <ItemDescription className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">
-                  {sessionMode ? <Trans>当前会话目录</Trans> : <Trans>起始目录</Trans>}
-                </Badge>
-                {snapshot && (
-                  <Badge variant={live ? 'secondary' : 'outline'}>
-                    {live ? <Trans>当前会话</Trans> : <Trans>尚未应用</Trans>}
+          <div className="flex flex-col gap-3 pe-1">
+            <Item size="xs" data-slot="huan-mcp-context-info">
+              <ItemContent>
+                <ItemDescription className="font-mono text-xs break-all">
+                  {workspacePath}
+                </ItemDescription>
+                <ItemDescription className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">
+                    {sessionMode ? <Trans>当前会话目录</Trans> : <Trans>起始目录</Trans>}
                   </Badge>
-                )}
-                {configSnapshot && (
-                  <Badge variant={configSnapshot.projectTrusted ? 'secondary' : 'outline'}>
-                    {configSnapshot.projectTrusted ? (
-                      <Trans>项目已信任</Trans>
-                    ) : (
-                      <Trans>项目未信任</Trans>
-                    )}
-                  </Badge>
-                )}
-              </ItemDescription>
-            </ItemContent>
-          </Item>
+                  {snapshot && (
+                    <Badge variant={live ? 'secondary' : 'outline'}>
+                      {live ? <Trans>当前会话</Trans> : <Trans>尚未应用</Trans>}
+                    </Badge>
+                  )}
+                  {configSnapshot && (
+                    <Badge variant={configSnapshot.projectTrusted ? 'secondary' : 'outline'}>
+                      {configSnapshot.projectTrusted ? (
+                        <Trans>项目已信任</Trans>
+                      ) : (
+                        <Trans>项目未信任</Trans>
+                      )}
+                    </Badge>
+                  )}
+                </ItemDescription>
+              </ItemContent>
+            </Item>
 
-          {snapshot && (
-            <details className="text-xs" data-slot="huan-mcp-runtime-diagnostics">
-              <summary className="text-muted-foreground cursor-pointer">
-                <Trans>诊断详情</Trans>
-              </summary>
-              <span className="text-muted-foreground font-mono">
-                {snapshot.runtime ? (
-                  <Trans>运行版本 {snapshot.runtime.revision}</Trans>
-                ) : (
-                  <Trans>尚无运行实例</Trans>
-                )}
-              </span>
-            </details>
-          )}
-
-          {notice && <Notice>{notice}</Notice>}
-          {error && (
-            <Alert variant="destructive" role="status" data-slot="huan-mcp-error">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          {targetError && (
-            <Alert variant="destructive" role="status" data-slot="huan-mcp-error">
-              <AlertDescription>{targetError}</AlertDescription>
-            </Alert>
-          )}
-          {mcpAuthError && (
-            <Alert variant="destructive" role="status">
-              <AlertDescription>{mcpAuthError}</AlertDescription>
-            </Alert>
-          )}
-          {sessionMode && activeAuthCount > 0 && (
-            <p data-slot="huan-mcp-auth-policy" className="text-muted-foreground text-xs">
-              <Trans>关闭面板后登录继续；要终止请取消认证。</Trans>
-            </p>
-          )}
-
-          <Tabs
-            value={effectiveTab}
-            onValueChange={(value) => void setTab(value as McpTab)}
-            className="gap-3"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <TabsList variant="line" aria-label="MCP 视图">
-                {sessionMode ? (
-                  <>
-                    <TabsTrigger value="servers" aria-label="MCP 服务器列表">
-                      <Trans>服务器</Trans>
-                    </TabsTrigger>
-                    <TabsTrigger value="auth" aria-label="MCP 认证">
-                      <Trans>认证</Trans>
-                      {activeAuthCount > 0 && <Badge variant="secondary">{activeAuthCount}</Badge>}
-                    </TabsTrigger>
-                  </>
-                ) : (
-                  <TabsTrigger value="config" aria-label="MCP 配置">
-                    <Trans>配置</Trans>
-                  </TabsTrigger>
-                )}
-              </TabsList>
-              <div className="ms-auto flex flex-wrap items-center gap-2">
-                {sessionMode && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label="编辑全局 MCP 配置"
-                    onClick={openGlobal}
-                  >
-                    <Trans>编辑全局配置</Trans>
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  aria-label={sessionMode ? '应用到当前会话' : '刷新项目资源'}
-                  disabled={busy !== undefined}
-                  onClick={() => void applyReload()}
-                >
-                  {busy === 'reload' ? (
-                    <Loader2Icon aria-hidden className="animate-spin" />
+            {snapshot && (
+              <details className="text-xs" data-slot="huan-mcp-runtime-diagnostics">
+                <summary className="text-muted-foreground cursor-pointer">
+                  <Trans>诊断详情</Trans>
+                </summary>
+                <span className="text-muted-foreground font-mono">
+                  {snapshot.runtime ? (
+                    <Trans>运行版本 {snapshot.runtime.revision}</Trans>
                   ) : (
-                    <RotateCwIcon aria-hidden />
+                    <Trans>尚无运行实例</Trans>
                   )}
-                  {sessionMode ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
-                </Button>
-              </div>
-            </div>
-
-            {sessionMode && (
-              <TabsContent value="servers">
-                <div className="flex flex-col gap-2" data-slot="huan-mcp-servers">
-                  {targetLoading && !snapshot && (
-                    <p
-                      role="status"
-                      className="text-muted-foreground flex items-center gap-2 text-xs"
-                    >
-                      <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                      <Trans>正在读取 MCP 服务器状态…</Trans>
-                    </p>
-                  )}
-                  {rows.length === 0 && snapshot && (
-                    <p className="text-muted-foreground text-sm">
-                      <Trans>当前没有 MCP 服务器配置；可在“编辑全局配置”或项目设置中添加。</Trans>
-                    </p>
-                  )}
-                  <ItemGroup className="gap-0">
-                    {rows.map((row, index) => (
-                      <Fragment key={row.name}>
-                        {index > 0 && <ItemSeparator />}
-                        <ServerRowView
-                          row={row}
-                          selected={selected === row.name}
-                          busy={busy !== undefined}
-                          onSelect={() => void selectServer(row.name)}
-                          onManage={(action) => void manage(row, action)}
-                          onLogin={() => void startAuth('login', row)}
-                          onLogout={() => void startAuth('logout', row)}
-                        />
-                      </Fragment>
-                    ))}
-                  </ItemGroup>
-                  {detailsError && (
-                    <Alert variant="destructive" role="status">
-                      <AlertDescription>{detailsError}</AlertDescription>
-                    </Alert>
-                  )}
-                  {selectedRow?.live && details?.server.name === selectedRow.name && (
-                    <ToolDetails
-                      details={details}
-                      busy={detailsLoading}
-                      onExposure={(tool, exposure) => {
-                        if (!selectedRow) return
-                        void manage(selectedRow, { type: 'setToolExposure', tool, exposure })
-                      }}
-                      onRefresh={() => void loadDetails(selectedRow.name)}
-                    />
-                  )}
-                </div>
-              </TabsContent>
+                </span>
+              </details>
             )}
 
-            {sessionMode && (
-              <TabsContent value="auth">
-                <div className="flex flex-col gap-2" data-slot="huan-mcp-auth">
-                  {mcpAuth === undefined ? (
-                    <p className="text-muted-foreground flex items-center gap-2 text-xs">
-                      <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                      <Trans>正在读取 MCP 认证状态…</Trans>
-                    </p>
-                  ) : authOperations.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">
-                      <Trans>当前没有 MCP 认证操作；可在服务器行内登录或退出 OAuth。</Trans>
-                    </p>
+            {notice && <Notice>{notice}</Notice>}
+            {error && (
+              <Alert variant="destructive" role="status" data-slot="huan-mcp-error">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {targetError && (
+              <Alert variant="destructive" role="status" data-slot="huan-mcp-error">
+                <AlertDescription>{targetError}</AlertDescription>
+              </Alert>
+            )}
+            {mcpAuthError && (
+              <Alert variant="destructive" role="status">
+                <AlertDescription>{mcpAuthError}</AlertDescription>
+              </Alert>
+            )}
+            {sessionMode && activeAuthCount > 0 && (
+              <p data-slot="huan-mcp-auth-policy" className="text-muted-foreground text-xs">
+                <Trans>关闭面板后登录继续；要终止请取消认证。</Trans>
+              </p>
+            )}
+
+            <Tabs
+              value={effectiveTab}
+              onValueChange={(value) => void setTab(value as McpTab)}
+              className="gap-3"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <TabsList variant="line" aria-label="MCP 视图">
+                  {sessionMode ? (
+                    <>
+                      <TabsTrigger value="servers" aria-label="MCP 服务器列表">
+                        <Trans>服务器</Trans>
+                      </TabsTrigger>
+                      <TabsTrigger value="auth" aria-label="MCP 认证">
+                        <Trans>认证</Trans>
+                        {activeAuthCount > 0 && (
+                          <Badge variant="secondary">{activeAuthCount}</Badge>
+                        )}
+                      </TabsTrigger>
+                    </>
                   ) : (
+                    <TabsTrigger value="config" aria-label="MCP 配置">
+                      <Trans>配置</Trans>
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+                <div className="ms-auto flex flex-wrap items-center gap-2">
+                  {sessionMode && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label="编辑全局 MCP 配置"
+                      onClick={openGlobal}
+                    >
+                      <Trans>编辑全局配置</Trans>
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    aria-label={sessionMode ? '应用到当前会话' : '刷新项目资源'}
+                    disabled={busy !== undefined}
+                    onClick={() => void applyReload()}
+                  >
+                    {busy === 'reload' ? (
+                      <Loader2Icon aria-hidden className="animate-spin" />
+                    ) : (
+                      <RotateCwIcon aria-hidden />
+                    )}
+                    {sessionMode ? <Trans>应用到当前会话</Trans> : <Trans>刷新项目资源</Trans>}
+                  </Button>
+                </div>
+              </div>
+
+              {sessionMode && (
+                <TabsContent value="servers">
+                  <div className="flex flex-col gap-2" data-slot="huan-mcp-servers">
+                    {targetLoading && !snapshot && (
+                      <p
+                        role="status"
+                        className="text-muted-foreground flex items-center gap-2 text-xs"
+                      >
+                        <Loader2Icon aria-hidden className="size-3 animate-spin" />
+                        <Trans>正在读取 MCP 服务器状态…</Trans>
+                      </p>
+                    )}
+                    {rows.length === 0 && snapshot && (
+                      <p className="text-muted-foreground text-sm">
+                        <Trans>当前没有 MCP 服务器配置；可在“编辑全局配置”或项目设置中添加。</Trans>
+                      </p>
+                    )}
                     <ItemGroup className="gap-0">
-                      {authOperations.map((operation, index) => (
-                        <Fragment key={operation.id}>
+                      {rows.map((row, index) => (
+                        <Fragment key={row.name}>
                           {index > 0 && <ItemSeparator />}
-                          <AuthOperationCard operation={operation} />
+                          <ServerRowView
+                            row={row}
+                            selected={selected === row.name}
+                            busy={busy !== undefined}
+                            onSelect={() => void selectServer(row.name)}
+                            onManage={(action) => void manage(row, action)}
+                            onLogin={() => void startAuth('login', row)}
+                            onLogout={() => void startAuth('logout', row)}
+                          />
                         </Fragment>
                       ))}
                     </ItemGroup>
-                  )}
-                </div>
-              </TabsContent>
-            )}
+                    {detailsError && (
+                      <Alert variant="destructive" role="status">
+                        <AlertDescription>{detailsError}</AlertDescription>
+                      </Alert>
+                    )}
+                    {selectedRow?.live && details?.server.name === selectedRow.name && (
+                      <ToolDetails
+                        details={details}
+                        busy={detailsLoading}
+                        onExposure={(tool, exposure) => {
+                          if (!selectedRow) return
+                          void manage(selectedRow, { type: 'setToolExposure', tool, exposure })
+                        }}
+                        onRefresh={() => void loadDetails(selectedRow.name)}
+                      />
+                    )}
+                  </div>
+                </TabsContent>
+              )}
 
-            {!sessionMode && (
-              <TabsContent value="config">
-                <ConfigEditor scope="project" />
-              </TabsContent>
-            )}
-          </Tabs>
+              {sessionMode && (
+                <TabsContent value="auth">
+                  <div className="flex flex-col gap-2" data-slot="huan-mcp-auth">
+                    {mcpAuth === undefined ? (
+                      <p className="text-muted-foreground flex items-center gap-2 text-xs">
+                        <Loader2Icon aria-hidden className="size-3 animate-spin" />
+                        <Trans>正在读取 MCP 认证状态…</Trans>
+                      </p>
+                    ) : authOperations.length === 0 ? (
+                      <p className="text-muted-foreground text-sm">
+                        <Trans>当前没有 MCP 认证操作；可在服务器行内登录或退出 OAuth。</Trans>
+                      </p>
+                    ) : (
+                      <ItemGroup className="gap-0">
+                        {authOperations.map((operation, index) => (
+                          <Fragment key={operation.id}>
+                            {index > 0 && <ItemSeparator />}
+                            <AuthOperationCard operation={operation} />
+                          </Fragment>
+                        ))}
+                      </ItemGroup>
+                    )}
+                  </div>
+                </TabsContent>
+              )}
+
+              {!sessionMode && (
+                <TabsContent value="config">
+                  <ConfigEditor scope="project" />
+                </TabsContent>
+              )}
+            </Tabs>
+          </div>
         </ScrollArea>
 
         <DialogFooter>

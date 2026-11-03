@@ -459,77 +459,80 @@ export function SessionTreeDialog() {
 
         <ScrollArea
           data-slot="huan-tree-list"
-          className="border-border/70 min-h-24 flex-1 rounded-md border"
-          viewportProps={{ ref: listRef }}
-          contentProps={{ className: 'p-1' }}
+          className={cn(
+            'flex min-h-24 flex-1 flex-col rounded-md border border-border/70',
+            '*:data-[slot=scroll-area-viewport]:flex-1',
+          )}
         >
-          {tree.loading && !tree.tree ? (
-            <div className="text-muted-foreground flex items-center gap-2 p-2 text-xs">
-              <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-              <Trans>正在读取会话树…</Trans>
-            </div>
-          ) : visibleNodes.length === 0 ? (
-            <div className="text-muted-foreground p-2 text-xs">
-              {tree.tree?.nodes.length === 0 ? (
-                <Trans>该会话还没有条目。</Trans>
-              ) : (
-                <Trans>没有匹配的节点。</Trans>
-              )}
-            </div>
-          ) : (
-            visibleNodes.map(({ node, depth }) => (
-              <div key={node.entryId}>
-                <TreeNodeRow
-                  node={node}
-                  depth={depth}
-                  selected={tree.selectedEntryId === node.entryId}
-                  busy={tree.busy || operation !== undefined}
-                  onNavigate={() => beginNavigation(node)}
-                  onEditLabel={() => beginLabel(node.entryId)}
-                  onFork={() =>
-                    openFork({
-                      threadId,
-                      position: 'before',
-                      entryId: node.entryId,
-                    })
-                  }
-                />
-                {label?.entryId === node.entryId && (
-                  <div className="bg-muted/40 mb-1 flex items-center gap-1.5 rounded-md p-1.5">
-                    <Input
-                      autoFocus
-                      className="h-6 text-xs"
-                      aria-label={i18n._(msg`节点标签`)}
-                      placeholder={i18n._(msg`留空即清除标签`)}
-                      value={label.value}
-                      onChange={(event) => setLabelValue(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') void saveLabel()
-                        if (event.key === 'Escape') cancelLabel()
-                      }}
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={i18n._(msg`保存标签`)}
-                      disabled={tree.busy}
-                      onClick={() => void saveLabel()}
-                    >
-                      <CheckIcon aria-hidden />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      aria-label={i18n._(msg`取消编辑标签`)}
-                      onClick={cancelLabel}
-                    >
-                      <XIcon aria-hidden />
-                    </Button>
-                  </div>
+          <div ref={listRef} className="p-1">
+            {tree.loading && !tree.tree ? (
+              <div className="text-muted-foreground flex items-center gap-2 p-2 text-xs">
+                <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                <Trans>正在读取会话树…</Trans>
+              </div>
+            ) : visibleNodes.length === 0 ? (
+              <div className="text-muted-foreground p-2 text-xs">
+                {tree.tree?.nodes.length === 0 ? (
+                  <Trans>该会话还没有条目。</Trans>
+                ) : (
+                  <Trans>没有匹配的节点。</Trans>
                 )}
               </div>
-            ))
-          )}
+            ) : (
+              visibleNodes.map(({ node, depth }) => (
+                <div key={node.entryId}>
+                  <TreeNodeRow
+                    node={node}
+                    depth={depth}
+                    selected={tree.selectedEntryId === node.entryId}
+                    busy={tree.busy || operation !== undefined}
+                    onNavigate={() => beginNavigation(node)}
+                    onEditLabel={() => beginLabel(node.entryId)}
+                    onFork={() =>
+                      openFork({
+                        threadId,
+                        position: 'before',
+                        entryId: node.entryId,
+                      })
+                    }
+                  />
+                  {label?.entryId === node.entryId && (
+                    <div className="bg-muted/40 mb-1 flex items-center gap-1.5 rounded-md p-1.5">
+                      <Input
+                        autoFocus
+                        className="h-6 text-xs"
+                        aria-label={i18n._(msg`节点标签`)}
+                        placeholder={i18n._(msg`留空即清除标签`)}
+                        value={label.value}
+                        onChange={(event) => setLabelValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void saveLabel()
+                          if (event.key === 'Escape') cancelLabel()
+                        }}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={i18n._(msg`保存标签`)}
+                        disabled={tree.busy}
+                        onClick={() => void saveLabel()}
+                      >
+                        <CheckIcon aria-hidden />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={i18n._(msg`取消编辑标签`)}
+                        onClick={cancelLabel}
+                      >
+                        <XIcon aria-hidden />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </ScrollArea>
 
         {navigation && tree.tree && (

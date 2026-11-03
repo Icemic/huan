@@ -40,6 +40,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { useSettingsUiStore } from '@/state/app-context'
 import type { SettingsPage } from '@/state/settings-ui-store'
 
@@ -125,8 +126,10 @@ function SettingsPanel({
         <h2 className="font-heading text-base leading-none font-medium">{title}</h2>
         <p className="text-muted-foreground">{description}</p>
       </header>
-      <ScrollArea className="min-h-0 flex-1" contentProps={{ className: 'px-4 py-4' }}>
-        {children}
+      <ScrollArea
+        className={cn('flex min-h-0 flex-1 flex-col', '*:data-[slot=scroll-area-viewport]:flex-1')}
+      >
+        <div className="px-4 py-4">{children}</div>
       </ScrollArea>
       {actions ? <div className="shrink-0 border-t px-4 py-3">{actions}</div> : null}
     </TabsContent>
@@ -169,24 +172,28 @@ export function SettingsDialog() {
         >
           <ScrollArea
             data-slot="huan-settings-nav"
-            className="w-36 shrink-0 border-e sm:w-44"
-            contentProps={{ className: 'p-2' }}
+            className={cn(
+              'flex min-h-0 w-36 shrink-0 flex-col border-e sm:w-44',
+              '*:data-[slot=scroll-area-viewport]:flex-1',
+            )}
           >
-            <TabsList
-              variant="line"
-              aria-label="设置分类"
-              className="w-full flex-col items-stretch"
-            >
-              {SETTINGS_PAGES.map((item) => {
-                const Icon = item.icon
-                return (
-                  <TabsTrigger key={item.value} value={item.value}>
-                    <Icon aria-hidden />
-                    <span className="truncate">{item.label}</span>
-                  </TabsTrigger>
-                )
-              })}
-            </TabsList>
+            <div className="p-2">
+              <TabsList
+                variant="line"
+                aria-label="设置分类"
+                className="w-full flex-col items-stretch"
+              >
+                {SETTINGS_PAGES.map((item) => {
+                  const Icon = item.icon
+                  return (
+                    <TabsTrigger key={item.value} value={item.value}>
+                      <Icon aria-hidden />
+                      <span className="truncate">{item.label}</span>
+                    </TabsTrigger>
+                  )
+                })}
+              </TabsList>
+            </div>
           </ScrollArea>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">

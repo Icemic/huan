@@ -2,6 +2,7 @@ import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react'
 import { MonitorIcon, MoonIcon, PaletteIcon, SunDimIcon, SunIcon } from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import type { AppTheme } from '@/lib/theme'
 import { useThemeStore } from '@/state/app-context'
@@ -37,16 +38,18 @@ export function ThemeSelector({ id }: { id?: string }) {
         <CurrentIcon aria-hidden className="text-muted-foreground" />
         <span>{i18n._(current.label)}</span>
       </SelectTrigger>
-      <SelectContent className="min-w-44">
-        {THEME_OPTIONS.map((option) => {
-          const Icon = option.icon
-          return (
-            <SelectItem key={option.value} value={option.value}>
-              <Icon aria-hidden />
-              <span>{i18n._(option.label)}</span>
-            </SelectItem>
-          )
-        })}
+      <SelectContent className="min-w-44 overflow-hidden" alignItemWithTrigger={false}>
+        <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+          {THEME_OPTIONS.map((option) => {
+            const Icon = option.icon
+            return (
+              <SelectItem key={option.value} value={option.value}>
+                <Icon aria-hidden />
+                <span>{i18n._(option.label)}</span>
+              </SelectItem>
+            )
+          })}
+        </ScrollArea>
       </SelectContent>
     </Select>
   )

@@ -30,6 +30,7 @@ import {
   ItemHeader,
   ItemTitle,
 } from '@/components/ui/item'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -189,10 +190,12 @@ export function BooleanField({
         <SelectTrigger id={id} size="sm" className="min-w-40">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="min-w-44">
-          <SelectItem value={UNSET}>未设置（Pi 默认）</SelectItem>
-          <SelectItem value="true">开</SelectItem>
-          <SelectItem value="false">关</SelectItem>
+        <SelectContent className="min-w-44 overflow-hidden" alignItemWithTrigger={false}>
+          <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+            <SelectItem value={UNSET}>未设置（Pi 默认）</SelectItem>
+            <SelectItem value="true">开</SelectItem>
+            <SelectItem value="false">关</SelectItem>
+          </ScrollArea>
         </SelectContent>
       </Select>
     </Field>
@@ -276,13 +279,15 @@ function EnumField({
         <SelectTrigger id={id} size="sm" className="min-w-44">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent className="min-w-48">
-          <SelectItem value={UNSET}>未设置（Pi 默认）</SelectItem>
-          {values.map((item) => (
-            <SelectItem key={item} value={item}>
-              {labels[item] ?? item}
-            </SelectItem>
-          ))}
+        <SelectContent className="min-w-48 overflow-hidden" alignItemWithTrigger={false}>
+          <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+            <SelectItem value={UNSET}>未设置（Pi 默认）</SelectItem>
+            {values.map((item) => (
+              <SelectItem key={item} value={item}>
+                {labels[item] ?? item}
+              </SelectItem>
+            ))}
+          </ScrollArea>
         </SelectContent>
       </Select>
     </Field>

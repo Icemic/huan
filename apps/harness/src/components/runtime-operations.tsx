@@ -14,7 +14,7 @@ import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -78,11 +78,12 @@ function OutputBlock({ run }: { run: HarnessBashRun }) {
       {run.output && (
         <ScrollArea
           data-slot="huan-shell-output"
-          className="max-h-48 rounded bg-muted/60"
-          orientation="both"
-          contentProps={{ className: 'p-2' }}
+          className="rounded bg-muted/60 *:data-[slot=scroll-area-viewport]:max-h-48"
         >
-          <pre className="font-mono text-xs whitespace-pre-wrap">{run.output}</pre>
+          <div className="p-2">
+            <pre className="font-mono text-xs whitespace-pre-wrap">{run.output}</pre>
+          </div>
+          <ScrollBar orientation="horizontal" />
         </ScrollArea>
       )}
       {result?.error && <StatusLine tone="error">{result.error}</StatusLine>}
@@ -151,167 +152,168 @@ export function RuntimeOperationsDialog() {
             <Trans>运行操作</Trans>
           </DialogTitle>
         </DialogHeader>
-        <ScrollArea
-          className="max-h-[70dvh] text-sm"
-          contentProps={{ className: 'flex flex-col gap-3 pe-1' }}
-        >
-          {notice && (
-            <div
-              role="status"
-              data-slot="huan-runtime-notice"
-              className="rounded-md border bg-muted/50 px-2 py-1.5 text-xs whitespace-pre-wrap"
-            >
-              {notice}
-            </div>
-          )}
-          {error && (
-            <p role="status" className="text-destructive text-xs">
-              {error}
-            </p>
-          )}
+        <ScrollArea className="text-sm *:data-[slot=scroll-area-viewport]:max-h-[70dvh]">
+          <div className="flex flex-col gap-3 pe-1">
+            {notice && (
+              <div
+                role="status"
+                data-slot="huan-runtime-notice"
+                className="rounded-md border bg-muted/50 px-2 py-1.5 text-xs whitespace-pre-wrap"
+              >
+                {notice}
+              </div>
+            )}
+            {error && (
+              <p role="status" className="text-destructive text-xs">
+                {error}
+              </p>
+            )}
 
-          {/* ---- 直接 Shell ---- */}
-          <section className="flex flex-col gap-2" aria-label="用户 Shell">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-medium">
-                <Trans>用户 Shell</Trans>
-              </h3>
-              {workspacePath && (
-                <span className="text-muted-foreground max-w-64 truncate font-mono text-xs">
-                  {workspacePath}
-                </span>
-              )}
-            </div>
-            <StatusLine tone="muted">
-              <Trans>
-                `!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱，
-                外部副作用无法撤销。
-              </Trans>
-            </StatusLine>
-            <div className="flex flex-wrap items-end gap-2">
-              <Select
-                value={shellExcludeFromContext ? 'exclude' : 'include'}
-                items={{ include: '纳入上下文', exclude: '不进入上下文（!!）' }}
-                onValueChange={(value) => setShellExcludeFromContext(value === 'exclude')}
-                disabled={!threadId}
-              >
-                <SelectTrigger size="sm" aria-label="Shell 上下文" className="w-45">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="include">纳入上下文</SelectItem>
-                  <SelectItem value="exclude">不进入上下文（!!）</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <Textarea
-              aria-label="Shell 命令"
-              rows={2}
-              value={shellCommand}
-              onChange={(event) => setShellCommand(event.target.value)}
-              placeholder="echo hello"
-              disabled={!threadId || bash?.status === 'running'}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                disabled={
-                  !threadId ||
-                  busy === 'shell' ||
-                  !shellCommand.trim() ||
-                  bash?.status === 'running'
-                }
-                onClick={() => void runShell()}
-              >
-                <PlayIcon aria-hidden className="size-3.5" />
-                <Trans>运行 Shell</Trans>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={bash?.status !== 'running' || busy === 'shell-abort'}
-                onClick={() => void abortShell()}
-              >
-                <CircleStopIcon aria-hidden className="size-3.5" />
-                <Trans>取消 Shell</Trans>
-              </Button>
-              {!threadId && (
-                <StatusLine tone="muted">
-                  <Trans>先建立或打开会话，才能执行 Shell。</Trans>
-                </StatusLine>
-              )}
-            </div>
-            {bash && <OutputBlock run={bash} />}
-          </section>
-
-          {/* ---- 上下文压缩 ---- */}
-          <section className="flex flex-col gap-2 border-t pt-3" aria-label="上下文压缩">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-medium">
-                <Trans>上下文压缩</Trans>
-              </h3>
-              {compactionActive ? (
-                <span className="inline-flex items-center gap-1 text-xs">
-                  <Loader2Icon aria-hidden className="size-3 animate-spin" />
-                  <Trans>压缩中（{compactionReasonLabel(metadata?.compactionReason)}）</Trans>
-                </span>
-              ) : (
-                <span className="text-muted-foreground text-xs">
-                  <Trans>空闲</Trans>
-                </span>
-              )}
-            </div>
-            {compactionError && <StatusLine tone="error">{compactionError}</StatusLine>}
-            <StatusLine tone="muted">
-              <Trans>
-                压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。
-              </Trans>
-            </StatusLine>
-            <Textarea
-              aria-label="压缩指令"
-              rows={2}
-              value={compactInstructions}
-              onChange={(event) => setCompactInstructions(event.target.value)}
-              placeholder="可选：告诉模型摘要应重点保留什么"
-              disabled={!threadId || compactionActive}
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                disabled={!threadId || compactionActive || busy === 'compact'}
-                onClick={() => void compact()}
-              >
-                <Trans>压缩上下文</Trans>
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!compactionActive || busy === 'compact-abort'}
-                onClick={() => void abortCompaction()}
-              >
-                <Trans>取消压缩</Trans>
-              </Button>
-            </div>
-            {threadId && autoCompaction !== undefined && (
+            {/* ---- 直接 Shell ---- */}
+            <section className="flex flex-col gap-2" aria-label="用户 Shell">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium">
+                  <Trans>用户 Shell</Trans>
+                </h3>
+                {workspacePath && (
+                  <span className="text-muted-foreground max-w-64 truncate font-mono text-xs">
+                    {workspacePath}
+                  </span>
+                )}
+              </div>
               <StatusLine tone="muted">
                 <Trans>
-                  当前自动压缩：{autoCompaction ? '开' : '关'}。可在全局设置的“对话”页修改。
+                  `!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱，
+                  外部副作用无法撤销。
                 </Trans>
               </StatusLine>
-            )}
+              <div className="flex flex-wrap items-end gap-2">
+                <Select
+                  value={shellExcludeFromContext ? 'exclude' : 'include'}
+                  items={{ include: '纳入上下文', exclude: '不进入上下文（!!）' }}
+                  onValueChange={(value) => setShellExcludeFromContext(value === 'exclude')}
+                  disabled={!threadId}
+                >
+                  <SelectTrigger size="sm" aria-label="Shell 上下文" className="w-45">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+                    <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+                      <SelectItem value="include">纳入上下文</SelectItem>
+                      <SelectItem value="exclude">不进入上下文（!!）</SelectItem>
+                    </ScrollArea>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Textarea
+                aria-label="Shell 命令"
+                rows={2}
+                value={shellCommand}
+                onChange={(event) => setShellCommand(event.target.value)}
+                placeholder="echo hello"
+                disabled={!threadId || bash?.status === 'running'}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={
+                    !threadId ||
+                    busy === 'shell' ||
+                    !shellCommand.trim() ||
+                    bash?.status === 'running'
+                  }
+                  onClick={() => void runShell()}
+                >
+                  <PlayIcon aria-hidden className="size-3.5" />
+                  <Trans>运行 Shell</Trans>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bash?.status !== 'running' || busy === 'shell-abort'}
+                  onClick={() => void abortShell()}
+                >
+                  <CircleStopIcon aria-hidden className="size-3.5" />
+                  <Trans>取消 Shell</Trans>
+                </Button>
+                {!threadId && (
+                  <StatusLine tone="muted">
+                    <Trans>先建立或打开会话，才能执行 Shell。</Trans>
+                  </StatusLine>
+                )}
+              </div>
+              {bash && <OutputBlock run={bash} />}
+            </section>
+
+            {/* ---- 上下文压缩 ---- */}
+            <section className="flex flex-col gap-2 border-t pt-3" aria-label="上下文压缩">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-medium">
+                  <Trans>上下文压缩</Trans>
+                </h3>
+                {compactionActive ? (
+                  <span className="inline-flex items-center gap-1 text-xs">
+                    <Loader2Icon aria-hidden className="size-3 animate-spin" />
+                    <Trans>压缩中（{compactionReasonLabel(metadata?.compactionReason)}）</Trans>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">
+                    <Trans>空闲</Trans>
+                  </span>
+                )}
+              </div>
+              {compactionError && <StatusLine tone="error">{compactionError}</StatusLine>}
+              <StatusLine tone="muted">
+                <Trans>
+                  压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。
+                </Trans>
+              </StatusLine>
+              <Textarea
+                aria-label="压缩指令"
+                rows={2}
+                value={compactInstructions}
+                onChange={(event) => setCompactInstructions(event.target.value)}
+                placeholder="可选：告诉模型摘要应重点保留什么"
+                disabled={!threadId || compactionActive}
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={!threadId || compactionActive || busy === 'compact'}
+                  onClick={() => void compact()}
+                >
+                  <Trans>压缩上下文</Trans>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!compactionActive || busy === 'compact-abort'}
+                  onClick={() => void abortCompaction()}
+                >
+                  <Trans>取消压缩</Trans>
+                </Button>
+              </div>
+              {threadId && autoCompaction !== undefined && (
+                <StatusLine tone="muted">
+                  <Trans>
+                    当前自动压缩：{autoCompaction ? '开' : '关'}。可在全局设置的“对话”页修改。
+                  </Trans>
+                </StatusLine>
+              )}
+              {!threadId && (
+                <StatusLine tone="muted">
+                  <Trans>先建立或打开会话，才能压缩。</Trans>
+                </StatusLine>
+              )}
+            </section>
+
             {!threadId && (
               <StatusLine tone="muted">
-                <Trans>先建立或打开会话，才能压缩。</Trans>
+                <BanIcon aria-hidden className="me-1 inline size-3" />
+                <Trans>需要会话的操作在左侧新建会话后可用。</Trans>
               </StatusLine>
             )}
-          </section>
-
-          {!threadId && (
-            <StatusLine tone="muted">
-              <BanIcon aria-hidden className="me-1 inline size-3" />
-              <Trans>需要会话的操作在左侧新建会话后可用。</Trans>
-            </StatusLine>
-          )}
+          </div>
         </ScrollArea>
       </DialogContent>
     </Dialog>

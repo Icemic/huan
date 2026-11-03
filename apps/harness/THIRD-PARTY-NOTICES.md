@@ -5,7 +5,7 @@
 ## @base-ui/react
 
 - 来源：https://github.com/mui/base-ui
-- 用途：应用自有 Dialog、Popover、Tooltip、Avatar、Collapsible、Combobox、Select 等无头组件。
+- 用途：shadcn官方组件内部的无头交互；业务组件通过已安装组件组合，不直接重写这些原语。
 - 许可：MIT
 
 ```text
@@ -35,49 +35,24 @@ SOFTWARE.
 ## shadcn/ui（base-nova 样式）
 
 - 来源：https://github.com/shadcn-ui/ui
-- 用途：按钮、弹层、输入、选择器等基础组件的结构、状态样式与 CSS tokens 参考。
+- 用途：应用内安装的base-nova基础与聊天展示组件，以及官方Tailwind状态变体。
 - 许可：MIT
 
-本应用的Button、Dialog、Input、Select保留按需维护的本地封装；直接取得registry源码的组件逐项记录如下。
+### 当前安装结果
 
-### 2026-11-03 获取的官方 Base UI registry 组合
+2026-11-03使用官方CLI `shadcn@4.23.0`，从`apps/harness`运行`add`安装下列30个组件。保留CLI生成的路径与lucide图标转换结果；仅Tabs包含下述已注明的本地修正，其余29个组件文件保持安装结果。包版本满足仓库3天发布龄约束。
 
-最终聊天展示直接采用以下官方 registry 源码，未用本地自写 DOM 冒充组合：
+| 官方registry名称 | 本地目录 |
+| --- | --- |
+| alert、attachment、avatar、badge、bubble、button、checkbox、code-block、collapsible、dialog | `src/components/ui/`同名tsx文件 |
+| empty、field、input、input-group、item、label、message、popover、radio-group、scroll-area | 同上 |
+| select、separator、skeleton、switch、tabs、textarea、tooltip、trace、combobox、dropdown-menu | 同上 |
 
-| 官方来源 | 本地文件 | 本地差异 |
-| --- | --- | --- |
-| https://ui.shadcn.com/r/styles/base-nova/message.json | `src/components/ui/message.tsx` | 仅改本地 `cn` 导入 |
-| https://ui.shadcn.com/r/styles/base-nova/bubble.json | `src/components/ui/bubble.tsx` | 仅改本地 `cn` 导入 |
-| https://ui.shadcn.com/r/styles/base-nova/trace.json | `src/components/ui/trace.tsx` | 本地 collapsible 路径；官网 create 占位图标换为 lucide `ChevronRightIcon` |
-| https://ui.shadcn.com/r/styles/base-nova/input-group.json | `src/components/ui/input-group.tsx` | 本地 Button/Input/Textarea 路径 |
-| https://ui.shadcn.com/r/styles/base-nova/attachment.json | `src/components/ui/attachment.tsx` | 本地 Button 路径 |
-| https://ui.shadcn.com/r/styles/base-nova/code-block.json | `src/components/ui/code-block.tsx` | 本地 Button 路径；复制按钮接本应用剪贴板 hook 与中文可访问名称；不引入官网 `use-highlighted-code`/Shiki 运行时 |
-| https://ui.shadcn.com/r/styles/base-nova/empty.json | `src/components/ui/empty.tsx` | 补充 React 类型导入 |
-| https://ui.shadcn.com/r/styles/base-nova/collapsible.json | `src/components/ui/collapsible.tsx` | 原样本地路径 |
+registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装`src/hooks/use-highlighted-code.ts`、`src/lib/highlighter.tsx`及Shiki依赖；当前消息代码块没有启用高亮。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
 
-`src/components/ui/model-selector.tsx` 与 `model-selection.ts` 保留原 Base UI 选择器组合，已移除 assistant-ui 状态/运行时绑定；现无 `@assistant-ui/*` 运行依赖。
+原自写`menu.tsx`、`model-selector.tsx`与`model-selection.ts`已删除。模型/Thinking在`pi-model-selector.tsx`组合官方Combobox与RadioGroup；TooltipIconButton移至业务组件目录。ScrollArea在调用处组合Select、DropdownMenu、Combobox、CodeBlock和AttachmentGroup，不在上游文件内插入滚动结构。设置弹层业务布局继续参考官方sidebar-13示例；ReUI尚未采用。
 
-上游 MIT 许可：`Copyright (c) 2023 shadcn`。
-
-### 2026-11-03 设置界面采用的官方组件
-
-以下源码来自base-nova registry，保留上游组合API与variant。路径、中文标签与主题tokens按本应用接入；没有引入额外组件运行库。
-
-| 官方来源 | 本地文件 | 本地差异 |
-| --- | --- | --- |
-| https://ui.shadcn.com/r/styles/base-nova/scroll-area.json | `src/components/ui/scroll-area.tsx` | 受限高度使用flex布局；暴露Viewport/Content属性；横/纵/双向轨道与现有聊天悬浮细轨统一 |
-| https://ui.shadcn.com/r/styles/base-nova/tabs.json | `src/components/ui/tabs.tsx` | 补传Root的orientation；方向选择器显式使用data属性 |
-| https://ui.shadcn.com/r/styles/base-nova/field.json | `src/components/ui/field.tsx` | 本地Label/Separator路径；显式方向选择器 |
-| https://ui.shadcn.com/r/styles/base-nova/checkbox.json | `src/components/ui/checkbox.tsx` | 使用lucide CheckIcon；圆角使用现有4px token |
-| https://ui.shadcn.com/r/styles/base-nova/radio-group.json | `src/components/ui/radio-group.tsx` | 本地cn路径 |
-| https://ui.shadcn.com/r/styles/base-nova/switch.json | `src/components/ui/switch.tsx` | 本地cn路径；作为二态控件保留，三态设置使用Select |
-| https://ui.shadcn.com/r/styles/base-nova/item.json | `src/components/ui/item.tsx` | 本地cn/Separator路径 |
-| https://ui.shadcn.com/r/styles/base-nova/separator.json | `src/components/ui/separator.tsx` | 本地cn路径；显式方向选择器 |
-| https://ui.shadcn.com/r/styles/base-nova/label.json | `src/components/ui/label.tsx` | 本地cn路径 |
-| https://ui.shadcn.com/r/styles/base-nova/alert.json | `src/components/ui/alert.tsx` | 本地cn路径 |
-| https://ui.shadcn.com/r/styles/base-nova/badge.json | `src/components/ui/badge.tsx` | 本地cn路径 |
-
-`src/components/settings-dialog.tsx`参照https://ui.shadcn.com/r/styles/base-nova/sidebar-13.json的设置弹层结构，以官方Tabs替代演示Sidebar导航，保留应用既有Dialog。页面业务组合使用上述Field/Item等组件。ReUI未取得可采用的具体源码，本轮未采用。
+此前从原始registry复制并手工调整路径、图标、滚动和方向样式的版本已由本次CLI安装替换。当前唯一上游文件差异为`tabs.tsx`补传`orientation={orientation}`，修复垂直页签键盘语义，修改位置已加中文注释。Tooltip官方文件保持原样，业务调用处通过className隐藏直系Arrow，避免与文字重叠，并附中文原因注释。审计与实施记录见[UI调整§5.12](../../docs/iteration/2026-11/2026-11-03-feat-ui-adjustments.md#512-基础组件来源审计与官方安装整改)。
 
 上游MIT许可：`Copyright (c) 2023 shadcn`。
 

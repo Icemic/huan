@@ -358,116 +358,119 @@ export function WorkspaceManagerDialog() {
               <Trans>添加成员</Trans>
             </Button>
           </div>
-          <ScrollArea className="max-h-72" contentProps={{ className: 'flex flex-col gap-2' }}>
-            {form.members.map((member: WorkspaceMemberDraft) => (
-              <Item
-                key={member.key}
-                data-slot="huan-workspace-member"
-                variant="outline"
-                size="sm"
-                className="items-stretch gap-1.5"
-              >
-                <ItemHeader>
-                  <Input
-                    className="w-32"
-                    value={member.alias}
-                    onChange={(event) =>
-                      setWorkspaceMember(member.key, { alias: event.target.value })
-                    }
-                    aria-label="项目别名"
-                    placeholder="别名"
-                  />
-                  <Input
-                    className="min-w-0 flex-1"
-                    value={member.path}
-                    onChange={(event) =>
-                      setWorkspaceMember(member.key, { path: event.target.value })
-                    }
-                    onBlur={() => void inspectWorkspaceMember(member.key)}
-                    aria-label="项目路径"
-                    placeholder="/home/user/project"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="移除成员"
-                    disabled={form.members.length <= 1}
-                    onClick={() => removeWorkspaceMember(member.key)}
-                  >
-                    <Trash2Icon aria-hidden />
-                  </Button>
-                </ItemHeader>
-                <ItemContent className="gap-1">
-                  <div className="flex min-h-5 flex-wrap items-center gap-2 text-xs">
-                    {member.checking ? (
-                      <span className="text-muted-foreground inline-flex items-center gap-1">
-                        <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-                        <Trans>检查路径与信任…</Trans>
-                      </span>
-                    ) : member.available === true ? (
-                      <span className="text-muted-foreground inline-flex items-center gap-1">
-                        <CheckCircle2Icon aria-hidden className="size-3.5" />
-                        <Trans>路径可用</Trans>
-                      </span>
-                    ) : member.available === false ? (
-                      <span className="text-destructive inline-flex items-center gap-1">
-                        <ShieldAlertIcon aria-hidden className="size-3.5" />
-                        <Trans>路径缺失或不是目录；记录会保留，会话仍固定原起始目录。</Trans>
-                      </span>
-                    ) : null}
-                    {member.trustFailed && (
-                      <span className="text-destructive">
-                        <Trans>项目装配检查失败</Trans>
-                      </span>
-                    )}
-                    <TrustBadge info={member.trust} />
-                    {member.trust?.status === 'needs-trust' && (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => void openTrust(member.path.trim())}
-                      >
-                        <Trans>决定信任</Trans>
-                      </Button>
-                    )}
-                    {member.path.trim() && (
-                      <>
+          <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-72">
+            <div className="flex flex-col gap-2">
+              {form.members.map((member: WorkspaceMemberDraft) => (
+                <Item
+                  key={member.key}
+                  data-slot="huan-workspace-member"
+                  variant="outline"
+                  size="sm"
+                  className="items-stretch gap-1.5"
+                >
+                  <ItemHeader>
+                    <Input
+                      className="w-32"
+                      value={member.alias}
+                      onChange={(event) =>
+                        setWorkspaceMember(member.key, { alias: event.target.value })
+                      }
+                      aria-label="项目别名"
+                      placeholder="别名"
+                    />
+                    <Input
+                      className="min-w-0 flex-1"
+                      value={member.path}
+                      onChange={(event) =>
+                        setWorkspaceMember(member.key, { path: event.target.value })
+                      }
+                      onBlur={() => void inspectWorkspaceMember(member.key)}
+                      aria-label="项目路径"
+                      placeholder="/home/user/project"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="移除成员"
+                      disabled={form.members.length <= 1}
+                      onClick={() => removeWorkspaceMember(member.key)}
+                    >
+                      <Trash2Icon aria-hidden />
+                    </Button>
+                  </ItemHeader>
+                  <ItemContent className="gap-1">
+                    <div className="flex min-h-5 flex-wrap items-center gap-2 text-xs">
+                      {member.checking ? (
+                        <span className="text-muted-foreground inline-flex items-center gap-1">
+                          <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                          <Trans>检查路径与信任…</Trans>
+                        </span>
+                      ) : member.available === true ? (
+                        <span className="text-muted-foreground inline-flex items-center gap-1">
+                          <CheckCircle2Icon aria-hidden className="size-3.5" />
+                          <Trans>路径可用</Trans>
+                        </span>
+                      ) : member.available === false ? (
+                        <span className="text-destructive inline-flex items-center gap-1">
+                          <ShieldAlertIcon aria-hidden className="size-3.5" />
+                          <Trans>路径缺失或不是目录；记录会保留，会话仍固定原起始目录。</Trans>
+                        </span>
+                      ) : null}
+                      {member.trustFailed && (
+                        <span className="text-destructive">
+                          <Trans>项目装配检查失败</Trans>
+                        </span>
+                      )}
+                      <TrustBadge info={member.trust} />
+                      {member.trust?.status === 'needs-trust' && (
                         <Button
                           variant="ghost"
                           size="xs"
-                          data-slot="huan-workspace-member-settings"
-                          onClick={() =>
-                            openAfterClose(
-                              () => void openContextSettings({ workspacePath: member.path.trim() }),
-                            )
-                          }
+                          onClick={() => void openTrust(member.path.trim())}
                         >
-                          <Settings2Icon aria-hidden />
-                          <Trans>设置</Trans>
+                          <Trans>决定信任</Trans>
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          data-slot="huan-workspace-member-mcp"
-                          onClick={() =>
-                            openAfterClose(
-                              () =>
-                                void openContextMcp({
-                                  target: { workspacePath: member.path.trim() },
-                                }),
-                            )
-                          }
-                        >
-                          <ServerIcon aria-hidden />
-                          <Trans>MCP</Trans>
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                  {member.path.trim() && <TrustDecisionPanel path={member.path.trim()} />}
-                </ItemContent>
-              </Item>
-            ))}
+                      )}
+                      {member.path.trim() && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            data-slot="huan-workspace-member-settings"
+                            onClick={() =>
+                              openAfterClose(
+                                () =>
+                                  void openContextSettings({ workspacePath: member.path.trim() }),
+                              )
+                            }
+                          >
+                            <Settings2Icon aria-hidden />
+                            <Trans>设置</Trans>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            data-slot="huan-workspace-member-mcp"
+                            onClick={() =>
+                              openAfterClose(
+                                () =>
+                                  void openContextMcp({
+                                    target: { workspacePath: member.path.trim() },
+                                  }),
+                              )
+                            }
+                          >
+                            <ServerIcon aria-hidden />
+                            <Trans>MCP</Trans>
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {member.path.trim() && <TrustDecisionPanel path={member.path.trim()} />}
+                  </ItemContent>
+                </Item>
+              ))}
+            </div>
           </ScrollArea>
         </div>
 

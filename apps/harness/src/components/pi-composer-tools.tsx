@@ -14,6 +14,7 @@ import {
   XIcon,
 } from 'lucide-react'
 import { memo, type RefObject } from 'react'
+import { TooltipIconButton } from '@/components/tooltip-icon-button'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -25,7 +26,6 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
-import { TooltipIconButton } from '@/components/ui/tooltip-icon-button'
 import { cn } from '@/lib/utils'
 import { useComposerStore } from '@/state/app-context'
 import type { ComposerCompletionItem } from '@/state/composer-store'
@@ -113,47 +113,50 @@ export function ComposerCompletionMenu({
   return (
     <ScrollArea
       data-slot="huan-composer-completions"
-      className="bg-popover text-popover-foreground mb-1 max-h-64 rounded-md border shadow-sm"
-      viewportProps={{
-        role: 'listbox',
-        'aria-label':
+      className={cn(
+        'bg-popover text-popover-foreground mb-1 rounded-md border shadow-sm',
+        '*:data-[slot=scroll-area-viewport]:max-h-64',
+      )}
+    >
+      <div
+        role="listbox"
+        aria-label={
           completion.kind === 'file'
             ? '文件引用补全'
             : completion.kind === 'argument'
               ? '命令参数补全'
-              : '命令补全',
-        // 键盘操作由输入框持有，视口不进 Tab 序列。
-        tabIndex: -1,
-      }}
-      contentProps={{ className: 'p-1' }}
-    >
-      {completion.items.map((item, index) => (
-        <button
-          key={item.key}
-          type="button"
-          role="option"
-          aria-selected={index === completion.index}
-          data-slot="huan-composer-completion"
-          className={cn(
-            'flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm',
-            index === completion.index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
-          )}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => apply(item)}
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-mono text-xs">{item.label}</span>
-            {item.description && (
-              <span className="text-muted-foreground block truncate text-[11px]">
-                {item.description}
-              </span>
+              : '命令补全'
+        }
+        className="p-1"
+      >
+        {completion.items.map((item, index) => (
+          <button
+            key={item.key}
+            type="button"
+            role="option"
+            aria-selected={index === completion.index}
+            data-slot="huan-composer-completion"
+            className={cn(
+              'flex w-full items-start gap-2 rounded px-2 py-1.5 text-left text-sm',
+              index === completion.index ? 'bg-accent text-accent-foreground' : 'hover:bg-muted',
             )}
-          </span>
-          {item.meta && (
-            <span className="text-muted-foreground shrink-0 text-[10px]">{item.meta}</span>
-          )}
-        </button>
-      ))}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => apply(item)}
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-mono text-xs">{item.label}</span>
+              {item.description && (
+                <span className="text-muted-foreground block truncate text-[11px]">
+                  {item.description}
+                </span>
+              )}
+            </span>
+            {item.meta && (
+              <span className="text-muted-foreground shrink-0 text-[10px]">{item.meta}</span>
+            )}
+          </button>
+        ))}
+      </div>
     </ScrollArea>
   )
 }

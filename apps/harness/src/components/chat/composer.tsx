@@ -43,12 +43,17 @@ import { PiModelSelector } from '@/components/pi-model-selector'
 import { PiComposerHostUi, PiComposerWidgets } from '@/components/pi-thread-host-ui'
 import { Button } from '@/components/ui/button'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupTextarea,
 } from '@/components/ui/input-group'
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu'
 import { cn } from '@/lib/utils'
 import {
   useChatStore,
@@ -497,21 +502,21 @@ export function ChatComposer() {
               tabIndex={-1}
               onChange={onFileInput}
             />
-            <Menu>
-              <MenuTrigger
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 disabled={!draft || readOnly}
                 render={<InputGroupButton size="icon-xs" aria-label="添加内容" />}
               >
                 <PlusIcon aria-hidden />
-              </MenuTrigger>
+              </DropdownMenuTrigger>
               {/* 菜单关闭后焦点交回 Base UI 默认行为；图片选择后由 addFiles 回到输入框。 */}
-              <MenuContent align="start" side="top">
-                <MenuItem onClick={() => fileInputRef.current?.click()}>
+              <DropdownMenuContent align="start" side="top" className="w-auto">
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
                   <ImagePlusIcon aria-hidden />
                   <Trans>添加图片</Trans>
-                </MenuItem>
-              </MenuContent>
-            </Menu>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <ComposerQueueMode
               isRunning={running}
               queueMode={queueMode}

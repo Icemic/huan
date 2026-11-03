@@ -82,7 +82,8 @@ function TooltipFixture() {
           >
             {item.label}
           </TooltipTrigger>
-          <TooltipContent side={item.side}>
+          {/* 本地修正：与生产调用处一致隐藏官方直系 Arrow，保持弹层无尖角。 */}
+          <TooltipContent side={item.side} className="[&>[aria-hidden=true]]:hidden">
             <span data-testid={`tooltip-text-${item.id}`}>{item.label}</span>
           </TooltipContent>
         </Tooltip>

@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import { useSessionsStore } from '@/state/app-context'
 
 const formatTime = (value: string | undefined): string => {
@@ -118,148 +119,154 @@ export function SessionDetailsDialog() {
         </DialogHeader>
 
         <ScrollArea
-          className="min-h-0 flex-1"
-          contentProps={{ className: 'flex flex-col gap-2 pe-1' }}
+          className={cn(
+            'flex min-h-0 flex-1 flex-col',
+            '*:data-[slot=scroll-area-viewport]:flex-1',
+          )}
         >
-          <div className="flex items-end gap-2">
-            <label htmlFor="huan-session-name" className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-muted-foreground text-xs">
-                <Trans>会话名称</Trans>
-              </span>
-              <Input
-                id="huan-session-name"
-                value={panel.renameValue}
-                aria-label="会话名称"
+          <div className="flex flex-col gap-2 pe-1">
+            <div className="flex items-end gap-2">
+              <label htmlFor="huan-session-name" className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-muted-foreground text-xs">
+                  <Trans>会话名称</Trans>
+                </span>
+                <Input
+                  id="huan-session-name"
+                  value={panel.renameValue}
+                  aria-label="会话名称"
+                  disabled={panel.renameBusy}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                />
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={panel.renameBusy}
-                onChange={(event) => setRenameValue(event.target.value)}
-              />
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={panel.renameBusy}
-              onClick={() => void renameThread()}
-            >
-              {panel.renameBusy && <Loader2Icon aria-hidden className="size-3.5 animate-spin" />}
-              <Trans>保存名称</Trans>
-            </Button>
-          </div>
-          {panel.renameError && (
-            <p role="alert" className="text-destructive text-xs">
-              {panel.renameError}
-            </p>
-          )}
-          {panel.actionError && (
-            <p role="alert" className="text-destructive text-xs">
-              {panel.actionError}
-            </p>
-          )}
-          {panel.notice && (
-            <p role="status" className="bg-muted/50 rounded-md px-2 py-1 text-xs">
-              {panel.notice}
-            </p>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Field label={<Trans>会话 ID</Trans>}>{current?.id ?? panel.threadId}</Field>
-            <Field label={<Trans>会话文件</Trans>}>
-              {current?.sessionFile ?? <Trans>尚未创建会话文件</Trans>}
-            </Field>
-            <Field label={<Trans>起始目录</Trans>}>{current?.workspacePath ?? '—'}</Field>
-            <Field label={<Trans>工作区</Trans>}>
-              {workspace?.name ??
-                (current?.workspaceId ? <Trans>工作区不可用</Trans> : <Trans>未归属</Trans>)}
-            </Field>
-            <Field label={<Trans>归档</Trans>}>
-              {current?.archived ? <Trans>已归档</Trans> : <Trans>未归档</Trans>}
-            </Field>
-            <Field label={<Trans>父会话</Trans>}>{current?.parentSessionPath ?? '—'}</Field>
-            <Field label={<Trans>创建时间</Trans>}>{formatTime(current?.createdAt)}</Field>
-            <Field label={<Trans>最近活动</Trans>}>{formatTime(current?.updatedAt)}</Field>
-            <Field label={<Trans>模型</Trans>}>
-              {config?.provider && config.modelId ? `${config.provider} / ${config.modelId}` : '—'}
-              {config?.thinkingLevel ? ` · ${config.thinkingLevel}` : ''}
-            </Field>
-            {fallback && (
-              <Field label={<Trans>模型回退</Trans>}>
-                <span data-slot="huan-details-fallback" className="text-destructive">
-                  {fallback}
-                </span>
-              </Field>
-            )}
-          </div>
-
-          {panel.loading && !details ? (
-            <p className="text-muted-foreground inline-flex items-center gap-1.5 text-sm">
-              <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-              <Trans>正在读取会话统计…</Trans>
-            </p>
-          ) : panel.error ? (
-            <p role="alert" className="text-destructive text-sm">
-              <Trans>读取会话详情失败，请检查宿主连接后重试。</Trans>
-            </p>
-          ) : stats ? (
-            <div className="flex flex-col gap-1.5">
-              <p className="text-muted-foreground text-xs">
-                <Trans>累计统计覆盖整个会话文件（含已压缩历史与其他分支）。</Trans>
-              </p>
-              <Field label={<Trans>消息</Trans>}>
-                <Trans>用户 {stats.userMessages}</Trans>
-                {' · '}
-                <Trans>助手 {stats.assistantMessages}</Trans>
-                {' · '}
-                <Trans>工具结果 {stats.toolResults}</Trans>
-                {' · '}
-                <Trans>工具调用 {stats.toolCalls}</Trans>
-                {' · '}
-                <Trans>共 {stats.totalMessages} 条</Trans>
-              </Field>
-              <Field label={<Trans>Token</Trans>}>
-                <span className="block">
-                  <Trans>输入 {formatTokens(stats.tokens.input)}</Trans>
-                  {' · '}
-                  <Trans>输出 {formatTokens(stats.tokens.output)}</Trans>
-                </span>
-                <span className="block">
-                  <Trans>缓存读 {formatTokens(stats.tokens.cacheRead)}</Trans>
-                  {' · '}
-                  <Trans>缓存写 {formatTokens(stats.tokens.cacheWrite)}</Trans>
-                </span>
-                <span className="block">
-                  <Trans>总计 {formatTokens(stats.tokens.total)}</Trans>
-                </span>
-              </Field>
-              <Field label={<Trans>累计费用</Trans>}>
-                <span title={`$${stats.cost}`}>{formatCost(stats.cost)} USD</span>
-              </Field>
-              <Field label={<Trans>当前上下文</Trans>}>
-                {context === undefined ? (
-                  <Trans>模型窗口未知，无法估算</Trans>
-                ) : context.tokens === null ? (
-                  <span>
-                    <Trans>压缩后上下文未知，等待下一次响应</Trans>
-                    <span className="text-muted-foreground">
-                      {' ('}
-                      <Trans>窗口</Trans> {formatTokens(context.contextWindow)})
-                    </span>
-                  </span>
-                ) : (
-                  <span>
-                    {formatTokens(context.tokens)} / {formatTokens(context.contextWindow)}
-                    {percent ? ` (${percent})` : ''}
-                  </span>
-                )}
-                {details && (
-                  <span className="text-muted-foreground ms-1 text-xs">
-                    <Trans>当前分支 {details.branchEntryCount} 条记录</Trans>
-                  </span>
-                )}
-                <span className="text-muted-foreground block text-xs">
-                  <Trans>只按当前活动分支估算。</Trans>
-                </span>
-              </Field>
+                onClick={() => void renameThread()}
+              >
+                {panel.renameBusy && <Loader2Icon aria-hidden className="size-3.5 animate-spin" />}
+                <Trans>保存名称</Trans>
+              </Button>
             </div>
-          ) : null}
+            {panel.renameError && (
+              <p role="alert" className="text-destructive text-xs">
+                {panel.renameError}
+              </p>
+            )}
+            {panel.actionError && (
+              <p role="alert" className="text-destructive text-xs">
+                {panel.actionError}
+              </p>
+            )}
+            {panel.notice && (
+              <p role="status" className="bg-muted/50 rounded-md px-2 py-1 text-xs">
+                {panel.notice}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              <Field label={<Trans>会话 ID</Trans>}>{current?.id ?? panel.threadId}</Field>
+              <Field label={<Trans>会话文件</Trans>}>
+                {current?.sessionFile ?? <Trans>尚未创建会话文件</Trans>}
+              </Field>
+              <Field label={<Trans>起始目录</Trans>}>{current?.workspacePath ?? '—'}</Field>
+              <Field label={<Trans>工作区</Trans>}>
+                {workspace?.name ??
+                  (current?.workspaceId ? <Trans>工作区不可用</Trans> : <Trans>未归属</Trans>)}
+              </Field>
+              <Field label={<Trans>归档</Trans>}>
+                {current?.archived ? <Trans>已归档</Trans> : <Trans>未归档</Trans>}
+              </Field>
+              <Field label={<Trans>父会话</Trans>}>{current?.parentSessionPath ?? '—'}</Field>
+              <Field label={<Trans>创建时间</Trans>}>{formatTime(current?.createdAt)}</Field>
+              <Field label={<Trans>最近活动</Trans>}>{formatTime(current?.updatedAt)}</Field>
+              <Field label={<Trans>模型</Trans>}>
+                {config?.provider && config.modelId
+                  ? `${config.provider} / ${config.modelId}`
+                  : '—'}
+                {config?.thinkingLevel ? ` · ${config.thinkingLevel}` : ''}
+              </Field>
+              {fallback && (
+                <Field label={<Trans>模型回退</Trans>}>
+                  <span data-slot="huan-details-fallback" className="text-destructive">
+                    {fallback}
+                  </span>
+                </Field>
+              )}
+            </div>
+
+            {panel.loading && !details ? (
+              <p className="text-muted-foreground inline-flex items-center gap-1.5 text-sm">
+                <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
+                <Trans>正在读取会话统计…</Trans>
+              </p>
+            ) : panel.error ? (
+              <p role="alert" className="text-destructive text-sm">
+                <Trans>读取会话详情失败，请检查宿主连接后重试。</Trans>
+              </p>
+            ) : stats ? (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-muted-foreground text-xs">
+                  <Trans>累计统计覆盖整个会话文件（含已压缩历史与其他分支）。</Trans>
+                </p>
+                <Field label={<Trans>消息</Trans>}>
+                  <Trans>用户 {stats.userMessages}</Trans>
+                  {' · '}
+                  <Trans>助手 {stats.assistantMessages}</Trans>
+                  {' · '}
+                  <Trans>工具结果 {stats.toolResults}</Trans>
+                  {' · '}
+                  <Trans>工具调用 {stats.toolCalls}</Trans>
+                  {' · '}
+                  <Trans>共 {stats.totalMessages} 条</Trans>
+                </Field>
+                <Field label={<Trans>Token</Trans>}>
+                  <span className="block">
+                    <Trans>输入 {formatTokens(stats.tokens.input)}</Trans>
+                    {' · '}
+                    <Trans>输出 {formatTokens(stats.tokens.output)}</Trans>
+                  </span>
+                  <span className="block">
+                    <Trans>缓存读 {formatTokens(stats.tokens.cacheRead)}</Trans>
+                    {' · '}
+                    <Trans>缓存写 {formatTokens(stats.tokens.cacheWrite)}</Trans>
+                  </span>
+                  <span className="block">
+                    <Trans>总计 {formatTokens(stats.tokens.total)}</Trans>
+                  </span>
+                </Field>
+                <Field label={<Trans>累计费用</Trans>}>
+                  <span title={`$${stats.cost}`}>{formatCost(stats.cost)} USD</span>
+                </Field>
+                <Field label={<Trans>当前上下文</Trans>}>
+                  {context === undefined ? (
+                    <Trans>模型窗口未知，无法估算</Trans>
+                  ) : context.tokens === null ? (
+                    <span>
+                      <Trans>压缩后上下文未知，等待下一次响应</Trans>
+                      <span className="text-muted-foreground">
+                        {' ('}
+                        <Trans>窗口</Trans> {formatTokens(context.contextWindow)})
+                      </span>
+                    </span>
+                  ) : (
+                    <span>
+                      {formatTokens(context.tokens)} / {formatTokens(context.contextWindow)}
+                      {percent ? ` (${percent})` : ''}
+                    </span>
+                  )}
+                  {details && (
+                    <span className="text-muted-foreground ms-1 text-xs">
+                      <Trans>当前分支 {details.branchEntryCount} 条记录</Trans>
+                    </span>
+                  )}
+                  <span className="text-muted-foreground block text-xs">
+                    <Trans>只按当前活动分支估算。</Trans>
+                  </span>
+                </Field>
+              </div>
+            ) : null}
+          </div>
         </ScrollArea>
 
         <DialogFooter className="flex-wrap">
@@ -416,15 +423,17 @@ export function AssignWorkspaceDialog() {
             <SelectTrigger aria-label="目标工作区" size="sm" className="w-full justify-between">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              {workspaceIds.map((id) => {
-                const workspace = workspacesById[id]
-                return workspace ? (
-                  <SelectItem key={id} value={id}>
-                    {workspace.name}
-                  </SelectItem>
-                ) : null
-              })}
+            <SelectContent className="overflow-hidden" alignItemWithTrigger={false}>
+              <ScrollArea className="*:data-[slot=scroll-area-viewport]:max-h-[min(18rem,var(--available-height))]">
+                {workspaceIds.map((id) => {
+                  const workspace = workspacesById[id]
+                  return workspace ? (
+                    <SelectItem key={id} value={id}>
+                      {workspace.name}
+                    </SelectItem>
+                  ) : null
+                })}
+              </ScrollArea>
             </SelectContent>
           </Select>
         </div>

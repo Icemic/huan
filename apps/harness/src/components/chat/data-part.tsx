@@ -16,6 +16,7 @@ import {
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import {
   Trace,
   TraceCollapsible,
@@ -78,7 +79,12 @@ function BashExecutionPart({ part }: { part: HarnessDataViewPart }) {
         <TraceCollapsibleContent>
           {output ? (
             <CodeBlock size="sm" className="bg-background/60">
-              <CodeBlockContent className="max-h-64">{output}</CodeBlockContent>
+              <ScrollArea className="min-w-0 data-has-overflow-x:pb-2.5 *:data-[slot=scroll-area-viewport]:max-h-64">
+                <CodeBlockContent className="overflow-visible" style={{ maskImage: 'none' }}>
+                  {output}
+                </CodeBlockContent>
+                <ScrollBar orientation="horizontal" />
+              </ScrollArea>
             </CodeBlock>
           ) : (
             <p className="text-xs">
@@ -194,7 +200,12 @@ function UnknownDataPart({ part }: { part: HarnessDataViewPart }) {
             <CodeBlockCopyButton value={safeJson(part.data)} />
           </CodeBlockActions>
         </CodeBlockHeader>
-        <CodeBlockContent className="max-h-64">{safeJson(part.data)}</CodeBlockContent>
+        <ScrollArea className="min-w-0 data-has-overflow-x:pb-2.5 *:data-[slot=scroll-area-viewport]:max-h-64">
+          <CodeBlockContent className="overflow-visible" style={{ maskImage: 'none' }}>
+            {safeJson(part.data)}
+          </CodeBlockContent>
+          <ScrollBar orientation="horizontal" />
+        </ScrollArea>
       </CodeBlock>
     </div>
   )
