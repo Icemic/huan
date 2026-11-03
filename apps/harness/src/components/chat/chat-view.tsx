@@ -216,7 +216,7 @@ export function ChatView() {
       </div>
       <div
         data-slot="huan-composer-dock"
-        className="bg-background/95 supports-backdrop-filter:bg-background/80 shrink-0 border-t px-4 pt-2 pb-3 backdrop-blur"
+        className="bg-background/95 supports-backdrop-filter:bg-background/80 shrink-0 border-t px-2 pt-2 pb-3 backdrop-blur"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-1">
           <MemoHostUiRequests />
