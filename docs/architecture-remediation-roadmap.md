@@ -1,6 +1,6 @@
 # 整体架构整改子路线图
 
-日期：2026-11-02。分支：`refactor`。审查基线：`5ff6565`（历史）；R8 实现基线：`2056a55`。当前代码、依赖与测试以 `2056a55` 为准。
+日期：2026-11-02；AR-34 关闭与收尾记录：2026-11-03。分支：`refactor`。审查基线：`5ff6565`（历史）；R8 实现基线：`2056a55`；R9 提交：`126f682`。当前代码、依赖与测试以 `126f682` 为准。
 
 本文由[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)授权维护整改范围、问题生命周期、步骤、依赖和解除阻塞条件。主路线图仅维护总阻塞与恢复决定，不复制本文的进度。具体方案和执行证据放入迭代文档。
 
@@ -21,7 +21,7 @@
 - 主 agent 负责设计、取舍、独立 review 和最终验证。方案确认与实施授权后才委派编码；worker 使用 `local/deepseek-v4.1-flash`，预检 provider/model 并记录 reasoning。不委派 review是日常默认；本次用户明确要求只读子代理审查，采用`local/deepseek-v4.1-flash:max`，主agent独立决定与修正文档。默认不 push。
 - 新机制须对应能力要求或有依据的缺陷，并解释既有同步、服务端准入及领域版本为何不足。客户端以服务端状态为准，传输失败先重新同步；扩展命令自行负责业务结果反馈。假设性边缘场景不能单独推出通用恢复系统或改变正常停止/继续流程。
 
-当前用户已确认精简R2，授权持续实施R3～R9及必要代码、依赖、测试和隔离验证；按阶段规划→指定子代理实施→主agent独立review/修正/验证→提交。R3～R8已实施，R9已完成实现和证据核对；整体整改完成判定仍受AR-34阻塞；小范围偏差记录在[实施调整记录](iteration/2026-11/2026-11-02-refactor-architecture-implementation-decisions.md)。最终合并/push未授权，总阻塞仍待用户确认。
+当前用户已确认精简R2，授权持续实施R3～R9及必要代码、依赖、测试和隔离验证；按阶段规划→指定子代理实施→主agent独立review/修正/验证→提交。R3～R8已实施，R9已完成实现和证据核对；AR-34已由用户按开发环境/系统问题决定关闭，43项AR全部关闭，R0～R9开发整改完成。小范围偏差记录在[实施调整记录](iteration/2026-11/2026-11-02-refactor-architecture-implementation-decisions.md)。最终合并/push未授权，总阻塞仍待用户确认；G1.5未启动，等待合并确认后再定是否恢复原功能主线。
 
 ### 1.3 问题关闭规则
 
@@ -120,7 +120,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | AR-31 | A/中/已关闭 | 无关行已隔离，但双目录投影仍遍历；投影/原生消息/repository多层派生与缓存需重新定边界 | R3/R7/R8：无重复业务状态，派生缓存可解释，保留细粒度订阅/结构共享/帧合并；不以换库宣称性能提高 |
 | AR-32 | Q/中/已关闭 | 长Markdown、超长树、首次布局不在既有性能结论内；生产JS约1.52MB有大chunk警告 | R7/R8：测量代表性长输出、树和首次布局并记录负载/结果，处理实测不可用或回归；不设未经测量的统一预算，不凭chunk警告强制虚拟化/懒加载 |
 | AR-33 | A/高/已关闭 | reducer与应用回放均认可agent_end提前idle；Shell重连仅等待后检查旧文字，资源正文仅检查按钮切换；SDK事件/图片转换未覆盖GUI内容。R0记录具体断言与迁移分类；部分UI测试绑定aui DOM/旧runtime | R0/R2/R8：按能力保留/改写/删除测试，纠正错误断言，补自动继续、恢复及可见内容；不降低竞态/多窗/断流约束 |
-| AR-34 | Q/中/待核实 | 已记录provider-auth偶发false、host-reload清理EBUSY、默认e2e产物500/trace消失/Chromium崩溃、Vite旧转换空模块；原因未证明 | R8：在最终正常验证中收集首次失败证据；复现的应用/测试问题定位修复，工具/环境原因需证据，不凭换目录通过即分类。历史异常未复现时记录条件、现有证据及判断，不要求无证据的原因结论或无限追加重跑；仍影响最终验证或原因不足以判定是否有产品问题时保持未解决并交用户决定 |
+| AR-34 | Q/中/已关闭 | 已记录provider-auth偶发false、host-reload清理EBUSY、默认e2e产物500/trace消失/Chromium崩溃、Vite旧转换空模块；原因未证明 | R8：在最终正常验证中收集首次失败证据；复现的应用/测试问题定位修复，工具/环境原因需证据，不凭换目录通过即分类。历史异常未复现时记录条件、现有证据及判断，不要求无证据的原因结论或无限追加重跑；原因不足以判定是否有产品问题时交用户决定；用户现已选择A，接受剩余不确定性，按环境/系统异常关闭，详见§3.8 |
 | AR-35 | A/中/已关闭 | 移植注释仍有“逐行等价”等过时描述；依赖范围、来源/许可与实际保留算法需清理 | R7/R9：清除assistant-ui生态运行依赖（含Markdown/SSE相关依赖），仍复用源码保留MIT来源；锁文件、注释与导出一致 |
 | AR-36 | Q/中/已关闭 | 包边界主要靠约定，单一根exports同时承载transport/runtime/hooks；未见专门边界检查 | R1/R8：确定最小必要入口和静态约束，防Node进入浏览器/应用反向依赖；按实际需要决定是否新增包，不预建框架 |
 
@@ -140,7 +140,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 
 ### 3.7 逐项最终实现与证据
 
-表中路径为当前实现。执行结果统一来自 R9 主 agent 的最终运行：Vitest 82 文件、993 项通过、2 项平台跳过；Chromium 85/85；check、build 与生产预览性能通过。日志与结果见[R9 §2](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#22-主-agent-执行证据)。
+表中路径为当前实现。执行结果统一来自 R9 主 agent 的最终运行：Vitest 82 文件、993 项通过、2 项平台跳过；Chromium 85/85；check、build 与生产预览性能通过。日志与结果见[R9 §2](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#22-主-agent-执行证据)。43 项均已关闭；AR-34 的关闭依据为用户决定，未确定事实见 §3.8。
 
 | AR | 状态 | 最终实现 | 当前证据 |
 | --- | --- | --- | --- |
@@ -177,7 +177,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | AR-31 | 已关闭 | 单一会话数据与纯投影；帧合并、引用复用与细粒度 selector 保留 | `create-browser.test.ts:267`「流式更新按帧合并」；`message-view.test.ts`「流式增量只重算尾部并复用未变消息引用」；`e2e/render-performance.spec.ts` |
 | AR-32 | 已关闭 | 代表 Markdown、240 节点树、1000 目录首次布局有生产与开发测量；未设统一预算 | R9 §2.2 与 `huan-r9-main-preview.log`；样本边界已在 R9 说明 |
 | AR-33 | 已关闭 | 错误 idle/editor prefill 断言已改正；Shell 重连、资源正文、自动继续、图片与嵌套工具补了可执行内容断言 | `thread-state.test.ts`、`event-replay.test.ts`、`host-ui.test.ts`；`e2e/run-settlement.spec.ts`、`e2e/runtime-operations.spec.ts`、`e2e/settings-resources.spec.ts`、`e2e/presentation.spec.ts` |
-| AR-34 | 待核实 | 保留历史异常记录；不把通过结果或独立输出目录当作环境原因 | R9 §4；`huan-r9-main-check.log`、`huan-r9-main-e2e.log`、`huan-r9-main-preview.log`；锁持有者未确定 |
+| AR-34 | 已关闭（用户决定） | 保留历史异常记录，原因判断不进入代码改动；可复现的 provider-auth 刷新时序已修正并复测 | R9 §4 与[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)；`huan-r9-main-check.log`、`huan-r9-main-e2e.log`、`huan-r9-main-preview.log`；锁持有者与旧工具异常原因仍未确定 |
 | AR-35 | 已关闭 | 包声明与锁文件无 assistant-ui/assistant-stream；SSE 解析本地化；MIT notices 与源码注释保留，协议迁入的守卫补记来源 | `apps/harness/package.json`、`packages/react/package.json`、`pnpm-lock.yaml`；`packages/react/THIRD-PARTY-NOTICES.md`、`packages/core/THIRD-PARTY-NOTICES.md`、`packages/mcp/THIRD-PARTY-NOTICES.md`、`packages/protocol/THIRD-PARTY-NOTICES.md` |
 | AR-36 | 已关闭 | `@huan/react` 根入口、client/model 子入口；包方向由实际导入与类型检查核对；未新增扫描框架 | `packages/react/package.json`、`apps/harness/package.json`；R9 §3.5 的导入检查；`pnpm typecheck`/build |
 | AR-37 | 已关闭 | 投影读取 parentToolCallId 与 nestedCalls，子调用按父子树展示并保留待答入口 | `message-view.test.ts`「嵌套工具保留 parentToolCallId」「完全缺父项的多级子执行按根子树保序展示」；`e2e/presentation.spec.ts`「嵌套工具：父子关系、进度与待答请求可发现可操作」 |
@@ -188,9 +188,9 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | AR-42 | 已关闭 | 缺凭据提示不再要求重启，登录后自动刷新；认证 revision 触发 readiness 重读 | `apps/harness/src/components/pi-host-status.tsx`；`host-store.test.ts:216`「认证 revision 触发 readiness 重读」；`e2e/provider-auth.spec.ts`「API key 登录成功；模型目录更新」；`provider-auth.spec.ts`「默认模型缺凭据时登录后同一页面就绪，模型目录自动更新」，并覆盖退出恢复缺凭据 |
 | AR-43 | 已关闭 | 完整快照覆盖省略字段；队列、活动工具、readiness、contextUsage 与错误不沿用旧值 | `thread-state.test.ts`「完整快照清除省略的可选值与活动标志」「完整快照恢复活动工具；下一次无工具快照清除旧活动状态」 |
 
-### 3.8 未解决项与证据边界
+### 3.8 剩余不确定事实与证据边界
 
-- **AR-34（待核实）**：`provider-auth` 偶发 false 已按实际刷新时序修正并复测；`host-reload` 清理 EBUSY 的锁持有者未确定；旧 Vite 转换空模块、默认 e2e 产物 500/trace 消失/Chromium 崩溃本轮未复现，也没有原因结论。R8 的 82 条通过、独立输出目录可用或顺序执行通过都不能推断为环境原因。该问题仍影响用户对最终验证完整性的判断，保持未解决并交用户决定。
+- **AR-34（已关闭，用户决定）**：`provider-auth` 偶发 false 已按实际刷新时序修正并复测；`host-reload` 清理 EBUSY 的锁持有者仍未确定；旧 Vite 转换空模块、默认 e2e 产物 500/trace 消失/Chromium 崩溃本轮未复现，也没有原因结论。用户已决定把这组现象按开发环境/系统问题处理，不作为软件本身问题，并接受剩余不确定性后结束整改。上述未确定事实保留，本轮没有新增原因证据，证据边界不变；R8 的 82 条通过、独立输出目录可用或顺序执行通过仍不能推断为环境原因。
 - **视觉**：R8 截图未实际读取，不能宣称视觉合格；该事项不阻塞开发迭代，但也不转为已通过。
 
 ## 4. 执行路线与依赖
@@ -208,7 +208,7 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | [管理业务已接入](iteration/2026-11/2026-11-02-refactor-architecture-remediation-management.md)，最终证据见R9 |
 | R7 展示接入与依赖清理 | 官方shadcn组合接最终状态，消息/工具/data回退、Markdown/SSE替代、滚动/焦点/键盘/i18n、移除aui依赖 | R3/R4/R6；布局设计可在R1后进行 | [已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-presentation.md)，最终证据见R9 |
 | R8 最终集成与问题修复 | 迁移正式测试、完整验证、性能、生命周期与平台/环境问题诊断；发现问题回清单 | R2～R7实现接通 | [集成与回归已实施](iteration/2026-11/2026-11-02-test-architecture-remediation-integration.md)，check/build、82条Chromium和生产性能通过；AR-34锁持有者及历史异常判断保留R9 |
-| R9 文档与合并审查 | 逐项关闭问题，核对代码/导出/依赖/许可/文档、移除过渡残留，给出合并证据与恢复决定 | R8；文档纠正持续进行 | [文档与证据核对已完成](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；43项中42项关闭，AR-34待核实与用户判断，R9最终完成判定暂停；合并与解除阻塞尚未授权 |
+| R9 文档与合并审查 | 逐项关闭问题，核对代码/导出/依赖/许可/文档、移除过渡残留，给出合并证据与恢复决定 | R8；文档纠正持续进行 | [文档与证据核对已完成](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；43项全部关闭，AR-34由用户决定按开发环境/系统问题关闭；R0～R9开发整改完成，合并与解除阻塞尚未授权 |
 
 R3～R7仅按依赖安排工作，期间应用可以不可用。R3开始删除aui状态和相关接入，旧界面可无法编译；R7接通最终展示并清理剩余引用及依赖，已无消费者的文件和包随实施及时删除。R1/R2现已确认并获得连续实施授权；R5不能因前端先启动而从范围消失。R8发现的缺陷回到对应步骤修复，不通过删除用例或豁免小问题完成。
 
@@ -244,6 +244,6 @@ G1已交付适用能力逐项重新对照[能力规范](pi-gui-capabilities.md)�
 
 ### 6.3 解除阻塞条件
 
-全部AR问题及后续新增项关闭；R0～R9完成；最终分支可运行、功能完整、验证与文档一致；无未处理问题或临时实现。当前尚未满足：AR-34待核实。主agent给出独立合并审查，用户确认合并后由主路线图解除阻塞。不得仅凭卸载aui或迁入Zustand恢复G1.5。默认不自行合并、不push。
+全部AR问题及后续新增项关闭；R0～R9完成；最终分支可运行、功能完整、验证与文档一致；无未处理问题或临时实现。当前已满足：43 项 AR 全部关闭，其中 AR-34 由用户决定按开发环境/系统问题关闭；R0～R9 开发整改完成。尚缺合并授权：主agent给出独立合并审查，用户确认合并后由主路线图解除阻塞，G1.5 与 OUT-01～04 不因开发完成而启动。默认不自行合并、不push。
 
 回退以工作分支/提交为单位，不回滚个人Pi会话、共享配置和凭据；不承诺半成品commit可部署。最终合并策略与目标分支在合并前确认。
