@@ -100,6 +100,65 @@ test('API key 登录成功；密钥不出现在页面与认证快照，模型目
   await page.keyboard.press('Escape')
 })
 
+test('默认模型缺凭据时登录后同一页面就绪，模型目录自动更新', async ({ page }) => {
+  await openApp(page)
+  const hostReadiness = () =>
+    page.evaluate(async () => {
+      const response = await fetch('/api/pi/host')
+      const body = (await response.json()) as {
+        defaultModel: { readiness: { state: string } }
+      }
+      return body.defaultModel.readiness.state
+    })
+  expect(await hostReadiness()).toBe('missing-credentials')
+
+  // 缺凭据提示必须指向登录，而不是要求重启宿主。
+  await page.getByRole('button', { name: '宿主状态' }).click()
+  const status = page.getByRole('dialog', { name: '宿主状态' })
+  const readiness = status.locator('[data-slot="huan-host-readiness"]')
+  await expect(readiness).toHaveAttribute('data-state', 'missing-credentials')
+  await expect(readiness).toContainText('默认模型缺少凭据')
+  await expect(readiness).toContainText('登录后此处会自动刷新')
+  await expect(status).not.toContainText('认证配置修改后需重启')
+  await expect(status).toContainText('huan-auth-test / auth-model')
+
+  // 从提示入口进入同一个认证面板并完成真实 API key 登录。
+  await readiness.getByRole('button', { name: '登录 provider' }).click()
+  await expect(authDialog(page)).toBeVisible()
+  await providerRow(page)
+    .getByRole('button', { name: /测试 API key 登录/ })
+    .click()
+  await authDialog(page).getByLabel('认证密钥').fill(SYNTHETIC_KEY)
+  await authDialog(page).getByRole('button', { name: '提交' }).click()
+  await expect(result(page)).toContainText('登录成功')
+
+  // authRevision 到达后，宿主状态路由与界面自动刷新；没有页面刷新或宿主重启。
+  await expect.poll(hostReadiness).toBe('ready')
+  await page.keyboard.press('Escape')
+  await expect(authDialog(page)).toHaveCount(0)
+  await page.getByRole('button', { name: '宿主状态' }).click()
+  const readyStatus = page.getByRole('dialog', { name: '宿主状态' })
+  await expect(readyStatus.locator('[data-slot="huan-host-readiness"]')).toHaveCount(0)
+  await expect(readyStatus).toContainText('huan-auth-test / auth-model')
+  await page.keyboard.press('Escape')
+
+  // 模型目录使用同一认证版本重读：不刷新页面也能选到刚认证的模型。
+  await page.locator('[data-slot="huan-composer"]').getByRole('combobox').click()
+  await expect(page.getByRole('option', { name: /认证测试模型/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // 退出登录后同页恢复缺凭据，证明两个方向都由真实认证版本驱动。
+  await openAuth(page)
+  await providerRow(page).getByRole('button', { name: '退出登录' }).click()
+  await expect(result(page)).toContainText('已退出登录')
+  await page.keyboard.press('Escape')
+  await expect.poll(hostReadiness).toBe('missing-credentials')
+  await page.getByRole('button', { name: '宿主状态' }).click()
+  await expect(
+    page.getByRole('dialog', { name: '宿主状态' }).locator('[data-slot="huan-host-readiness"]'),
+  ).toHaveAttribute('data-state', 'missing-credentials')
+})
+
 test('OAuth 关闭重开保留进度；选择/授权链接/手动码完成后可退出', async ({ page }) => {
   await openApp(page)
   await openAuth(page)

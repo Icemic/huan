@@ -1,7 +1,7 @@
 /**
  * React selector 绑定：直接读取浏览器实例的 Zustand 状态。
  *
- * 不经过 assistant-ui extras、Controller 或 Context 状态副本；组件只选择
+ * 不经过已删除的 assistant-ui extras/Controller 或 Context 状态副本；组件只选择
  * 自己需要的字段，动作是 store 上的稳定函数。
  */
 

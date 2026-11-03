@@ -11,10 +11,10 @@
   - `packages/protocol` — 纯 TS 类型与 schema，无运行时依赖；
   - `packages/mcp` — 官方 pi-mcp 之上的 Node 集成层（配置、管理与 Pi 工具桥接）；
   - `packages/core` — Pi SDK 集成与运行时（Node）；
-  - `packages/react` — 浏览器侧运行时（reducer/投影/Controller/hook）与 assistant-ui 适配；
+  - `packages/react` — 浏览器侧 transport、纯归约/投影、Zustand 状态/动作与 React selector；
   - `packages/history` — Checkpoint/ChangeSet 接口。
 - **应用**：`apps/harness` — 通用 Harness 应用（Vite + React 19 + Tailwind v4 + Lingui + Zustand）。
-- **Agent 核心**：Pi Coding Agent SDK；聊天 UI 基座 assistant-ui（运行时已自研，不再依赖 react-pi）。
+- **Agent 核心**：Pi Coding Agent SDK；聊天展示由 `apps/harness` 内的 shadcn/Base UI 组合直接绑定 Zustand。
 - **依赖方向**（强制）：`apps/*` → `@huan/core|react|history` → `@huan/protocol`；`core` 可依赖 `@huan/mcp`，`mcp` 依赖官方 pi-mcp / Pi SDK 公开 API，不反向依赖 core；`core`/`mcp`/`protocol` 不依赖 React，`react` 不依赖 Node。
 - **开发期约定**：包 `exports` 直指 `src/index.ts`（源码直引、零构建，详见 dev-guide §4.1）。
 - **依赖卫生**：`pnpm-workspace.yaml` 的 `minimumReleaseAge: 4320`（3 天）为硬约束，装包遇到拦截时显式降级而非绕过。
@@ -49,7 +49,7 @@
 6. 主 agent 负责整体调研、方案设计、取舍讨论与范围确认；方案确认并获得实施授权后，默认由 subagent 实施。主 agent 负责独立 review、问题修复和亲自验证，不委派 subagent 做 review。只要求设计或讨论时，不启动实现，也不把方案设计直接交给实施 worker。
 7. 每个小阶段完成代码、验证和文档后立即本地提交，再开始下一小阶段（例如 G1.3a → 提交 → G1.3b）；默认不 push。当前整体架构整改采用用户确认的例外：`refactor` 分支允许不可用、构建或测试失败的中间 WIP 提交，只在最终合并前要求完整可用；不为中间检查通过建设兼容层、双写或临时 adapter。详细约束见 `docs/architecture-remediation-roadmap.md`。
 
-当前优先处理整体架构整改，原功能路线图阻塞。前端业务状态统一 Zustand，去除 assistant-ui 属于整体整改的一部分，不得将范围缩小为卸包或聊天 UI 替换。调研/设计授权不包含修改业务代码、编写探针或运行测试；实施前确认范围。
+当前优先处理整体架构整改：R3～R8 已实施，R9 文档与证据已核对，AR-34尚待判断，整体整改完成判定暂停；原功能路线图保持阻塞。前端业务状态统一 Zustand、去除 assistant-ui 已实施，不得将范围缩小为卸包或聊天 UI 替换。调研/设计授权不包含修改业务代码、编写探针或运行测试；实施前确认范围。
 
 ## 文档与规范驱动开发（DDD）
 

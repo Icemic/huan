@@ -50,10 +50,10 @@ test('空白页显示默认模型错误、目录及来源，选有效模型后�
 
   await page.getByRole('button', { name: '宿主状态' }).click()
   const hostStatus = page.getByRole('dialog', { name: '宿主状态' })
-  await expect(hostStatus.getByText('默认模型不可用：所选模型不在注册表中')).toBeVisible()
+  await expect(hostStatus.getByText('默认模型缺少凭据')).toBeVisible()
   await expect(hostStatus.getByText(info.workspacePath)).toBeVisible()
   await expect(hostStatus.getByText(`${info.agentDir} (显式参数)`)).toBeVisible()
-  await expect(hostStatus.getByText('e2e-missing-provider / e2e-missing-model')).toBeVisible()
+  await expect(hostStatus.getByText('huan-auth-test / auth-model')).toBeVisible()
 
   await page.bringToFront()
   await hostStatus.getByRole('button', { name: '复制诊断摘要' }).click()
@@ -61,7 +61,7 @@ test('空白页显示默认模型错误、目录及来源，选有效模型后�
   const summary = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()))
   expect(summary.workspacePath).toBe(info.workspacePath)
   expect(summary.agentDir).toBe(info.agentDir)
-  expect(summary.defaultModel.readiness.state).toBe('unavailable-model')
+  expect(summary.defaultModel.readiness.state).toBe('missing-credentials')
   await page.keyboard.press('Escape')
   await expect(hostStatus).toHaveCount(0)
 

@@ -2,7 +2,7 @@
 @import "tw-shimmer";
 @import "@fontsource-variable/geist";
 
-/* Base UI 以 data-open / data-closed 表达弹层状态；兼容 assistant-ui 的 data-state。 */
+/* Base UI 以 data-open / data-closed 表达弹层状态；自定义变体同时接受既有 data-state 标记。 */
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 
 @custom-variant data-closed (

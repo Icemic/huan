@@ -12,7 +12,7 @@
 | --- | --- |
 | `src/model/event-types.ts` | `src/eventTypes.ts` |
 | `src/error-text.ts` | `src/utils.ts` |
-| `src/client/validation.ts` | `src/client/validation.ts` |
+| `../protocol/src/wire-validation.ts`（R5 迁出本包） | `src/client/validation.ts`（声明见 `packages/protocol/THIRD-PARTY-NOTICES.md`） |
 | `src/client/event-source.ts` | `src/client/eventSource.ts` |
 | `src/client/http-client.ts` | `src/client/httpClient.ts`（`subscribe` 改为单订阅实现，见文件头） |
 | `src/model/thread-state.ts` | `src/runtime/threadState.ts`（拆分元数据/运行数据、完整快照语义） |

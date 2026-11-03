@@ -525,8 +525,8 @@ export async function mapWithConcurrency<T, R>(
  * 不经 `preflightResult`，取消/退休时必须主动丢弃，否则会在取消后仍发出
  * 模型请求（已由测试证实：不丢弃时 fetch 计数 +1）。
  *
- * 注：SDK 未暴露公开 API；字段缺失时静默跳过（退化为不拦截，仍由
- * `agent_start` 的无归属清扫兜底）。字段形状变化由启动诊断集中报告。
+ * 注：SDK 未暴露公开 API；字段缺失时保留 `agent_start` 无归属清扫，
+ * 同时报告一次诊断，便于升级核对。
  */
 let deferredRunsShapeReported = false
 export const discardDeferredRuns = (

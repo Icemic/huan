@@ -94,6 +94,15 @@ export default function (pi) {
     },
     execute: async (_callId, params) => {
       const image = { type: 'image', data: pixel, mimeType: 'image/png' }
+      if (params?.mode === 'broken') {
+        return {
+          content: [
+            { type: 'text', text: 'IMAGE-BROKEN-TEXT' },
+            // 合法 image content + 不可解码载荷：真实浏览器会触发 img error。
+            { type: 'image', data: '!!!not-valid-base64-image!!!', mimeType: 'image/png' },
+          ],
+        }
+      }
       return params?.mode === 'pure'
         ? { content: [image] }
         : { content: [{ type: 'text', text: 'IMAGE-MIXED-TEXT' }, image] }
@@ -259,14 +268,15 @@ await mkdir(join(env.workspace, 'docs'), { recursive: true })
 await mkdir(join(env.workspace, 'src'), { recursive: true })
 await writeFile(join(env.workspace, 'docs', '指南 文件.md'), '# 指南\n')
 await writeFile(join(env.workspace, 'src', 'main.ts'), 'export {}\n')
-// 默认模型故意无效：空白页必须呈现错误并允许从模型选择器恢复。
+// 默认模型故意缺凭据（合成 provider 尚未登录）：空白页必须呈现缺凭据引导，
+// 登录后同一页面随认证版本自动恢复；其他可用模型仍可从选择器恢复。
 // 压缩阈值调小，使浏览器验收里的短会话也能走真实的手动压缩路径。
 await writeFile(
   join(env.agentDir, 'settings.json'),
   `${JSON.stringify(
     {
-      defaultProvider: 'e2e-missing-provider',
-      defaultModel: 'e2e-missing-model',
+      defaultProvider: 'huan-auth-test',
+      defaultModel: 'auth-model',
       compaction: { enabled: true, keepRecentTokens: 40, reserveTokens: 1_000 },
     },
     null,
@@ -620,6 +630,35 @@ app.post('/__e2e__/sessions', async (c) => {
     timestamp: Date.now(),
   })
   return c.json({ id: manager.getSessionId(), path: manager.getSessionFile() ?? null })
+})
+// 无消息历史的导入源：用真实 SessionManager 生成 header、model_change 与
+// session_info；setup-only 条目按 SDK 规则不会自动落盘，这里写成合法 JSONL
+// 源文件，供浏览器走真实预览/导入/打开路径。
+app.post('/__e2e__/sessions/setup-only-source', async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    cwd?: unknown
+    provider?: unknown
+    modelId?: unknown
+    name?: unknown
+  }
+  const cwd = resolve(typeof body.cwd === 'string' ? body.cwd : env.workspace)
+  if (!withinTestRoot(cwd)) return c.json({ error: 'outside-scope' }, 400)
+  const provider = typeof body.provider === 'string' ? body.provider : 'huan-test'
+  const modelId = typeof body.modelId === 'string' ? body.modelId : 'test-model-b'
+  const name = typeof body.name === 'string' && body.name ? body.name : undefined
+  const manager = SessionManager.create(cwd, env.defaultSessionDir(cwd))
+  manager.appendModelChange(provider, modelId)
+  if (name) manager.appendSessionInfo(name)
+  const header = manager.getHeader()
+  if (!header) return c.json({ error: 'missing-header' }, 500)
+  const sourceDir = join(env.root, 'import-sources')
+  await mkdir(sourceDir, { recursive: true })
+  const sourcePath = join(sourceDir, `setup-only-${manager.getSessionId()}.jsonl`)
+  await writeFile(
+    sourcePath,
+    `${[header, ...manager.getEntries()].map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+  )
+  return c.json({ sourcePath, threadId: manager.getSessionId(), name, cwd })
 })
 app.get('/__e2e__/subscriptions', (c) => c.json({ totalSubscriptions, activeSubscriptions }))
 // 工作区元数据读写：仅供损坏文件 UI 场景备份/恢复，不进入生产应用。

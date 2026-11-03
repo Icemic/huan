@@ -1,6 +1,6 @@
 # 整体架构整改子路线图
 
-日期：2026-11-02。分支：`refactor`。审查基线：`5ff6565`；业务代码与 `5400b8f` 一致。
+日期：2026-11-02。分支：`refactor`。审查基线：`5ff6565`（历史）；R8 实现基线：`2056a55`。当前代码、依赖与测试以 `2056a55` 为准。
 
 本文由[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)授权维护整改范围、问题生命周期、步骤、依赖和解除阻塞条件。主路线图仅维护总阻塞与恢复决定，不复制本文的进度。具体方案和执行证据放入迭代文档。
 
@@ -21,7 +21,7 @@
 - 主 agent 负责设计、取舍、独立 review 和最终验证。方案确认与实施授权后才委派编码；worker 使用 `local/deepseek-v4.1-flash`，预检 provider/model 并记录 reasoning。不委派 review是日常默认；本次用户明确要求只读子代理审查，采用`local/deepseek-v4.1-flash:max`，主agent独立决定与修正文档。默认不 push。
 - 新机制须对应能力要求或有依据的缺陷，并解释既有同步、服务端准入及领域版本为何不足。客户端以服务端状态为准，传输失败先重新同步；扩展命令自行负责业务结果反馈。假设性边缘场景不能单独推出通用恢复系统或改变正常停止/继续流程。
 
-当前用户已确认精简R2，授权持续实施R3～R9及必要代码、依赖、测试和隔离验证；按阶段规划→指定子代理实施→主agent独立review/修正/验证→提交。小范围偏差由主agent决定并写入[实施调整记录](iteration/2026-11/2026-11-02-refactor-architecture-implementation-decisions.md)，较大或难决策偏差停下询问。最终合并/push未授权。
+当前用户已确认精简R2，授权持续实施R3～R9及必要代码、依赖、测试和隔离验证；按阶段规划→指定子代理实施→主agent独立review/修正/验证→提交。R3～R8已实施，R9已完成实现和证据核对；整体整改完成判定仍受AR-34阻塞；小范围偏差记录在[实施调整记录](iteration/2026-11/2026-11-02-refactor-architecture-implementation-decisions.md)。最终合并/push未授权，总阻塞仍待用户确认。
 
 ### 1.3 问题关闭规则
 
@@ -29,7 +29,7 @@
 
 状态使用：待设计、待核实、实施中、待最终验证、已关闭。关闭必须关联最终实现、规范和验证证据；纯文档问题须关联纠正文档。疑点需核对明确的触发条件、现有路径与反证；证据不足保持疑点，不要求用新增机制消除所有可能性。与已登记行为无关的场景不继续扩展；不新增必要机制的判断也可形成关闭证据。拆分/合并保留原 ID 和映射，不删除问题隐瞒进度，延期或豁免须经用户明确决定。
 
-问题清单初稿与R0逐项盘点分别记录审查发现和能力证据。R0覆盖全部稳定能力ID及工作区、主题、性能等已交付要求，证据见[能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)。源码阅读和既有测试仍有验证边界，后续发现立即补稳定 ID，并安排在本次阻塞内处理。[复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)记录本次逐项取舍；未删除AR或把推测改成已复现缺陷。
+问题清单初稿与R0逐项盘点分别记录审查发现和能力证据。R0覆盖全部稳定能力ID及工作区、主题、性能等已交付要求，证据见[能力盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)。源码阅读和既有测试仍有验证边界，后续发现立即补稳定 ID，并安排在本次阻塞内处理。[复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)记录本次逐项取舍；未删除AR或把推测改成已复现缺陷。R8完成最终集成执行，R9逐项核对当前实现与证据，结果见[R9](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)。
 
 ## 2. 审查依据与偏离时间线
 
@@ -37,8 +37,8 @@
 
 - 此前架构审查期间曾执行 `pnpm check`（65 文件、983 通过/2 平台跳过）和 `pnpm build`；这些只说明旧基线通过现有检查，不证明架构合理或能力规范完整达成。
 - 审查中曾未经授权新增临时浏览器探针；已删除、未提交，生产代码未改。该过程不应重复。探针确认“异步命名清除同会话新草稿”和“其他窗口消息进入本窗口输入历史”，仅作为已发生的缺陷证据，最终仍需正式回归。日志位于本机 Temp 的 `huan-architecture-audit-probes2.log`，不作为可移植验收依赖。
-- 提前空闲有源码、现有相反断言和当时 reducer 执行记录；未知 data 回退有投影、渲染分发和注册表源码证据。其余生命周期风险未复现时保持待核实，不将合理机制直接定为缺陷。
-- 当前文档工作不复跑业务测试。69 条 Chromium 是 G1.4d4 历史基线，本轮未重跑完整浏览器套件。
+- 提前空闲有源码、当时相反断言和 reducer 执行记录；未知 data 回退有投影、渲染分发和注册表源码证据。这些是审查时证据，后续已由 R3～R8 修正并补正式回归，结果见 §3.7 与 R9。
+- R9 主agent再次执行完整检查：993项测试通过、2项平台跳过、85条Chromium通过；69条Chromium为G1.4d4历史基线。
 
 ### 2.2 时间线
 
@@ -61,68 +61,68 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 
 ## 3. 问题清单
 
-路径相对仓库根。步骤 R0～R9 见 §4。表内关闭条件是要求，不表示已有实现或验证。
+路径相对仓库根。步骤 R0～R9 见 §4。§3.1～§3.6 的问题描述保留审查时的源码位置（历史），其中 `packages/react/src/runtime/*`、`apps/harness/src/components/assistant-ui/*` 等路径已删除，不作为当前入口；最终实现与证据见 §3.7。表内关闭条件是要求，不表示问题发生时已有实现或验证。
 
 ### 3.1 前端状态、依赖与生命周期
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-01 | A/高/待设计 | Controller 自持 state/stateSnapshot、listeners、version；aui 又管 composer/会话；应用另有单例 store。`packages/react/src/runtime/thread-controller.ts:473`、`use-harness-runtime.ts`；M2 起保留，后续扩展 | R1/R3：业务状态与订阅统一 Zustand，无平行状态容器或重复状态 |
-| AR-02 | A/高/待设计 | Controller 输入为 `AppendMessage`，输出为 aui repository，投影与公共 options 依赖 aui。`thread-controller.ts:21`、`message-projection.ts`、`runtime-types.ts`；M2 明确采用 | R1/R3/R7：独立输入/展示模型，删除 aui 类型、runtime、aui Provider、hooks、extras、repository 及包依赖 |
-| AR-03 | A/高/待设计 | `runtime/hooks.ts:58` 经 aui extras 找回自有 Controller，再订阅自有状态；`extras.ts`/`vendor/hooks.ts`形成绕行 | R3：React 直接选择 Zustand 状态/动作，无上下文回路 |
-| AR-04 | A/高/待设计 | WorkspaceProvider 与 aui 各自查会话目录，侧栏再合并标题/localId/remoteId；`workspace-context.ts`、`workspace-sidebar.ts:132`、runtime list adapter；工作区迭代引入 | R3/R4：唯一浏览器会话目录及明确派生，选择/分组/创建共用身份，无双目录补齐 |
-| AR-05 | A/高/待设计 | `pi-http-client.ts` 读模型草稿并用 DOM 自定义事件通知目录刷新；`5fe6944`引入读草稿，`52f5301`扩展通知 | R3/R4：transport 只负责协议传输，创建与目录失效由显式业务动作负责 |
-| AR-06 | A/中/待设计 | 模型草稿/目录、命令意图、树/fork bridge、draft override、资源版本、主题、认证缓存等独立模块状态；`apps/harness/src/components/*store*`与相关模块，`lib/theme.ts` | R1/R3/R6：逐一登记作用域并迁入 Zustand；无遗留业务变量+listeners store |
-| AR-07 | Q/中/待核实 | 模型目录缓存无 cwd/服务实例/版本键；`pi-model-selector.tsx`换目标不清旧models，请求失败仍保留；`pi-model-catalog.ts`又供命令/图片校验使用。R0确认保护缺失，跨目标错误未运行验证 | R1/R3/R8：确定目录作用域/失效/加载/错误呈现，消除前目标缓存继续使用的问题并补验证 |
-| AR-08 | A/高/待设计 | 首条初始化、普通发送、命令和 Shell 分散；`useNewHarnessThreadStore`、Controller、`usePiComposer`；多层各持乐观/提交状态 | R1/R4：一次捕获目标/模型/附件/草稿版本；按现有接受结果处理本窗历史与输入，网络失败同步且不重投；本地提交ID仅服务当前窗口动作 |
-| AR-09 | Q/中/待核实 | Controller registry 不逐项移除，dispose 为可重用清理；连接保留计数、30秒宽限、React StrictMode共同影响生命周期。`use-harness-runtime.ts:90`、`thread-controller.ts:544` | R1/R3/R8：明确窗口/会话实例所有者、删除/切换/卸载/重建的释放与晚响应规则；无界缓存是否存在给出结论 |
-| AR-10 | A/中/待设计 | 共享认证缓存有不同启动/停止/重启处理方式；MCP store 持面板开关与 disposed，provider store 按订阅启动。`pi-{provider,mcp}-auth-store.ts` | R3/R6：Zustand 安全投影缓存与明确轮询生命周期，保留操作关闭后可接管语义 |
+| AR-01 | A/高/已关闭 | Controller 自持 state/stateSnapshot、listeners、version；aui 又管 composer/会话；应用另有单例 store。`packages/react/src/runtime/thread-controller.ts:473`、`use-harness-runtime.ts`；M2 起保留，后续扩展 | R1/R3：业务状态与订阅统一 Zustand，无平行状态容器或重复状态 |
+| AR-02 | A/高/已关闭 | Controller 输入为 `AppendMessage`，输出为 aui repository，投影与公共 options 依赖 aui。`thread-controller.ts:21`、`message-projection.ts`、`runtime-types.ts`；M2 明确采用 | R1/R3/R7：独立输入/展示模型，删除 aui 类型、runtime、aui Provider、hooks、extras、repository 及包依赖 |
+| AR-03 | A/高/已关闭 | `runtime/hooks.ts:58` 经 aui extras 找回自有 Controller，再订阅自有状态；`extras.ts`/`vendor/hooks.ts`形成绕行 | R3：React 直接选择 Zustand 状态/动作，无上下文回路 |
+| AR-04 | A/高/已关闭 | WorkspaceProvider 与 aui 各自查会话目录，侧栏再合并标题/localId/remoteId；`workspace-context.ts`、`workspace-sidebar.ts:132`、runtime list adapter；工作区迭代引入 | R3/R4：唯一浏览器会话目录及明确派生，选择/分组/创建共用身份，无双目录补齐 |
+| AR-05 | A/高/已关闭 | `pi-http-client.ts` 读模型草稿并用 DOM 自定义事件通知目录刷新；`5fe6944`引入读草稿，`52f5301`扩展通知 | R3/R4：transport 只负责协议传输，创建与目录失效由显式业务动作负责 |
+| AR-06 | A/中/已关闭 | 模型草稿/目录、命令意图、树/fork bridge、draft override、资源版本、主题、认证缓存等独立模块状态；`apps/harness/src/components/*store*`与相关模块，`lib/theme.ts` | R1/R3/R6：逐一登记作用域并迁入 Zustand；无遗留业务变量+listeners store |
+| AR-07 | Q/中/已关闭 | 模型目录缓存无 cwd/服务实例/版本键；`pi-model-selector.tsx`换目标不清旧models，请求失败仍保留；`pi-model-catalog.ts`又供命令/图片校验使用。R0确认保护缺失，跨目标错误未运行验证 | R1/R3/R8：确定目录作用域/失效/加载/错误呈现，消除前目标缓存继续使用的问题并补验证 |
+| AR-08 | A/高/已关闭 | 首条初始化、普通发送、命令和 Shell 分散；`useNewHarnessThreadStore`、Controller、`usePiComposer`；多层各持乐观/提交状态 | R1/R4：一次捕获目标/模型/附件/草稿版本；按现有接受结果处理本窗历史与输入，网络失败同步且不重投；本地提交ID仅服务当前窗口动作 |
+| AR-09 | Q/中/已关闭 | Controller registry 不逐项移除，dispose 为可重用清理；连接保留计数、30秒宽限、React StrictMode共同影响生命周期。`use-harness-runtime.ts:90`、`thread-controller.ts:544` | R1/R3/R8：明确窗口/会话实例所有者、删除/切换/卸载/重建的释放与晚响应规则；无界缓存是否存在给出结论 |
+| AR-10 | A/中/已关闭 | 共享认证缓存有不同启动/停止/重启处理方式；MCP store 持面板开关与 disposed，provider store 按订阅启动。`pi-{provider,mcp}-auth-store.ts` | R3/R6：Zustand 安全投影缓存与明确轮询生命周期，保留操作关闭后可接管语义 |
 
 ### 3.2 行为缺陷与并发语义
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-11 | B/高/待设计 | `thread-state.ts:277` 在 agent_end 无重试时置 idle，settled 仅推进序号；原 M2 reducer 与现有测试如此。G1.3b §3.4/§5.1仍宣称 settled 才空闲 | R2/R3/R5/R8：服务端与浏览器统一运行/继续/结算边界，含预检、重试、压缩和扩展等待；修正相反测试 |
-| AR-12 | B/高/待设计 | 异步命令/Shell 完成仅比较目标，不比较草稿版本，清掉同会话新输入。`pi-composer-controller.ts:1124,1152,1165`；`3eec9c0`引入；已有命名延迟探针确认 | R4/R8：提交完成只处理所属草稿，覆盖同目标新输入、切换/返回、失败和取消 |
-| AR-13 | B/中/待设计 | 从共享会话新增 user 消息记录“本窗口历史”，其他窗口发送也被记入。`pi-composer-controller.ts:371–403`；G1.3引入，性能迭代只修旧历史基线；已有双窗探针确认 | R4/R8：历史由本窗口提交来源维护，覆盖扩展 handled、排队、失败与加载历史 |
-| AR-14 | B/中/待设计 | 未知角色投影为 `pi-unsupported-message`，界面直接返回无注册时为 null 的 dataRendererUI；只注册 bash/两种摘要。`message-projection.ts:454`、`thread.aui.tsx:671`、`runtime-data-parts.tsx` | R7/R8：已知/未知 data 和缺专用 renderer 的历史均可读，区分工具回退与数据回退 |
-| AR-15 | A/中/待设计 | 乐观队列与服务端队列以各文本出现次数认领，难区分跨窗口相同输入；树迭代 §6.3已披露。`thread-controller.ts:1124,1395` | R2/R4：删除文字次数认领，队列直接使用服务端状态；本窗在途提交独立提示，ID仅本地使用，保留整体取回与新队列保护，不新增wire关联 |
-| AR-16 | A/中/待设计 | 各面板自行组合 generation/ref/请求/草稿保存，业务状态与 JSX 混合；设置/MCP/树/认证/运行操作面板 | R1/R6：统一目标身份、请求失效和草稿保存规则，业务动作脱离展示；不是机械抽小组件 |
+| AR-11 | B/高/已关闭 | `thread-state.ts:277` 在 agent_end 无重试时置 idle，settled 仅推进序号；原 M2 reducer 与现有测试如此。G1.3b §3.4/§5.1仍宣称 settled 才空闲 | R2/R3/R5/R8：服务端与浏览器统一运行/继续/结算边界，含预检、重试、压缩和扩展等待；修正相反测试 |
+| AR-12 | B/高/已关闭 | 异步命令/Shell 完成仅比较目标，不比较草稿版本，清掉同会话新输入。`pi-composer-controller.ts:1124,1152,1165`；`3eec9c0`引入；已有命名延迟探针确认 | R4/R8：提交完成只处理所属草稿，覆盖同目标新输入、切换/返回、失败和取消 |
+| AR-13 | B/中/已关闭 | 从共享会话新增 user 消息记录“本窗口历史”，其他窗口发送也被记入。`pi-composer-controller.ts:371–403`；G1.3引入，性能迭代只修旧历史基线；已有双窗探针确认 | R4/R8：历史由本窗口提交来源维护，覆盖扩展 handled、排队、失败与加载历史 |
+| AR-14 | B/中/已关闭 | 未知角色投影为 `pi-unsupported-message`，界面直接返回无注册时为 null 的 dataRendererUI；只注册 bash/两种摘要。`message-projection.ts:454`、`thread.aui.tsx:671`、`runtime-data-parts.tsx` | R7/R8：已知/未知 data 和缺专用 renderer 的历史均可读，区分工具回退与数据回退 |
+| AR-15 | A/中/已关闭 | 乐观队列与服务端队列以各文本出现次数认领，难区分跨窗口相同输入；树迭代 §6.3已披露。`thread-controller.ts:1124,1395` | R2/R4：删除文字次数认领，队列直接使用服务端状态；本窗在途提交独立提示，ID仅本地使用，保留整体取回与新队列保护，不新增wire关联 |
+| AR-16 | A/中/已关闭 | 各面板自行组合 generation/ref/请求/草稿保存，业务状态与 JSX 混合；设置/MCP/树/认证/运行操作面板 | R1/R6：统一目标身份、请求失效和草稿保存规则，业务动作脱离展示；不是机械抽小组件 |
 
 ### 3.3 Node服务、协议与资源边界
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-17 | A/高/待设计 | `core/src/host.ts` 从初版727行增长到6543行，大闭包共享 record、装配、目录、准入、结构、设置/MCP流程 | R1/R5：按所有权拆装配/目录/live生命周期/操作协调，保留统一准入与清理，不用跨模块回调网替代大闭包 |
-| AR-18 | A/中/待设计 | `HarnessClient` 覆盖所有领域，HTTP routes/client/validator重复维护协议知识；当前类型与守卫主要分布在protocol/react/server | R2/R5：确定领域接口组合、wire校验与错误归属；保持必要信任边界，不建设通用RPC框架或盲目增加schema |
-| AR-19 | Q/中/待核实 | 协议版本14仅见常量与测试，未见握手/拒绝不匹配的实际路径。`protocol/src/index.ts`与服务端/客户端 | R2：确定版本标识的实际作用、部署假设与可执行策略，文档不再暗示已有协商 |
-| AR-20 | A/中/待设计 | JSON-safe异常载荷策略未定义，循环引用/BigInt等可能破坏编码；主路线图原技术债、Node服务迭代review #14 | R2/R5/R8：确定映射/拒绝/诊断及有界处理规则，补异常载荷行为证据，不能继续按需延期 |
-| AR-21 | A/中/待设计 | 取消清扫依赖SDK私有延迟动作字段；`host.ts`的discardDeferredRuns及架构§8.2。R2源码确认waitForIdle在当前idle时直接返回，不能证明外层deferred局部批次已结束；现有局部批次测试仅覆盖退休，停止后新旧运行组合待验证 | R2/R5：复核当前SDK机制，移除不必要私有假设；确无公开替代时集中必要补偿、可检测失效并保留取消/退休行为要求。未复现组合只作研究依据，停止后仍按正常同会话继续；不能只改名迁移或据此重建执行实例 |
-| AR-22 | Q/中/待核实 | cold/live/pending装配、认证、MCP binding、树/Shell收尾相互依赖；目前有专项回归，不据此直接认定泄漏 | R1/R5：形成资源所有权/关闭顺序/在途失效矩阵，复核一次性关闭、子孙回收、失败清理与会话隔离 |
+| AR-17 | A/高/已关闭 | `core/src/host.ts` 从初版727行增长到6543行，大闭包共享 record、装配、目录、准入、结构、设置/MCP流程 | R1/R5：按所有权拆装配/目录/live生命周期/操作协调，保留统一准入与清理，不用跨模块回调网替代大闭包 |
+| AR-18 | A/中/已关闭 | `HarnessClient` 覆盖所有领域，HTTP routes/client/validator重复维护协议知识；当前类型与守卫主要分布在protocol/react/server | R2/R5：确定领域接口组合、wire校验与错误归属；保持必要信任边界，不建设通用RPC框架或盲目增加schema |
+| AR-19 | Q/中/已关闭 | 协议版本14仅见常量与测试，未见握手/拒绝不匹配的实际路径。`protocol/src/index.ts`与服务端/客户端 | R2：确定版本标识的实际作用、部署假设与可执行策略，文档不再暗示已有协商 |
+| AR-20 | A/中/已关闭 | JSON-safe异常载荷策略未定义，循环引用/BigInt等可能破坏编码；主路线图原技术债、Node服务迭代review #14 | R2/R5/R8：确定映射/拒绝/诊断及有界处理规则，补异常载荷行为证据，不能继续按需延期 |
+| AR-21 | A/中/已关闭 | 取消清扫依赖SDK私有延迟动作字段；`host.ts`的discardDeferredRuns及架构§8.2。R2源码确认waitForIdle在当前idle时直接返回，不能证明外层deferred局部批次已结束；现有局部批次测试仅覆盖退休，停止后新旧运行组合待验证 | R2/R5：复核当前SDK机制，移除不必要私有假设；确无公开替代时集中必要补偿、可检测失效并保留取消/退休行为要求。未复现组合只作研究依据，停止后仍按正常同会话继续；不能只改名迁移或据此重建执行实例 |
+| AR-22 | Q/中/已关闭 | cold/live/pending装配、认证、MCP binding、树/Shell收尾相互依赖；目前有专项回归，不据此直接认定泄漏 | R1/R5：形成资源所有权/关闭顺序/在途失效矩阵，复核一次性关闭、子孙回收、失败清理与会话隔离 |
 
 ### 3.4 文档失真与历史验收
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-23 | D/高/待设计 | D-24确认Zustand，最小应用阶段推迟后新增自主状态却未重新决策；架构§1/旧roadmap§5.2继续沿用需求未出现 | R0/R1/R9：明确旧决定演变，记录统一Zustand目标，最终如实说明实际状态 |
-| AR-24 | D/中/待设计 | 架构§6.1将公共Thread/Composer、Registry、rendererId+schemaVersion写入分层；`packages/react/src/index.ts`无这些实现；骨架时期带入，M2回写未清理 | R0/R7/R9：区分实际展示扩展点和未建设的通用能力，按当前消费者设计；不为满足旧图凭空造插件平台 |
-| AR-25 | D/中/待设计 | 架构§3/§4的rawPiEvent/requestId/sessionId/版本化自定义HostUI与实际threadId+seq/四种交互不符；Node服务迭代§3.7已要求同步但未完成 | R2/R9：协议逐项对照，纠正目标与现状；不为保留错文档增加无需求字段 |
-| AR-26 | D/中/待设计 | Node服务迭代§10将结构断言+客户端集成标✅，review #15又记录未达设计强度；主roadmap笼统称M2已交付结构等价验证 | R2/R8/R9：区分类型断言、JSON/SSE与行为证据，补具体未覆盖行为；复用现有覆盖，不为每种类型机械添加往返测试，不倒推过去已执行 |
-| AR-27 | D/高/待设计 | G1.3/RUN-05、RUN-07完成标准未覆盖AR-11～13；未知data回退亦有遗漏 | R0/R8/R9：主路线图标明重开子项，建立要求→实现→证据关联，最终重新验收 |
-| AR-28 | D/高/待设计 | 旧聊天V0以aui展示骨架组合新容器，仍标设计完成；V1/V2已reset，不能沿用其结果 | R0/R7/R9：撤销旧方案指导地位，重做最终展示接入设计，不恢复撤回代码或计入其测试结果 |
-| AR-29 | D/低/待设计 | M2文档头“实施中”与正文完成矛盾；todo旧状态与开发指南认证重启文字已在前轮纠正，历史记录见启动/R0文档；仍须核对当前引用。产品旧提示另见AR-42 | R0/R9：当前文档纠正，历史矛盾在新审计中注明，检查本地链接与现状措辞 |
-| AR-30 | D/中/待设计 | 当前架构“自研/固化”容易被解释为已解耦；实际只移除react-pi，aui依赖曾明确保留 | R1/R9：精确区分实现所有权、外部依赖和适配边界；保留原授权事实 |
+| AR-23 | D/高/已关闭 | D-24确认Zustand，最小应用阶段推迟后新增自主状态却未重新决策；架构§1/旧roadmap§5.2继续沿用需求未出现 | R0/R1/R9：明确旧决定演变，记录统一Zustand目标，最终如实说明实际状态 |
+| AR-24 | D/中/已关闭 | 架构§6.1将公共Thread/Composer、Registry、rendererId+schemaVersion写入分层；`packages/react/src/index.ts`无这些实现；骨架时期带入，M2回写未清理 | R0/R7/R9：区分实际展示扩展点和未建设的通用能力，按当前消费者设计；不为满足旧图凭空造插件平台 |
+| AR-25 | D/中/已关闭 | 架构§3/§4的rawPiEvent/requestId/sessionId/版本化自定义HostUI与实际threadId+seq/四种交互不符；Node服务迭代§3.7已要求同步但未完成 | R2/R9：协议逐项对照，纠正目标与现状；不为保留错文档增加无需求字段 |
+| AR-26 | D/中/已关闭 | Node服务迭代§10将结构断言+客户端集成标✅，review #15又记录未达设计强度；主roadmap笼统称M2已交付结构等价验证 | R2/R8/R9：区分类型断言、JSON/SSE与行为证据，补具体未覆盖行为；复用现有覆盖，不为每种类型机械添加往返测试，不倒推过去已执行 |
+| AR-27 | D/高/已关闭 | G1.3/RUN-05、RUN-07完成标准未覆盖AR-11～13；未知data回退亦有遗漏 | R0/R8/R9：主路线图标明重开子项，建立要求→实现→证据关联，最终重新验收 |
+| AR-28 | D/高/已关闭 | 旧聊天V0以aui展示骨架组合新容器，仍标设计完成；V1/V2已reset，不能沿用其结果 | R0/R7/R9：撤销旧方案指导地位，重做最终展示接入设计，不恢复撤回代码或计入其测试结果 |
+| AR-29 | D/低/已关闭 | M2文档头“实施中”与正文完成矛盾；todo旧状态与开发指南认证重启文字已在前轮纠正，历史记录见启动/R0文档；仍须核对当前引用。产品旧提示另见AR-42 | R0/R9：当前文档纠正，历史矛盾在新审计中注明，检查本地链接与现状措辞 |
+| AR-30 | D/中/已关闭 | 当前架构“自研/固化”容易被解释为已解耦；实际只移除react-pi，aui依赖曾明确保留 | R1/R9：精确区分实现所有权、外部依赖和适配边界；保留原授权事实 |
 
 ### 3.5 性能、验证与维护问题
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-31 | A/中/待设计 | 无关行已隔离，但双目录投影仍遍历；投影/原生消息/repository多层派生与缓存需重新定边界 | R3/R7/R8：无重复业务状态，派生缓存可解释，保留细粒度订阅/结构共享/帧合并；不以换库宣称性能提高 |
-| AR-32 | Q/中/待核实 | 长Markdown、超长树、首次布局不在既有性能结论内；生产JS约1.52MB有大chunk警告 | R7/R8：测量代表性长输出、树和首次布局并记录负载/结果，处理实测不可用或回归；不设未经测量的统一预算，不凭chunk警告强制虚拟化/懒加载 |
-| AR-33 | A/高/待设计 | reducer与应用回放均认可agent_end提前idle；Shell重连仅等待后检查旧文字，资源正文仅检查按钮切换；SDK事件/图片转换未覆盖GUI内容。R0记录具体断言与迁移分类；部分UI测试绑定aui DOM/旧runtime | R0/R2/R8：按能力保留/改写/删除测试，纠正错误断言，补自动继续、恢复及可见内容；不降低竞态/多窗/断流约束 |
+| AR-31 | A/中/已关闭 | 无关行已隔离，但双目录投影仍遍历；投影/原生消息/repository多层派生与缓存需重新定边界 | R3/R7/R8：无重复业务状态，派生缓存可解释，保留细粒度订阅/结构共享/帧合并；不以换库宣称性能提高 |
+| AR-32 | Q/中/已关闭 | 长Markdown、超长树、首次布局不在既有性能结论内；生产JS约1.52MB有大chunk警告 | R7/R8：测量代表性长输出、树和首次布局并记录负载/结果，处理实测不可用或回归；不设未经测量的统一预算，不凭chunk警告强制虚拟化/懒加载 |
+| AR-33 | A/高/已关闭 | reducer与应用回放均认可agent_end提前idle；Shell重连仅等待后检查旧文字，资源正文仅检查按钮切换；SDK事件/图片转换未覆盖GUI内容。R0记录具体断言与迁移分类；部分UI测试绑定aui DOM/旧runtime | R0/R2/R8：按能力保留/改写/删除测试，纠正错误断言，补自动继续、恢复及可见内容；不降低竞态/多窗/断流约束 |
 | AR-34 | Q/中/待核实 | 已记录provider-auth偶发false、host-reload清理EBUSY、默认e2e产物500/trace消失/Chromium崩溃、Vite旧转换空模块；原因未证明 | R8：在最终正常验证中收集首次失败证据；复现的应用/测试问题定位修复，工具/环境原因需证据，不凭换目录通过即分类。历史异常未复现时记录条件、现有证据及判断，不要求无证据的原因结论或无限追加重跑；仍影响最终验证或原因不足以判定是否有产品问题时保持未解决并交用户决定 |
-| AR-35 | A/中/待设计 | 移植注释仍有“逐行等价”等过时描述；依赖范围、来源/许可与实际保留算法需清理 | R7/R9：清除assistant-ui生态运行依赖（含Markdown/SSE相关依赖），仍复用源码保留MIT来源；锁文件、注释与导出一致 |
-| AR-36 | Q/中/待核实 | 包边界主要靠约定，单一根exports同时承载transport/runtime/hooks；未见专门边界检查 | R1/R8：确定最小必要入口和静态约束，防Node进入浏览器/应用反向依赖；按实际需要决定是否新增包，不预建框架 |
+| AR-35 | A/中/已关闭 | 移植注释仍有“逐行等价”等过时描述；依赖范围、来源/许可与实际保留算法需清理 | R7/R9：清除assistant-ui生态运行依赖（含Markdown/SSE相关依赖），仍复用源码保留MIT来源；锁文件、注释与导出一致 |
+| AR-36 | Q/中/已关闭 | 包边界主要靠约定，单一根exports同时承载transport/runtime/hooks；未见专门边界检查 | R1/R8：确定最小必要入口和静态约束，防Node进入浏览器/应用反向依赖；按实际需要决定是否新增包，不预建框架 |
 
 ### 3.6 R0逐项盘点新增问题
 
@@ -130,13 +130,68 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 
 | ID | 类别/级别/状态 | 问题、证据与来源 | 责任步骤与关闭条件 |
 | --- | --- | --- | --- |
-| AR-37 | B/高/待设计 | 嵌套执行的parentToolCallId已进入事件/reducer，但`message-projection.ts:185`仅遍历助手content中的toolCall，不消费独立子调用。工具关联请求可能被分到无可见工具的路径；RUN-01、RES-04/05、MCP-02 | R2/R3/R7/R8：最终展示模型保留子调用身份、父子关系、参数/进度/错误，所有待答请求可发现可操作；补SDK到GUI证据 |
-| AR-38 | B/中/待设计 | `message-projection.ts:88`把工具图片转换为modelContent，默认`tool-fallback.aui.tsx:1080`只读取result，应用无其他工具renderer；RUN-01、MCP-02图片输出不可见 | R7/R8：纯图片和混合输出、部分/最终及历史重开均可读；补浏览器图片内容断言与异常回退 |
-| AR-39 | B/中/待设计 | `runtime/host-ui.ts`把工具关联editor转为display=text时丢prefill，工具answer初始化为空；游离editor保留prefill。RES-04两条路径行为不同 | R2/R7/R8：保留editor预填、多行、请求身份与取消语义；工具/游离、连续请求和重连有内容断言 |
-| AR-40 | B/高/待设计 | 树导航只比较threadId而无草稿版本；fork成功无发起目标检查即切换/写输入；import关闭重开与读文件缺统一失效；命令目标领取后await刷新再切换。`session-tree-dialog.tsx`、`session-fork-dialog.tsx`、`import-thread-dialog.tsx`、`pi-thread-host-ui.tsx`；SES-04～07、RUN-07、RES-04 | R1/R2/R4/R6/R8：业务动作固定来源/目标/草稿与窗口选择版本，旧结果不改后来视图/新输入；必要取回文本与编辑器原文复用所属草稿/面板，已创建会话从目录定位，不建通用结果存档；补关闭重开、切走返回和延迟响应证据 |
-| AR-41 | B/中/待设计 | host的modelFallbackMessage仅进本地diagnostics与全局代码，无会话原因字段；PiHostStatus非随回退更新。SES-01/MOD-01要求的原因展示证据不足，普通历史三种恢复也缺完整明确断言 | R2/R5/R6/R8：按会话安全投影原模型/有效模型/回退原因，GUI可见且不会泄露任意错误；覆盖可用、不可用和无消息历史 |
-| AR-42 | B/低/待设计 | `pi-host-status.tsx`缺凭据提示仍称认证修改需重启，与G1.4c登录后刷新目录和组件authRevision重查冲突；此前只纠正开发指南 | R6/R7/R8：界面提示符合实际登录/退出与启动配置生效规则，补缺凭据→登录→就绪的GUI断言 |
-| AR-43 | Q/中/待核实 | `thread-state.ts`完整快照的contextUsage/readiness省略时用`??`保留旧值；未知上下文/就绪状态可能继续显示先前结果，尚未运行验证 | R2/R3/R8：明确完整快照省略/null/未知值与增量语义，核对树/模型/资源变化和重连；按最终规则替换旧值并补断言 |
+| AR-37 | B/高/已关闭 | 嵌套执行的parentToolCallId已进入事件/reducer，但`message-projection.ts:185`仅遍历助手content中的toolCall，不消费独立子调用。工具关联请求可能被分到无可见工具的路径；RUN-01、RES-04/05、MCP-02 | R2/R3/R7/R8：最终展示模型保留子调用身份、父子关系、参数/进度/错误，所有待答请求可发现可操作；补SDK到GUI证据 |
+| AR-38 | B/中/已关闭 | `message-projection.ts:88`把工具图片转换为modelContent，默认`tool-fallback.aui.tsx:1080`只读取result，应用无其他工具renderer；RUN-01、MCP-02图片输出不可见 | R7/R8：纯图片和混合输出、部分/最终及历史重开均可读；补浏览器图片内容断言与异常回退 |
+| AR-39 | B/中/已关闭 | `runtime/host-ui.ts`把工具关联editor转为display=text时丢prefill，工具answer初始化为空；游离editor保留prefill。RES-04两条路径行为不同 | R2/R7/R8：保留editor预填、多行、请求身份与取消语义；工具/游离、连续请求和重连有内容断言 |
+| AR-40 | B/高/已关闭 | 树导航只比较threadId而无草稿版本；fork成功无发起目标检查即切换/写输入；import关闭重开与读文件缺统一失效；命令目标领取后await刷新再切换。`session-tree-dialog.tsx`、`session-fork-dialog.tsx`、`import-thread-dialog.tsx`、`pi-thread-host-ui.tsx`；SES-04～07、RUN-07、RES-04 | R1/R2/R4/R6/R8：业务动作固定来源/目标/草稿与窗口选择版本，旧结果不改后来视图/新输入；必要取回文本与编辑器原文复用所属草稿/面板，已创建会话从目录定位，不建通用结果存档；补关闭重开、切走返回和延迟响应证据 |
+| AR-41 | B/中/已关闭 | host的modelFallbackMessage仅进本地diagnostics与全局代码，无会话原因字段；PiHostStatus非随回退更新。SES-01/MOD-01要求的原因展示证据不足，普通历史三种恢复也缺完整明确断言 | R2/R5/R6/R8：按会话安全投影原模型/有效模型/回退原因，GUI可见且不会泄露任意错误；覆盖可用、不可用和无消息历史 |
+| AR-42 | B/低/已关闭 | `pi-host-status.tsx`缺凭据提示仍称认证修改需重启，与G1.4c登录后刷新目录和组件authRevision重查冲突；此前只纠正开发指南 | R6/R7/R8：界面提示符合实际登录/退出与启动配置生效规则，补缺凭据→登录→就绪的GUI断言 |
+| AR-43 | Q/中/已关闭 | `thread-state.ts`完整快照的contextUsage/readiness省略时用`??`保留旧值；未知上下文/就绪状态可能继续显示先前结果，尚未运行验证 | R2/R3/R8：明确完整快照省略/null/未知值与增量语义，核对树/模型/资源变化和重连；按最终规则替换旧值并补断言 |
+
+### 3.7 逐项最终实现与证据
+
+表中路径为当前实现。执行结果统一来自 R9 主 agent 的最终运行：Vitest 82 文件、993 项通过、2 项平台跳过；Chromium 85/85；check、build 与生产预览性能通过。日志与结果见[R9 §2](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#22-主-agent-执行证据)。
+
+| AR | 状态 | 最终实现 | 当前证据 |
+| --- | --- | --- | --- |
+| AR-01 | 已关闭 | 公共 `serviceStore`/`windowStore` 与实例动作替代 Controller；应用 feature store 保存业务状态 | `packages/react/src/browser/service-store.test.ts`、`window-store.test.ts`、`create-browser.test.ts`；`apps/harness/src/state/*.test.ts` |
+| AR-02 | 已关闭 | 独立输入/展示类型；删除 aui runtime/extras/repository 与包依赖 | `packages/react/src/model/message-view.test.ts`、`host-ui.test.ts`；`apps/harness/e2e/presentation.spec.ts` |
+| AR-03 | 已关闭 | React 直接选择 Zustand 状态并调用稳定动作 | `packages/react/src/react/hooks.test.tsx`；`apps/harness/e2e/browser.spec.ts` |
+| AR-04 | 已关闭 | `serviceStore.threadsById` 唯一元数据实体；侧栏只做选择与派生 | `service-store.test.ts`「目录扫描更新唯一实体」「同一事件更新元数据与运行数据」；`apps/harness/src/state/workspace-store.test.ts`；`e2e/project.spec.ts` |
+| AR-05 | 已关闭 | transport 只做 HTTP/SSE；创建、目录失效与草稿由业务动作显式处理 | `packages/react/src/client/http-client.test.ts`；`session-actions.test.ts`「固定捕获并走创建→threadId→发送」 |
+| AR-06 | 已关闭 | 工作区、设置、认证、MCP、模型、运行、会话、聊天、输入与主题均为明确作用域 Zustand；DOM/定时资源由实例或 bootstrap 持有 | `apps/harness/src/state/*.test.ts`；`bootstrap.ts`；`create-browser.test.ts` |
+| AR-07 | 已关闭 | 模型目录按目标与版本键查询；换目标立即使用新目标状态，失败不回退前目标 | `service-store.test.ts`「换目标立即使用新目标空目录」「查询失败记录错误并保持空目录」「同目标版本推进后只保留当前版本」；`e2e/runtime-operations.spec.ts` |
+| AR-08 | 已关闭 | 提交动作一次捕获目标、模型、附件与草稿版本；接受结果只处理所属草稿 | `session-actions.test.ts`「固定捕获」「未知错误只同步服务端一次」「发送中改草稿属于新编辑」；`e2e/command-input.spec.ts`「异步命令完成不清除同目标的新草稿」 |
+| AR-09 | 已关闭 | 浏览器实例、root lease、会话 lease 与微任务释放；目录元数据保留，完整会话缓存随 lease 计数降为 0 释放 | `create-browser.test.ts:174`「lease 计数降为 0 的微任务确认」、`:196`「多个 lease 共享同一订阅」、`:232`「dispose 永久失效」；结论：未发现按访问累积的无界会话缓存 |
+| AR-10 | 已关闭 | provider/MCP 安全快照由公共 service 持有；MCP 轮询随面板与活动操作启停 | `create-browser.test.ts`「面板打开立即读取；空闲 2s、活动操作 1s」；`apps/harness/src/state/mcp-store.test.ts`、`auth-store.test.ts`；`e2e/provider-auth.spec.ts`、`e2e/mcp.spec.ts` |
+| AR-11 | 已关闭 | `agent_end` 保持运行，`agent_settled` 结算；服务端同规则 | `packages/react/src/model/thread-state.test.ts`「agent_end 不提前空闲；agent_settled 才结算」；`apps/harness/src/event-replay.test.ts`「运行中状态：agent_end 仍保持 running」；`e2e/run-settlement.spec.ts` 两条流程 |
+| AR-12 | 已关闭 | 提交完成只按所属草稿版本处理；新输入、切换与失败保留 | `session-actions.test.ts`「发送中用户清空/改草稿属于新编辑」「停止取消未派发图片准备」；`e2e/command-input.spec.ts`「异步命令完成不清除同目标的新草稿」 |
+| AR-13 | 已关闭 | 本窗输入历史只登记本窗已接受提交；历史加载与他窗消息不补记 | `window-store.test.ts`「输入历史去重」；`composer-store.test.ts`「历史来自本窗输入历史」；`e2e/command-input.spec.ts`「窗口输入历史只记录本窗口提交」 |
+| AR-14 | 已关闭 | 已知/未知 data 与缺专用 renderer 使用可读回退；工具结果与数据回退分开 | `message-view.test.ts`「data 回退保留来源」「历史 toolResult 缺少助手调用时仍按工具结果展示」；`e2e/presentation.spec.ts`「未知数据条目可读」 |
+| AR-15 | 已关闭 | 队列直接展示服务端 steering/followUp；删除文字次数认领；本地未派发内容单独保留 | `session-actions.test.ts`「整体取回并列返回服务端与本地未派发文本」「已派发但结果未知的队列内容不被取回冒认」；`e2e/command-input.spec.ts`「运行中显式转向/后续」 |
+| AR-16 | 已关闭 | 面板业务状态、目标代次、草稿与请求失效进入 feature store；JSX 只选择状态并触发动作 | `settings-store.test.ts`、`mcp-store.test.ts`、`model-store.test.ts`、`runtime-store.test.ts`、`sessions-store.test.ts`、`workspace-store.test.ts` |
+| AR-17 | 已关闭 | `host.ts` 只作组合根；装配、目录、live、协调、事件、导入、配置与模型分模块持有 | `packages/core/src/host/*.ts`；`host.test.ts`、`host-reload.test.ts`、`host-mcp.test.ts`、`host-session-import.test.ts` |
+| AR-18 | 已关闭 | `HarnessClient` 由领域接口组合；wire 守卫归 protocol；HTTP 负责解析/体积，core 负责作用域/信任/准入 | `packages/protocol/src/client.ts`、`wire-validation.test.ts`；`apps/harness/server/host-routes.test.ts`、`sse-link.test.ts` |
+| AR-19 | 已关闭 | 协议 15；HostInfo 提供版本，页面同版比较；不匹配停止业务初始化 | `packages/protocol/src/index.test.ts`；`service-store.test.ts:118`「协议版本不匹配时停止初始化并记录错误」 |
+| AR-20 | 已关闭 | 扩展 unknown 在 core 输出边界转换；BigInt、非有限数、循环引用与编码异常有受控结果 | `packages/core/src/host/json-safe.test.ts`；`SessionEvents` 与事件广播调用点 |
+| AR-21 | 已关闭 | SDK 私有延迟动作补偿集中在 `host/shared.ts` 的 `discardDeferredRuns`；字段失效输出一次诊断，`agent_start` 清扫保留 | `host.test.ts`「扩展的延迟触发运行在退休后不得发出请求」「shutdown handler 内提交的延迟运行不得逃逸」「SDK 已取走的延迟批次不得逃逸」；`host/shared.ts` 注释与诊断 |
+| AR-22 | 已关闭 | R1 §6/§7.4 的资源与关闭矩阵落到实例。浏览器 lease/dispose、Node record/退休、MCP/认证 broker 各自持有并回收；未复现泄漏 | `create-browser.test.ts`、`host.test.ts` 退休/装配失败用例、`host-mcp.test.ts` PID 回收、`packages/mcp/src/stdio.test.ts` 孙进程回收 |
+| AR-23 | 已关闭 | 当前技术架构、主路线图与 AGENTS 明确 Zustand 实际状态与旧决定演变 | 本文、[技术架构 §1/§3.3](technical-architecture.md#1-技术栈)、[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图) |
+| AR-24 | 已关闭 | 技术架构 §6.1 只描述应用内静态展示组合，不宣称公共 Thread/Composer 或 Registry | [技术架构 §6.1](technical-architecture.md#61-当前分层与已确认目标) |
+| AR-25 | 已关闭 | 技术架构 §4 改为协议 15、threadId+seq、四种 Host UI 与领域接口，不再保留旧字段图 | [技术架构 §4](technical-architecture.md#4-协议与传输huanprotocol) |
+| AR-26 | 已关闭 | R9 §2/§3 区分类型/守卫、JSON/SSE 与行为证据；能力 ID 逐项给出当前测试 | [R9 §3](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#3-37-个能力-id-的最终证据) |
+| AR-27 | 已关闭 | 主路线图保留 G1.3/G1.4 重开说明；R9 §3 建立能力 ID 到实现/证据的关联 | [主路线图 §2.2](roadmap.md#22-实施阶段与完成状态)、[R9 §3](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#3-37-个能力-id-的最终证据) |
+| AR-28 | 已关闭 | R7 最终展示已接入；旧聊天 V0 不作为实施依据 | `apps/harness/src/components/chat/`；`e2e/presentation.spec.ts`；[R7 记录](iteration/2026-11/2026-11-02-feat-architecture-remediation-presentation.md) |
+| AR-29 | 已关闭 | 当前技术架构/开发指南/todo 已纠正 Controller、aui、认证重启与状态描述；历史 M2 标题保留原事实 | [技术架构 §3.3](technical-architecture.md#33-浏览器状态与移植来源)、[开发指南](dev-guide.md)、[todo](todo.md) |
+| AR-30 | 已关闭 | 技术架构 §1/§2/§8 区分自研实现、外部依赖与保留的 MIT 来源 | [技术架构 §2](technical-architecture.md#2-仓库结构与包边界)、[§8](technical-architecture.md#8-兼容性与演进) |
+| AR-31 | 已关闭 | 单一会话数据与纯投影；帧合并、引用复用与细粒度 selector 保留 | `create-browser.test.ts:267`「流式更新按帧合并」；`message-view.test.ts`「流式增量只重算尾部并复用未变消息引用」；`e2e/render-performance.spec.ts` |
+| AR-32 | 已关闭 | 代表 Markdown、240 节点树、1000 目录首次布局有生产与开发测量；未设统一预算 | R9 §2.2 与 `huan-r9-main-preview.log`；样本边界已在 R9 说明 |
+| AR-33 | 已关闭 | 错误 idle/editor prefill 断言已改正；Shell 重连、资源正文、自动继续、图片与嵌套工具补了可执行内容断言 | `thread-state.test.ts`、`event-replay.test.ts`、`host-ui.test.ts`；`e2e/run-settlement.spec.ts`、`e2e/runtime-operations.spec.ts`、`e2e/settings-resources.spec.ts`、`e2e/presentation.spec.ts` |
+| AR-34 | 待核实 | 保留历史异常记录；不把通过结果或独立输出目录当作环境原因 | R9 §4；`huan-r9-main-check.log`、`huan-r9-main-e2e.log`、`huan-r9-main-preview.log`；锁持有者未确定 |
+| AR-35 | 已关闭 | 包声明与锁文件无 assistant-ui/assistant-stream；SSE 解析本地化；MIT notices 与源码注释保留，协议迁入的守卫补记来源 | `apps/harness/package.json`、`packages/react/package.json`、`pnpm-lock.yaml`；`packages/react/THIRD-PARTY-NOTICES.md`、`packages/core/THIRD-PARTY-NOTICES.md`、`packages/mcp/THIRD-PARTY-NOTICES.md`、`packages/protocol/THIRD-PARTY-NOTICES.md` |
+| AR-36 | 已关闭 | `@huan/react` 根入口、client/model 子入口；包方向由实际导入与类型检查核对；未新增扫描框架 | `packages/react/package.json`、`apps/harness/package.json`；R9 §3.5 的导入检查；`pnpm typecheck`/build |
+| AR-37 | 已关闭 | 投影读取 parentToolCallId 与 nestedCalls，子调用按父子树展示并保留待答入口 | `message-view.test.ts`「嵌套工具保留 parentToolCallId」「完全缺父项的多级子执行按根子树保序展示」；`e2e/presentation.spec.ts`「嵌套工具：父子关系、进度与待答请求可发现可操作」 |
+| AR-38 | 已关闭 | 工具结果文本与图片分别投影；纯图片、混合、部分/最终与历史重开都可读 | `message-view.test.ts`「工具错误结果与图片输出按内容呈现」「实时工具的部分输出同时保留文本、图片与运行标记」；`e2e/presentation.spec.ts`「工具图片：纯图片与图文混合结果在会话与重开后可见」；`message-image.test.tsx`与损坏图片GUI覆盖错误提示/来源/无空预览；正常图片断言naturalWidth>0 |
+| AR-39 | 已关闭 | 四种交互保留原始类型与 prefill；工具与游离路径各自保存答案 | `host-ui.test.ts`「按 toolCallId 分流工具关联与游离请求；保留 editor prefill」；`host-store.test.ts`「editor 预填多行；每个请求独立答案」；`e2e/presentation.spec.ts`「工具关联的编辑器请求保留原文与多行编辑」 |
+| AR-40 | 已关闭 | 树/fork/import/定向命令固定来源、面板代次、草稿版本与窗口选择版本；旧结果只更新原对象 | `sessions-store.test.ts`「导航只在新草稿未变化时应用 editorText」「fork 成功时用户已切换选择则不夺回」「导入预览换来源后旧结果失效」「consume 后窗口已切换则保留待应用」；`e2e/session-tree.spec.ts`「导航在途时关闭面板并输入新草稿」；`e2e/session-fork-import.spec.ts`「分叉在途时关闭弹层」「导入预览在途时关闭重开」 |
+| AR-41 | 已关闭 | 会话元数据与 GUI 已展示受控回退原因、原模型与当前模型；历史模型不可用路径已验证 | `host-info.test.ts`「恢复缺失模型时按会话暴露受控回退原因与有效模型」；`e2e/presentation.spec.ts`「历史模型不可用时展示受控回退原因且不泄露原始错误」；`presentation.spec.ts`「无消息历史的导入会话使用有效模型并可继续首条发送」，明确SDK空历史规则 |
+| AR-42 | 已关闭 | 缺凭据提示不再要求重启，登录后自动刷新；认证 revision 触发 readiness 重读 | `apps/harness/src/components/pi-host-status.tsx`；`host-store.test.ts:216`「认证 revision 触发 readiness 重读」；`e2e/provider-auth.spec.ts`「API key 登录成功；模型目录更新」；`provider-auth.spec.ts`「默认模型缺凭据时登录后同一页面就绪，模型目录自动更新」，并覆盖退出恢复缺凭据 |
+| AR-43 | 已关闭 | 完整快照覆盖省略字段；队列、活动工具、readiness、contextUsage 与错误不沿用旧值 | `thread-state.test.ts`「完整快照清除省略的可选值与活动标志」「完整快照恢复活动工具；下一次无工具快照清除旧活动状态」 |
+
+### 3.8 未解决项与证据边界
+
+- **AR-34（待核实）**：`provider-auth` 偶发 false 已按实际刷新时序修正并复测；`host-reload` 清理 EBUSY 的锁持有者未确定；旧 Vite 转换空模块、默认 e2e 产物 500/trace 消失/Chromium 崩溃本轮未复现，也没有原因结论。R8 的 82 条通过、独立输出目录可用或顺序执行通过都不能推断为环境原因。该问题仍影响用户对最终验证完整性的判断，保持未解决并交用户决定。
+- **视觉**：R8 截图未实际读取，不能宣称视觉合格；该事项不阻塞开发迭代，但也不转为已通过。
 
 ## 4. 执行路线与依赖
 
@@ -145,21 +200,21 @@ M2 从未承诺移除全部 aui；MCP 独立路径改共享路径有明确修订
 | 步骤 | 范围与交付物 | 依赖 | 当前状态 |
 | --- | --- | --- | --- |
 | R0 问题登记与验收盘点 | 建清单/偏离时间线/阻塞入口；逐项核对G1已交付能力与历史证据，登记遗漏 | 无 | 已完成盘点：[37项能力与附加交付对照](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)；新增AR-37～43，问题修复与最终验收继续由后续步骤处理 |
-| R1 所有权与目标架构 | 状态/资源所有权表、包与模块依赖图、store作用域、业务动作接口、旧→新删除/迁移清单 | R0初稿 | [详细设计已交付](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，含双端所有权、时序与逐项范围核对；用户已确认，未实施 |
-| R2 协议与行为规范 | 运行结算、提交结果/身份、队列边界、错误、JSON-safe、版本策略与校验归属；统一规范 | R0/R1 | [全范围复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)已回写；用户已确认精简方案，R2设计完成，实施随R3～R7进行 |
-| R3 Zustand与浏览器运行时 | 替换Controller/aui/分散store，建立目录/会话/窗口状态与连接资源所有权 | R1/R2 | [基础与应用接入已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-browser.md)，WIP；提交/面板/展示与最终验收继续R4～R8 |
-| R4 创建、提交与分支业务 | 首条/普通发送、命令/Shell、附件/草稿/历史/队列、树/fork/import/定向编辑器动作 | R1/R2/R3 | [动作已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-actions.md)，最终界面与完整验证继续R6～R8 |
-| R5 Node服务职责与生命周期 | 分解大闭包，统一准入/结算/关闭顺序，复核装配/目录/结构/配置/认证/MCP边界 | R1/R2；与R3/R4按协议协调 | [Node与协议已实施](iteration/2026-11/2026-11-02-refactor-architecture-remediation-node.md)，最终集成/资源验证继续R8 |
-| R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | [管理业务已接入](iteration/2026-11/2026-11-02-refactor-architecture-remediation-management.md)，最终完整验证继续R8 |
-| R7 展示接入与依赖清理 | 官方shadcn组合接最终状态，消息/工具/data回退、Markdown/SSE替代、滚动/焦点/键盘/i18n、移除aui依赖 | R3/R4/R6；布局设计可在R1后进行 | [已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-presentation.md)，最终证据随R8/R9核对 |
+| R1 所有权与目标架构 | 状态/资源所有权表、包与模块依赖图、store作用域、业务动作接口、旧→新删除/迁移清单 | R0初稿 | [详细设计已交付](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，含双端所有权、时序与逐项范围核对；R3～R8已按该结构实施 |
+| R2 协议与行为规范 | 运行结算、提交结果/身份、队列边界、错误、JSON-safe、版本策略与校验归属；统一规范 | R0/R1 | [全范围复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)已回写；精简方案已由用户确认并由R3～R7实施，最终证据见R9 |
+| R3 Zustand与浏览器运行时 | 替换Controller/aui/分散store，建立目录/会话/窗口状态与连接资源所有权 | R1/R2 | [基础与应用接入已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-browser.md)，最终证据见R9 |
+| R4 创建、提交与分支业务 | 首条/普通发送、命令/Shell、附件/草稿/历史/队列、树/fork/import/定向编辑器动作 | R1/R2/R3 | [动作已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-actions.md)，最终证据见R9 |
+| R5 Node服务职责与生命周期 | 分解大闭包，统一准入/结算/关闭顺序，复核装配/目录/结构/配置/认证/MCP边界 | R1/R2；与R3/R4按协议协调 | [Node与协议已实施](iteration/2026-11/2026-11-02-refactor-architecture-remediation-node.md)，最终证据见R9 |
+| R6 管理功能与应用组织 | 设置/资源/模型/认证/MCP/工作区/树面板的业务状态与动作迁出展示，保留秘密边界 | R3/R4/R5相关接口 | [管理业务已接入](iteration/2026-11/2026-11-02-refactor-architecture-remediation-management.md)，最终证据见R9 |
+| R7 展示接入与依赖清理 | 官方shadcn组合接最终状态，消息/工具/data回退、Markdown/SSE替代、滚动/焦点/键盘/i18n、移除aui依赖 | R3/R4/R6；布局设计可在R1后进行 | [已实施](iteration/2026-11/2026-11-02-feat-architecture-remediation-presentation.md)，最终证据见R9 |
 | R8 最终集成与问题修复 | 迁移正式测试、完整验证、性能、生命周期与平台/环境问题诊断；发现问题回清单 | R2～R7实现接通 | [集成与回归已实施](iteration/2026-11/2026-11-02-test-architecture-remediation-integration.md)，check/build、82条Chromium和生产性能通过；AR-34锁持有者及历史异常判断保留R9 |
-| R9 文档与合并审查 | 逐项关闭问题，核对代码/导出/依赖/许可/文档、移除过渡残留，给出合并证据与恢复决定 | R8；文档纠正持续进行 | 未启动 |
+| R9 文档与合并审查 | 逐项关闭问题，核对代码/导出/依赖/许可/文档、移除过渡残留，给出合并证据与恢复决定 | R8；文档纠正持续进行 | [文档与证据核对已完成](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；43项中42项关闭，AR-34待核实与用户判断，R9最终完成判定暂停；合并与解除阻塞尚未授权 |
 
 R3～R7仅按依赖安排工作，期间应用可以不可用。R3开始删除aui状态和相关接入，旧界面可无法编译；R7接通最终展示并清理剩余引用及依赖，已无消费者的文件和包随实施及时删除。R1/R2现已确认并获得连续实施授权；R5不能因前端先启动而从范围消失。R8发现的缺陷回到对应步骤修复，不通过删除用例或豁免小问题完成。
 
 ## 5. 如何开始
 
-启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。R1候选结构已由[详细所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)收敛为服务连接实例内的规范化Zustand状态、窗口状态与应用feature状态，并包含Node资源持有者和关闭矩阵。该设计与精简R2均已由用户确认，现按R3～R9连续实施。
+启动研究见[所有权与启动设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-start.md)。R1候选结构已由[详细所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)收敛为服务连接实例内的规范化Zustand状态、窗口状态与应用feature状态，并包含Node资源持有者和关闭矩阵。该设计与精简R2均已由用户确认，R3～R8已按此实施，R9完成文档与证据核对。
 
 R1设计交付按以下要求核对，结果见详细设计§10：
 
@@ -181,7 +236,7 @@ G1已交付适用能力逐项重新对照[能力规范](pi-gui-capabilities.md)�
 
 ### 6.2 工程与证据
 
-- 最终执行check、build、Lingui与相关完整浏览器回归；正确的既有行为保持，错误断言按新规范改正，旧实现绑定测试迁移。逐项保持/补齐有意义的证据，不以983/69数字为目标。
+- 最终执行check、build、Lingui与相关完整浏览器回归；正确的既有行为保持，错误断言按新规范改正，旧实现绑定测试迁移。逐项保持/补齐有意义的证据，不以旧 983/69 数字为目标。R9 主 agent 结果见[R9 §2](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md#22-主-agent-执行证据)。
 - 检查包依赖方向、唯一Zustand状态来源、导出、无兼容残留、无重复发送/双滚动；保留必要的纯算法与MIT来源。
 - 性能覆盖既有250/1000会话无关行与连接数约束，补代表性长输出/树/首次布局测量并处理实测问题。测量方法如实记录，不把Playwright往返当INP。
 - UI交互、DOM/溢出与视觉判断分开记录；没有实际看过产物不能声明视觉通过。手工平台检查按项目规则记录，不能据此跳过已发现而未修复的问题。
@@ -189,6 +244,6 @@ G1已交付适用能力逐项重新对照[能力规范](pi-gui-capabilities.md)�
 
 ### 6.3 解除阻塞条件
 
-全部AR问题及后续新增项关闭；R0～R9完成；最终分支可运行、功能完整、验证与文档一致；无未处理问题或临时实现。主agent给出独立合并审查，用户确认合并后由主路线图解除阻塞。不得仅凭卸载aui或迁入Zustand恢复G1.5。默认不自行合并、不push。
+全部AR问题及后续新增项关闭；R0～R9完成；最终分支可运行、功能完整、验证与文档一致；无未处理问题或临时实现。当前尚未满足：AR-34待核实。主agent给出独立合并审查，用户确认合并后由主路线图解除阻塞。不得仅凭卸载aui或迁入Zustand恢复G1.5。默认不自行合并、不push。
 
 回退以工作分支/提交为单位，不回滚个人Pi会话、共享配置和凭据；不承诺半成品commit可部署。最终合并策略与目标分支在合并前确认。

@@ -12,7 +12,7 @@
 ### 1.1 里程碑位置
 
 - **已完成**：M0 骨架（迭代①）、M1 最小可用应用（迭代②）、M1.5 Node运行时自研（迭代③ + 3 次补丁）、M2 公共层固化（迭代④）
-- **当前状态**：`refactor`分支进行整体架构整改；已交付启动研究、[R0能力/历史验收盘点](iteration/2026-11/2026-11-02-test-architecture-remediation-inventory.md)及[R1所有权设计](iteration/2026-11/2026-11-02-feat-architecture-remediation-ownership.md)，业务代码尚未改造。R1已获用户确认；[R2协议研究](iteration/2026-11/2026-11-02-feat-architecture-remediation-protocol.md)已按用户要求重审，删除无需求的恢复机制，明确服务端权威与扩展反馈责任；随后完成指定子代理与主agent的[全范围复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)，删减已回写启动研究和R0/R1/R2。原功能主线继续阻塞，已发现遗漏与后续修复状态统一见[整改问题清单](architecture-remediation-roadmap.md)。
+- **当前状态**：`refactor` 分支已实施 R0～R8并执行R9核对，整体整改完成判定仍受AR-34阻塞：R3～R8 完成 Zustand 浏览器状态、Node/协议、业务动作、管理面板、最终展示与测试迁移，R9 完成文档与证据核对。浏览器业务状态为 Zustand，assistant-ui 运行依赖已移除，协议为 15。R9 主 agent 最终执行 993 项通过、2 项平台跳过、85 条 Chromium、build 与生产预览性能通过；43 项 AR 中 42 项关闭，AR-34 待核实。原功能主线继续阻塞，等待用户确认合并；详细状态见[整改子路线图](architecture-remediation-roadmap.md)，证据见[R9](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)。
 - **实现记录**：`iteration/2026-10/2026-10-31-feat-user-space-reliability.md`；core/harness 已统一 Pi 1.4.0
 - **计划入口**：`roadmap.md` §2；能力与验收入口：`pi-gui-capabilities.md`
 
@@ -27,13 +27,71 @@ pnpm --filter @huan/harness dev:server   # 终端 1：Node服务（Pi SDK 运行
 pnpm dev                                  # 终端 2：前端 → http://localhost:8799/
 ```
 
-验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。主 agent 在架构审查时重跑基线：983 项测试通过、2 项平台测试跳过，lint/全仓类型检查与生产构建通过（既有大 chunk 警告）。完整69条Chromium为G1.4d4历史验证，本轮未重跑全套。会话管理与统计的 review 和验证见 `iteration/2026-10/2026-10-31-feat-session-management-stats.md` §5。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7。
+验证命令：`pnpm check`（已包含测试）、`pnpm build`、`pnpm test:e2e`。R9 主 agent 最终执行 82 文件 993 项通过、2 项平台跳过，lint/全仓类型检查与生产构建通过（既有大 chunk 警告）；85 条 Chromium 在 8899/8898 单 worker 通过，生产预览性能通过。G1.4d4 的 983 项/69 条为历史时点。自动化使用临时用户空间与确定性模型，不依赖个人 Pi 配置。详细启动方式见 `dev-guide.md` §2 与 §7，证据日志见 R9 §2.2。
 
 ---
 
 ## 2. 迭代历史
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
+
+### R9 文档与最终证据核对（执行记录，`refactor`）
+
+记录：[R9最终核对](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)
+
+- 逐项核对 AR-01～43 与 37 个能力 ID，更新主路线图、整改子路线图、技术架构、开发指南、运行状态与 AGENTS 项目速览。
+- 记录主 agent 最终执行证据：993 项通过/2 跳过、85 条 Chromium、build 与生产预览性能；补损坏图片、空历史和认证就绪GUI证据，AR-34未解决，视觉未读取。
+- 只修改文档与必要的来源引用，不改变业务行为；未提交、未合并、未 push。
+
+### R8 集成回归与最终问题修复（✅ 开发记录，`test`）
+
+记录：[集成回归](iteration/2026-11/2026-11-02-test-architecture-remediation-integration.md)
+
+- 迁移原 69 条浏览器流程的旧定位，新增图片、嵌套工具、editor 原文、回退原因与结算窗口流程；保留多窗、断流、取消和迟到响应断言。
+- 主 agent 修正 live 首帧冷读失效、目录合并回退原因、命令草稿版本、工作区关闭重开、输入回焦与资源正文断言。
+- 主 agent 最终执行 991 项通过/2 跳过、82 条 Chromium、build 与生产预览性能通过；EBUSY 锁持有者与旧工具异常保留 R9 判断。
+
+### R7 最终聊天展示与依赖清理（✅ 开发记录，`feat`）
+
+记录：[展示接入](iteration/2026-11/2026-11-02-feat-architecture-remediation-presentation.md)
+
+- 官方 shadcn/Base UI 组合接通消息、工具、data、输入与滚动；删除 assistant-ui 状态与运行依赖，保留 MIT 来源。
+- 主 agent 修正冷读空缓存、卸载后首帧滚动、主题圆角与声明格式；R8 继续浏览器与性能验证。
+
+### R6 管理业务与面板接入（✅ 开发记录，`refactor`）
+
+记录：[管理业务](iteration/2026-11/2026-11-02-refactor-architecture-remediation-management.md)
+
+- 设置、认证、MCP、模型、运行、工作区、会话与 Host UI 业务进入应用 feature Zustand，面板接通实际入口。
+- 主 agent 修正 Host 待答索引、设置资源释放、重载迟到刷新、Shell/压缩 busy 与范围原文。
+
+### R5 Node 所有权与协议（✅ 开发记录，`refactor`）
+
+记录：[Node 与协议](iteration/2026-11/2026-11-02-refactor-architecture-remediation-node.md)
+
+- host 拆为装配、目录、live、协调、事件、操作、导入、配置与模型模块；协议 15、共用 wire 守卫、JSON-safe、会话回退与活动工具快照接入。
+- 主 agent 限定 live records 持有、修正 SSE 多 data 行与 JSON 特殊键；core/protocol/react 针对性测试通过。
+
+### R4 提交、队列与分支业务（✅ 开发记录，`feat`）
+
+记录：[业务动作](iteration/2026-11/2026-11-02-feat-architecture-remediation-actions.md)
+
+- 创建、发送、steer/followUp、Shell、图片准备、草稿/历史、停止/取回、树/fork/import 与定向动作进入 Zustand。
+- 主 agent 修正派发前取消、创建后目标、未知结果同步、导入 await 失效与同面板并发；未接面板交 R6/R7。
+
+### R3 Zustand 与浏览器运行时（✅ 开发记录，`feat`）
+
+记录：[浏览器运行时](iteration/2026-11/2026-11-02-feat-architecture-remediation-browser.md)
+
+- 建立 service/window store、纯归约、连接资源与 React selector；删除 Controller/aui 公开入口与旧 runtime。
+- 主 agent 修正目录版本、取消预检、认证迟到、附件恢复、断流重连与 entryId 投影；应用旧组件暂留 WIP。
+
+### R2 协议与行为规范（设计交付，`feat`）
+
+记录：[R2协议研究](iteration/2026-11/2026-11-02-feat-architecture-remediation-protocol.md)
+
+- 明确服务端权威、提交结果/队列边界、结算/取消、JSON-safe、版本与校验归属；删除无依据的恢复机制。
+- [复杂度审查](iteration/2026-11/2026-11-02-refactor-architecture-design-complexity.md)回写删减；后续由 R3～R7 实施。
 
 ### R1 状态与资源所有权、目标架构（设计交付，`feat`）
 
@@ -283,7 +341,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 | 限制 | 说明 |
 | --- | --- |
-| 已发现的行为遗漏 | 前端在agent_end提前空闲；异步动作可能清新草稿或改变后来选择；其他窗口消息进入本窗输入历史；未知data/工具图片/嵌套工具缺展示、工具editor丢预填；模型回退缺会话原因、认证提示仍要求重启。归整改AR-11～14/37～42，尚未修复 |
+| 整改剩余待确认 | AR-34 的锁持有者与旧工具异常未定；截图未实际读取，不宣称视觉合格。历史行为遗漏已由 R3～R9 修复，具体证据见 R9 |
 | `settings.json` 修改需重启服务 | 默认模型在服务启动时固定解析（`setModel` 的 persist 默认 false）；其他可重载资源按设置面板提示处理 |
 | 附件仅图片 | 无其他文件类型支持 |
 | 资源管理边界 | 资源清单、配置/重载与命令调用已有入口；终端专属扩展组件按能力规范边界处理 |
@@ -293,7 +351,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 | 自定义用户空间 | 配置与默认会话已统一；显式 sessionDir 可主动共享；标准项目资源发现不等于 OS 隔离 |
 | MCP共享文件并行编辑 | 与Pi共用服务器定义；revision拒已发生修改，不承诺跨进程CAS，避免双方同时编辑；OAuth/日志独立 |
 | 输出操作尚未完整 | 导出/分享等按G1.5验收；reload、认证、设置、MCP、Shell与compact已有入口 |
-| 多窗口实时同步依赖应用层长期订阅 | `pi-live-subscription.tsx` 显式保持连接；运行时仅在 running 时自动连接 |
+| 多窗口实时同步 | 打开的会话由浏览器实例 lease 与根订阅维持；最后引用释放后重新打开以权威快照恢复，不保留旧的长期订阅组件 |
 
 ---
 
