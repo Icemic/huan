@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
+  chooseSessionAction,
   configureStream,
   createProject,
   createWorkspaceApi,
@@ -51,8 +52,8 @@ const treeDialog = (page: Page) => page.getByRole('dialog', { name: '会话树' 
 const treeRows = (page: Page) => treeDialog(page).locator('[data-slot="huan-tree-row"]')
 
 async function openTree(page: Page): Promise<void> {
-  // 运行中宿主仍会持续推送事件；强制点击避免等待一个非必要的主线程稳定窗口。
-  await page.getByRole('button', { name: '会话树', exact: true }).click({ force: true })
+  // 入口已收进会话操作菜单；运行中宿主仍会持续推送事件，菜单动作不等待主线程静止。
+  await chooseSessionAction(page, '会话树')
   await expect(treeDialog(page)).toBeVisible()
   await expect(treeRows(page).first()).toBeVisible()
 }

@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import {
   assistantMessages,
+  chooseSessionAction,
   configureStream,
   controlInfo,
   finishStream,
@@ -322,7 +323,7 @@ test('大量历史下输入与流式输出不刷新无关会话行', async ({ pa
     await openImportedSession(page, treeSource.path, treeSource.workspaceName)
     console.log('phase tree: opening panel')
     const treeStart = Date.now()
-    await page.getByRole('button', { name: '会话树', exact: true }).click()
+    await chooseSessionAction(page, '会话树')
     const treeDialog = page.getByRole('dialog', { name: '会话树' })
     await expect(treeDialog).toBeVisible()
     const treeRows = treeDialog.locator('[data-slot="huan-tree-row"]')

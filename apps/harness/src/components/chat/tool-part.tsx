@@ -237,7 +237,9 @@ function ToolNodeView({
                     <CodeBlockCopyButton value={argumentsText} />
                   </CodeBlockActions>
                 </CodeBlockHeader>
-                <CodeBlockContent className="max-h-48">{argumentsText}</CodeBlockContent>
+                <CodeBlockContent wrap className="max-h-48">
+                  {argumentsText}
+                </CodeBlockContent>
               </CodeBlock>
             ) : null}
             {part.output !== undefined ? (
@@ -250,7 +252,9 @@ function ToolNodeView({
                     <CodeBlockCopyButton value={part.output} />
                   </CodeBlockActions>
                 </CodeBlockHeader>
-                <CodeBlockContent className="max-h-64">{part.output}</CodeBlockContent>
+                <CodeBlockContent wrap className="max-h-64">
+                  {part.output}
+                </CodeBlockContent>
               </CodeBlock>
             ) : null}
             <ToolImages part={part} />
@@ -261,7 +265,9 @@ function ToolNodeView({
                   <Trans>工具详情</Trans>
                 </summary>
                 <CodeBlock size="sm" className="mt-1">
-                  <CodeBlockContent className="max-h-48">{safeJson(part.details)}</CodeBlockContent>
+                  <CodeBlockContent wrap className="max-h-48">
+                    {safeJson(part.details)}
+                  </CodeBlockContent>
                 </CodeBlock>
               </details>
             ) : null}

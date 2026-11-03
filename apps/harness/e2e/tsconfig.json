@@ -2,9 +2,14 @@
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "module": "ESNext",
     "moduleResolution": "bundler"
   },
-  "include": ["./*.ts", "../playwright.config.ts"]
+  "include": ["./*.ts", "./fixtures/*.tsx", "../playwright.config.ts"]
 }

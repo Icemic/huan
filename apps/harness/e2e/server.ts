@@ -155,6 +155,24 @@ export default function (pi) {
       }
     },
   })
+  // 换行探针：参数、输出与详情都返回无空格长串，浏览器验收据此检查显式 wrap。
+  pi.registerTool({
+    name: 'e2e-wrap',
+    label: '换行探针',
+    description: '返回无空格长参数、输出与详情',
+    parameters: {
+      type: 'object',
+      properties: { note: { type: 'string' } },
+      additionalProperties: false,
+    },
+    execute: async (_callId, params) => {
+      const note = typeof params?.note === 'string' ? params.note : 'EMPTY'
+      return {
+        content: [{ type: 'text', text: 'OUTPUT:' + note }],
+        details: { marker: 'DETAIL:' + note },
+      }
+    },
+  })
   pi.on('project_trust', async (_event, ctx) => {
     if (!existsSync(join(ctx.cwd, '.pi', 'ask-trust'))) return { trusted: 'undecided' }
     const ok = await ctx.ui.confirm('HOSTUI-项目信任', ctx.cwd)

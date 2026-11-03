@@ -5,6 +5,7 @@
  * 新输出提示和回底按钮是 DOM 交互。无选择时输入区会明确落到工作区目标。
  */
 
+import { ScrollArea } from '@base-ui/react/scroll-area'
 import { useServiceStore, useThreadMetadata, useThreadSession, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { ArrowDownIcon, MessagesSquareIcon } from 'lucide-react'
@@ -163,27 +164,41 @@ export function ChatView() {
   return (
     <div data-slot="huan-chat-view" className="flex h-full min-h-0 flex-col">
       <div className="relative min-h-0 flex-1">
-        <div
-          ref={scrollRef}
-          data-slot="huan-chat-scroll"
-          className="h-full overflow-y-auto overscroll-contain"
-          onScroll={onScroll}
-        >
-          <div
-            ref={contentRef}
-            data-slot="huan-chat-content"
-            className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-2 px-4 py-6"
+        {/* 原生滚动条隐藏，单 Viewport 承担滚轮/键盘/滚动跟随；竖轨悬浮在内容上不占宽。 */}
+        <ScrollArea.Root className="h-full min-h-0">
+          <ScrollArea.Viewport
+            ref={scrollRef}
+            data-slot="huan-chat-scroll"
+            className="h-full overscroll-contain"
+            onScroll={onScroll}
           >
-            <div
-              className={cn(
-                'flex flex-1 flex-col',
-                views.length === 0 && !loading && 'justify-center',
-              )}
+            {/* 覆盖 Content 默认 min-width: fit-content，聊天列只保留纵向滚动。 */}
+            <ScrollArea.Content
+              ref={contentRef}
+              data-slot="huan-chat-content"
+              className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-2 px-4 py-6"
+              style={{ minWidth: 0 }}
             >
-              {body}
-            </div>
-          </div>
-        </div>
+              <div
+                className={cn(
+                  'flex flex-1 flex-col',
+                  views.length === 0 && !loading && 'justify-center',
+                )}
+              >
+                {body}
+              </div>
+            </ScrollArea.Content>
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar
+            data-slot="huan-chat-scrollbar"
+            className="my-1 me-1 w-2 rounded-full bg-foreground/5 transition-colors hover:bg-foreground/10"
+          >
+            <ScrollArea.Thumb
+              data-slot="huan-chat-scroll-thumb"
+              className="w-full rounded-full bg-foreground/20 transition-colors hover:bg-foreground/35"
+            />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
         {!following ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
             <Button

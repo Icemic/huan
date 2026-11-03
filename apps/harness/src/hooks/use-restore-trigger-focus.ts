@@ -5,7 +5,7 @@
  * 找到原触发器，关闭后焦点会落回文档；这里在关闭的同一帧把焦点交还。
  */
 
-import { useEffect, useRef } from 'react'
+import { type RefObject, useEffect, useRef } from 'react'
 
 export function useRestoreTriggerFocus<T extends HTMLElement = HTMLButtonElement>(open: boolean) {
   const triggerRef = useRef<T | null>(null)
@@ -15,4 +15,20 @@ export function useRestoreTriggerFocus<T extends HTMLElement = HTMLButtonElement
     wasOpen.current = open
   }, [open])
   return triggerRef
+}
+
+/**
+ * 弹层全部关闭后，把焦点交还给持久入口。
+ * `armed` 只在弹层经该入口打开时置位，避免别处打开的弹层关闭后抢焦点。
+ */
+export function useRestoreFocusOnClose(
+  open: boolean,
+  target: RefObject<HTMLElement | null>,
+  armed: RefObject<boolean>,
+) {
+  useEffect(() => {
+    if (open || !armed.current) return
+    armed.current = false
+    target.current?.focus()
+  }, [open, target, armed])
 }

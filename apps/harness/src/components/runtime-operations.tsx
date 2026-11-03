@@ -1,7 +1,7 @@
 /**
- * 运行操作面板：直接 Shell、上下文压缩与模型范围。
+ * 运行操作弹层：直接 Shell、上下文压缩与模型范围。
  *
- * 入口放在会话上下文栏；`/compact`、`/scoped-models` 命令打开对应分段。
+ * 由会话操作菜单或 `/compact`、`/scoped-models` 命令打开对应分段。
  * 业务状态（固定 target、表单、busy、模型范围 patterns 原文与目录查询）
  * 全部在 runtime feature Zustand；本组件只选择状态并触发动作。
  * Shell/压缩结果始终来自服务端事件，不猜测成功；取消不伪装为完成。
@@ -17,7 +17,6 @@ import {
   PlayIcon,
   RefreshCwIcon,
   SlidersHorizontalIcon,
-  TerminalIcon,
 } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
@@ -109,7 +108,7 @@ function compactionReasonLabel(reason: 'manual' | 'threshold' | 'overflow' | und
   return '自动'
 }
 
-export function RuntimeOperationsPanel() {
+export function RuntimeOperationsDialog() {
   const open = useRuntimeStore((state) => state.open)
   const target = useRuntimeStore((state) => state.target)
   const section = useRuntimeStore((state) => state.section)
@@ -125,7 +124,6 @@ export function RuntimeOperationsPanel() {
   const scopeError = useRuntimeStore((state) => state.scopeError)
   const scope = useRuntimeStore((state) => state.scope)
   const scopeLoading = useRuntimeStore((state) => state.scopeLoading)
-  const openPanel = useRuntimeStore((state) => state.openPanel)
   const close = useRuntimeStore((state) => state.close)
   const setShellCommand = useRuntimeStore((state) => state.setShellCommand)
   const setShellExcludeFromContext = useRuntimeStore((state) => state.setShellExcludeFromContext)
@@ -186,16 +184,6 @@ export function RuntimeOperationsPanel() {
         if (!next) close()
       }}
     >
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        aria-label="运行操作"
-        onClick={() => void openPanel()}
-      >
-        <TerminalIcon aria-hidden className="size-3.5" />
-        <Trans>运行操作</Trans>
-      </Button>
       <DialogContent
         data-slot="huan-runtime-operations"
         data-active-section={section}

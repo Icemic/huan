@@ -95,6 +95,8 @@ export interface WorkspaceFeatureState {
   busy: boolean
   error: WorkspaceFeatureError | undefined
   notice: string | undefined
+  /** 提示代次；同一文本再次提示也要重置自动消失计时。 */
+  noticeRevision: number
   form: WorkspaceFormState
   newSession: NewSessionState
   trust: WorkspaceTrustState
@@ -372,6 +374,7 @@ export const createWorkspaceFeatureStore = (
       busy: false,
       error: undefined,
       notice: undefined,
+      noticeRevision: 0,
       form: emptyForm(),
       newSession: emptyNewSession(),
       trust: emptyTrust(),
@@ -1103,7 +1106,7 @@ export const createWorkspaceFeatureStore = (
 
       showNotice: (message) => {
         if (get().disposed) return
-        set({ notice: message, error: undefined })
+        set({ notice: message, noticeRevision: get().noticeRevision + 1, error: undefined })
       },
 
       clearError: () => {
@@ -1131,6 +1134,7 @@ export const createWorkspaceFeatureStore = (
           busy: false,
           error: undefined,
           notice: undefined,
+          noticeRevision: 0,
         })
       },
     }

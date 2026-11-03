@@ -277,6 +277,7 @@ describe('workspace-store：目录变化与工作区表单', () => {
     expect(member).toBeDefined()
     if (!member) throw new Error('缺少默认成员')
     store.getState().setWorkspaceMember(member.key, { alias: 'main', path: '/c' })
+    const noticeRevision = store.getState().noticeRevision
     await store.getState().saveWorkspaceForm()
 
     expect(browser.serviceStore.getState().workspacesById.w3).toMatchObject({
@@ -286,6 +287,10 @@ describe('workspace-store：目录变化与工作区表单', () => {
     expect(browser.serviceStore.getState().workspaceIds).toEqual(['w1', 'w2', 'w3'])
     expect(store.getState().form.open).toBe(false)
     expect(store.getState().notice).toBe('工作区已创建。')
+    // 同一文本再次提示也必须推进代次，toast 才能重置自动消失计时。
+    expect(store.getState().noticeRevision).toBe(noticeRevision + 1)
+    store.getState().showNotice('工作区已创建。')
+    expect(store.getState().noticeRevision).toBe(noticeRevision + 2)
   })
 })
 

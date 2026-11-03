@@ -453,6 +453,9 @@ export function ChatComposer() {
         <InputGroup
           className={cn(
             'h-auto flex-col items-stretch gap-0 rounded-md bg-background',
+            // 仅聊天输入区去掉焦点粗 ring，保留 input-group 的聚焦 border 加深；
+            // 按钮、其他表单与下方拖入高亮不受影响。
+            'has-[[data-slot=input-group-control]:focus-visible]:ring-0',
             dragging && 'ring-2 ring-primary/50',
           )}
         >

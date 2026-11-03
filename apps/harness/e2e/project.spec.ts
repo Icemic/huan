@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
+import type { HarnessThreadMetadata } from '@huan/protocol'
 import { expect, test } from '@playwright/test'
-import { E2E_UNASSIGNED_TITLE } from './config.js'
+import { E2E_HOST_URL, E2E_UNASSIGNED_TITLE } from './config.js'
 import {
   assistantMessages,
+  chooseSessionAction,
   configureStream,
   createProject,
   createWorkspaceApi,
@@ -64,14 +66,13 @@ test('继续最近、归档与恢复在两级列表中可用', async ({ page, re
   await startNewSession(page, name)
   await group.getByRole('button', { name: '继续最近', exact: true }).click()
   await expect(userMessages(page).first()).toContainText(title)
-  // 归档/取消归档在会话上下文栏（选中会话后可见）。
-  const context = page.locator('[data-slot="huan-session-context"]')
-  await context.getByRole('button', { name: '归档', exact: true }).click()
+  // 归档/取消归档在会话操作菜单（选中会话后可用）。
+  await chooseSessionAction(page, '归档')
   await expect(threadListItem(page, title)).toHaveCount(0)
   await page.getByLabel('已归档会话', { exact: true }).check()
   await expect(threadListItem(page, title)).toBeVisible()
   await threadListItem(page, title).click()
-  await context.getByRole('button', { name: '取消归档', exact: true }).click()
+  await chooseSessionAction(page, '取消归档')
   await expect(threadListItem(page, title)).toHaveCount(0)
   await page.getByLabel('已归档会话', { exact: true }).uncheck()
   await expect(threadListItem(page, title)).toBeVisible()
@@ -108,7 +109,12 @@ test('管理工作区动态增删成员，已有会话保持起始目录', async
   await sendMessage(page, `移除起始成员后-${run}`)
   await expect(userMessages(page).last()).toContainText(`移除起始成员后-${run}`)
   await expect(assistantMessages(page).filter({ hasText: DEFAULT_REPLY })).toHaveCount(2)
-  await expect(bar).toContainText('实际生效 v3')
+  // 生效版本属于服务端行为，界面不再展示内部版本和应用时机。
+  const response = await request.get(`${E2E_HOST_URL}/api/pi/threads?refresh=true`)
+  expect(response.ok()).toBe(true)
+  const threads = (await response.json()) as HarnessThreadMetadata[]
+  expect(threads.find((thread) => thread.title === `成员消息-${run}`)?.workspaceAppliedRevision).toBe(3)
+  await expect(bar).not.toContainText(/实际生效|本轮仍使用|下次运行生效|成员变更将在/)
 })
 
 test('创建工作区、选择起始项目并保存窗口偏好，会话 cwd 固定', async ({ page, request }) => {
@@ -261,10 +267,9 @@ test('未归属会话不自动猜测，GUI 明确加入工作区', async ({ page
   const unassigned = page.locator('[data-slot="huan-unassigned-group"]')
   await expect(unassigned).toContainText(E2E_UNASSIGNED_TITLE)
 
-  // 明确加入要在选中该会话后由上下文栏触发；宿主不按 cwd 猜测归属。
+  // 明确加入要在选中该会话后由会话操作菜单触发；宿主不按 cwd 猜测归属。
   await row.locator('[data-slot="huan-session-trigger"]').click()
-  const context = page.locator('[data-slot="huan-session-context"]')
-  await context.getByRole('button', { name: '加入工作区' }).click()
+  await chooseSessionAction(page, '加入工作区')
   const dialog = page.getByRole('dialog', { name: '加入工作区' })
   await dialog.getByRole('combobox', { name: '目标工作区' }).click()
   const options = page.getByRole('option')

@@ -127,7 +127,7 @@ test('顶栏与 /settings 打开同一面板，资源来自真实 loader', async
   await dialog.getByRole('tab', { name: '资源清单' }).click()
   // 资源清单来自真实 loader：扩展路径与命令/工具计数的实际内容。
   await expect(dialog.getByText(/command-probe\.js/).first()).toBeVisible()
-  await expect(dialog.getByText(/命令 3，工具 4/).first()).toBeVisible()
+  await expect(dialog.getByText(/命令 3，工具 5/).first()).toBeVisible()
   // 正文按需加载由下方独立用例核对：显式 includeText 与 GUI 显示/隐藏。
   await expect(dialog.getByRole('button', { name: '显示指令/系统提示文本' })).toBeVisible()
   await page.keyboard.press('Escape')

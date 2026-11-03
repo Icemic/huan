@@ -44,6 +44,26 @@ export async function sendMessage(page: Page, text: string): Promise<void> {
   await sendButton(page).click()
 }
 
+/** 会话上下文条的单一操作菜单入口。 */
+export const sessionActionsTrigger = (page: Page) =>
+  page
+    .locator('[data-slot="huan-session-context"]')
+    .getByRole('button', { name: '会话操作', exact: true })
+
+/** 打开会话操作菜单并返回弹层。 */
+export async function openSessionActions(page: Page) {
+  await sessionActionsTrigger(page).click()
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+/** 从会话操作菜单选择一项；弹层打开由菜单项动作负责。 */
+export async function chooseSessionAction(page: Page, name: string): Promise<void> {
+  const menu = await openSessionActions(page)
+  await menu.getByRole('menuitem', { name, exact: true }).click()
+}
+
 /** 会话列表项（按标题定位，避免依赖列表顺序）。 */
 export const threadListItem = (page: Page, title: string) =>
   page.locator('[data-slot="huan-session-trigger"]').filter({ hasText: title })
@@ -55,8 +75,7 @@ export const sessionRow = (page: Page, title: string) =>
 /** 经会话详情重命名（侧栏与宿主列表都应以新名称刷新）。 */
 export async function renameThread(page: Page, title: string, nextTitle: string): Promise<void> {
   await threadListItem(page, title).click()
-  const context = page.locator('[data-slot="huan-session-context"]')
-  await context.getByRole('button', { name: '详情', exact: true }).click()
+  await chooseSessionAction(page, '详情')
   const dialog = page.getByRole('dialog', { name: '会话详情' })
   await expect(dialog).toBeVisible()
   const input = dialog.getByRole('textbox', { name: '会话名称' })

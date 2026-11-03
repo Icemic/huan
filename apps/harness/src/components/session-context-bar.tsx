@@ -1,28 +1,96 @@
 /**
- * 当前会话上下文条：工作区、固定起始目录、实际生效 revision 与管理入口。
+ * 当前会话上下文条：工作区、固定起始目录与会话操作菜单。
  *
  * 会话归属只读目录元数据；树/fork/详情/归档/删除/未归属加入都触发 sessions
- * feature 动作；工作区编辑触发 workspace feature。
+ * feature 动作；工作区编辑触发 workspace feature。模型选择只保留在输入区，
+ * 会话操作统一收进一个菜单；弹层由 App 根挂载，关闭后焦点回到菜单入口。
  */
 
 import { useServiceStore, useWindowStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
+import type { LucideIcon } from 'lucide-react'
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  EllipsisIcon,
   FolderCogIcon,
   FolderPlusIcon,
+  GitBranchIcon,
   GitForkIcon,
   InfoIcon,
   Loader2Icon,
+  TerminalIcon,
   Trash2Icon,
 } from 'lucide-react'
-import { PiModelSelector } from '@/components/pi-model-selector'
-import { RuntimeOperationsPanel } from '@/components/runtime-operations'
+import { type ReactNode, type RefObject, useRef } from 'react'
+import { SessionRecoveredQueue } from '@/components/session-tree-dialog'
 import { Button } from '@/components/ui/button'
-import { useRestoreTriggerFocus } from '@/hooks/use-restore-trigger-focus'
-import { useSessionsStore, useWorkspaceStore } from '@/state/app-context'
-import { SessionTreeDialog } from './session-tree-dialog'
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/menu'
+import { useRestoreFocusOnClose } from '@/hooks/use-restore-trigger-focus'
+import { useRuntimeStore, useSessionsStore, useWorkspaceStore } from '@/state/app-context'
+
+/** 菜单条目；打开弹层的动作在关闭后由入口侧标记焦点回退。 */
+interface SessionAction {
+  key: string
+  label: ReactNode
+  icon: LucideIcon
+  disabled?: boolean
+  destructive?: boolean
+  /** 操作进行中时把图标换成旋转的加载标记。 */
+  spin?: boolean
+  onSelect: () => void
+}
+
+/** 单一“会话操作”菜单；等菜单关闭动画结束后再执行弹层动作，避免关闭抢焦点。 */
+function SessionActionsMenu({
+  triggerRef,
+  actions,
+}: {
+  triggerRef: RefObject<HTMLButtonElement | null>
+  actions: readonly SessionAction[]
+}) {
+  const pendingAction = useRef<(() => void) | undefined>(undefined)
+  return (
+    <Menu
+      onOpenChangeComplete={(open) => {
+        if (open) return
+        const action = pendingAction.current
+        pendingAction.current = undefined
+        action?.()
+      }}
+    >
+      <MenuTrigger
+        ref={triggerRef}
+        render={<Button variant="ghost" size="xs" className="h-6 gap-1 px-1.5 text-xs" />}
+      >
+        <EllipsisIcon aria-hidden className="size-3.5" />
+        <Trans>会话操作</Trans>
+      </MenuTrigger>
+      <MenuContent>
+        {actions.map((action) => {
+          const Icon = action.icon
+          return (
+            <MenuItem
+              key={action.key}
+              disabled={action.disabled}
+              className={
+                action.destructive
+                  ? 'text-destructive data-highlighted:text-destructive'
+                  : undefined
+              }
+              onClick={() => {
+                pendingAction.current = action.onSelect
+              }}
+            >
+              <Icon aria-hidden className={action.spin ? 'size-3.5 animate-spin' : 'size-3.5'} />
+              {action.label}
+            </MenuItem>
+          )
+        })}
+      </MenuContent>
+    </Menu>
+  )
+}
 
 export function SessionContextBar() {
   const selection = useWindowStore((state) => state.selection)
@@ -37,17 +105,55 @@ export function SessionContextBar() {
   )
   const startProjectFor = useWorkspaceStore((state) => state.startProjectFor)
   const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
+  const formOpen = useWorkspaceStore((state) => state.form.open)
+  const openPanel = useRuntimeStore((state) => state.openPanel)
+  const runtimeOpen = useRuntimeStore((state) => state.open)
+  const openTree = useSessionsStore((state) => state.openTree)
   const openFork = useSessionsStore((state) => state.openFork)
   const openDetails = useSessionsStore((state) => state.openDetails)
   const openDelete = useSessionsStore((state) => state.openDelete)
   const openAssign = useSessionsStore((state) => state.openAssign)
   const setThreadArchived = useSessionsStore((state) => state.setThreadArchived)
   const archiveBusy = useSessionsStore((state) => state.archiveBusy)
-  // 详情/删除弹层由 store 打开、没有 DialogTrigger：关闭后把焦点还给入口按钮。
-  const detailsRef = useRestoreTriggerFocus(useSessionsStore((state) => state.details.open))
-  const deleteRef = useRestoreTriggerFocus(useSessionsStore((state) => state.deleteConfirm.open))
+  const treeOpen = useSessionsStore((state) => state.tree.open)
+  const detailsOpen = useSessionsStore((state) => state.details.open)
+  const deleteOpen = useSessionsStore((state) => state.deleteConfirm.open)
+  const assignOpen = useSessionsStore((state) => state.assign.open)
+  const forkOpen = useSessionsStore((state) => state.forkPanel.open)
+  const menuTriggerRef = useRef<HTMLButtonElement>(null)
+  // 只有经菜单打开的弹层才在关闭时把焦点还给入口，别处打开的表单不受影响。
+  const restoreMenuFocus = useRef(false)
+  useRestoreFocusOnClose(
+    formOpen || runtimeOpen || treeOpen || detailsOpen || deleteOpen || assignOpen || forkOpen,
+    menuTriggerRef,
+    restoreMenuFocus,
+  )
 
   if (selection?.kind === 'new') {
+    const newSessionActions: SessionAction[] = [
+      {
+        key: 'runtime',
+        label: <Trans>运行操作</Trans>,
+        icon: TerminalIcon,
+        onSelect: () => {
+          restoreMenuFocus.current = true
+          void openPanel()
+        },
+      },
+      ...(selection.workspaceId
+        ? [
+            {
+              key: 'workspace',
+              label: <Trans>管理项目</Trans>,
+              icon: FolderCogIcon,
+              onSelect: () => {
+                restoreMenuFocus.current = true
+                openWorkspaceForm(selection.workspaceId)
+              },
+            },
+          ]
+        : []),
+    ]
     return (
       <div
         data-slot="huan-session-context"
@@ -61,8 +167,7 @@ export function SessionContextBar() {
           <Trans>发送首条消息时创建；管理面板可按该起始目录打开。</Trans>
         </span>
         <div className="ms-auto flex items-center gap-2">
-          <PiModelSelector owner="context-bar" />
-          <RuntimeOperationsPanel />
+          <SessionActionsMenu triggerRef={menuTriggerRef} actions={newSessionActions} />
         </div>
       </div>
     )
@@ -73,11 +178,93 @@ export function SessionContextBar() {
   const currentWorkspace = workspace ?? activeWorkspace
   const cwd =
     metadata.workspacePath ?? (currentWorkspace ? startProjectFor(currentWorkspace.id) : undefined)
-  const revisionPending =
-    metadata.workspaceRevision !== undefined &&
-    metadata.workspaceAppliedRevision !== undefined &&
-    metadata.workspaceRevision !== metadata.workspaceAppliedRevision
   const fallback = metadata.modelFallback
+  const archived = metadata.archived === true
+  const archivePending = archiveBusy === threadId
+  const workspaceId = metadata.workspaceId
+
+  const actions: SessionAction[] = [
+    {
+      key: 'runtime',
+      label: <Trans>运行操作</Trans>,
+      icon: TerminalIcon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        void openPanel()
+      },
+    },
+    {
+      key: 'tree',
+      label: <Trans>会话树</Trans>,
+      icon: GitBranchIcon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        openTree(threadId)
+      },
+    },
+    {
+      key: 'fork',
+      label: <Trans>克隆到新会话</Trans>,
+      icon: GitForkIcon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        openFork({ threadId, position: 'at' })
+      },
+    },
+    {
+      key: 'details',
+      label: <Trans>详情</Trans>,
+      icon: InfoIcon,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        void openDetails(threadId)
+      },
+    },
+    {
+      key: 'archive',
+      label: archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>,
+      icon: archivePending ? Loader2Icon : archived ? ArchiveRestoreIcon : ArchiveIcon,
+      disabled: archivePending,
+      spin: archivePending,
+      onSelect: () => void setThreadArchived(threadId, !archived),
+    },
+    {
+      key: 'delete',
+      label: <Trans>删除</Trans>,
+      icon: Trash2Icon,
+      destructive: true,
+      onSelect: () => {
+        restoreMenuFocus.current = true
+        openDelete(threadId)
+      },
+    },
+    ...(workspaceId
+      ? []
+      : [
+          {
+            key: 'assign',
+            label: <Trans>加入工作区</Trans>,
+            icon: FolderPlusIcon,
+            onSelect: () => {
+              restoreMenuFocus.current = true
+              openAssign(threadId)
+            },
+          },
+        ]),
+    ...(workspaceId
+      ? [
+          {
+            key: 'workspace',
+            label: <Trans>管理项目</Trans>,
+            icon: FolderCogIcon,
+            onSelect: () => {
+              restoreMenuFocus.current = true
+              openWorkspaceForm(workspaceId)
+            },
+          },
+        ]
+      : []),
+  ]
 
   return (
     <div
@@ -85,20 +272,9 @@ export function SessionContextBar() {
       className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-1.5 text-xs"
     >
       {!metadata.workspaceId ? (
-        <>
-          <span className="text-muted-foreground">
-            <Trans>未归属会话；可明确加入工作区。</Trans>
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 px-1.5 text-xs"
-            onClick={() => openAssign(threadId)}
-          >
-            <FolderPlusIcon aria-hidden className="size-3.5" />
-            <Trans>加入工作区</Trans>
-          </Button>
-        </>
+        <span className="text-muted-foreground">
+          <Trans>未归属会话；可明确加入工作区。</Trans>
+        </span>
       ) : (
         <>
           <span className="inline-flex items-center gap-1 font-medium">
@@ -111,88 +287,19 @@ export function SessionContextBar() {
             </span>
           )}
           {cwd && <span className="text-muted-foreground max-w-80 truncate">{cwd}</span>}
-          <span className="text-muted-foreground">
-            {revisionPending ? (
-              <Trans>
-                成员 v{metadata.workspaceRevision}，本轮仍使用 v{metadata.workspaceAppliedRevision}
-                （下次运行生效）
-              </Trans>
-            ) : metadata.workspaceAppliedRevision !== undefined ? (
-              <Trans>实际生效 v{metadata.workspaceAppliedRevision}</Trans>
-            ) : (
-              <Trans>成员变更将在下一次运行生效</Trans>
-            )}
-          </span>
         </>
       )}
 
       <div className="ms-auto flex items-center gap-2">
-        <PiModelSelector owner="context-bar" />
-        <RuntimeOperationsPanel />
+        <SessionActionsMenu triggerRef={menuTriggerRef} actions={actions} />
       </div>
-      <SessionTreeDialog />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        aria-label="克隆到新会话"
-        onClick={() => openFork({ threadId, position: 'at' })}
-      >
-        <GitForkIcon aria-hidden className="size-3.5" />
-        <Trans>克隆到新会话</Trans>
-      </Button>
-      <Button
-        ref={detailsRef}
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        onClick={() => void openDetails(threadId)}
-      >
-        <InfoIcon aria-hidden className="size-3.5" />
-        <Trans>详情</Trans>
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs"
-        disabled={archiveBusy === threadId}
-        onClick={() => void setThreadArchived(threadId, metadata.archived !== true)}
-      >
-        {archiveBusy === threadId ? (
-          <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
-        ) : metadata.archived ? (
-          <ArchiveRestoreIcon aria-hidden className="size-3.5" />
-        ) : (
-          <ArchiveIcon aria-hidden className="size-3.5" />
-        )}
-        {metadata.archived ? <Trans>取消归档</Trans> : <Trans>归档</Trans>}
-      </Button>
-      <Button
-        ref={deleteRef}
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-xs text-destructive"
-        onClick={() => openDelete(threadId)}
-      >
-        <Trash2Icon aria-hidden className="size-3.5" />
-        <Trans>删除</Trans>
-      </Button>
-      {metadata.workspaceId && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ms-auto h-6 px-1.5 text-xs"
-          onClick={() => openWorkspaceForm(metadata.workspaceId)}
-        >
-          <Trans>管理项目</Trans>
-        </Button>
-      )}
       {fallback && (
         <span className="text-destructive w-full" data-slot="huan-session-fallback">
           <Trans>模型回退：</Trans>
           {fallback.message}
         </span>
       )}
+      <SessionRecoveredQueue />
     </div>
   )
 }

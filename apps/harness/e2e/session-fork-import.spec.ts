@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test'
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
+  chooseSessionAction,
   configureStream,
   createProject,
   createWorkspaceApi,
@@ -57,7 +58,7 @@ const treeDialog = (page: Page) => page.getByRole('dialog', { name: '会话树' 
 const treeRows = (page: Page) => treeDialog(page).locator('[data-slot="huan-tree-row"]')
 
 async function openTree(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '会话树', exact: true }).click({ force: true })
+  await chooseSessionAction(page, '会话树')
   await expect(treeDialog(page)).toBeVisible()
   await expect(treeRows(page).first()).toBeVisible()
 }
@@ -313,8 +314,8 @@ test('克隆当前活动路径排除废弃分支；父子各自发送互不污�
   await expect(userMessages(page)).toHaveCount(2)
 
   const parentId = await threadIdByTitle(request, first)
-  // 上下文栏 clone 当前落点。
-  await page.getByRole('button', { name: '克隆到新会话', exact: true }).click()
+  // 会话操作菜单 clone 当前落点。
+  await chooseSessionAction(page, '克隆到新会话')
   const dialog = page.getByRole('dialog', { name: '克隆当前会话' })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: '克隆为独立会话' }).click()

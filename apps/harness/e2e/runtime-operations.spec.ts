@@ -4,6 +4,7 @@ import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 import {
   assistantMessages,
+  chooseSessionAction,
   configureStream,
   controlInfo,
   createProject,
@@ -40,7 +41,7 @@ test.afterEach(async ({ request }) => {
 const panel = (page: Page) => page.getByRole('dialog', { name: '运行操作' })
 
 async function openPanel(page: Page) {
-  await page.getByRole('button', { name: '运行操作', exact: true }).click()
+  await chooseSessionAction(page, '运行操作')
   const dialog = panel(page)
   await expect(dialog).toBeVisible()
   return dialog
