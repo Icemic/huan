@@ -38,6 +38,13 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
 
+### 消息代码语法高亮（✅ 开发完成）
+
+记录：[消息流展示§8](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#8-代码语法高亮)
+
+- Markdown显式语言、write内容及编辑替换片段启用Shiki；按主题切换颜色，未知语言及大内容保留纯文本。
+- 主agent亲验12项单测、5条Chromium、应用/服务端/e2e类型及定向Biome通过，已读取明暗截图；未运行全仓测试/build。
+
 ### 消息流展示调整：第一轮（✅ 开发完成）
 
 记录：[消息流展示](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#7-第一轮实施记录)

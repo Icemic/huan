@@ -64,7 +64,7 @@
 
 ### 2.3 当前阶段：消息流展示调整，随后 G1.5
 
-当前进入[消息流展示调整](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md)，多轮变更统一记录在该迭代。第一轮已补充[详细视觉规格](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#5-第一轮详细视觉规格)及可切换主题/宽度的静态设计稿，第一轮按确认规格开发完成：read/write/edit/bash专门展示，压缩主字号统一14px，用户Shell右侧muted布局；主agent独立review并亲自修复后，40项定向单测、18条Chromium、全仓类型及定向Biome通过，证据见[迭代§7](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#7-第一轮实施记录)。Subagent结构和实时Shell消息流留后续轮次讨论；read零值/null、bash空命令/null超时与SDK编辑参数形状的展示修正已完成，25项单测及3条Chromium通过，见[参数边界记录](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#71-工具参数边界修正)。本轮未运行全仓测试/build，截图未读图。G1.5保持未启动。
+当前进入[消息流展示调整](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md)，多轮变更统一记录在该迭代。第一轮已补充[详细视觉规格](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#5-第一轮详细视觉规格)及可切换主题/宽度的静态设计稿，第一轮按确认规格开发完成：read/write/edit/bash专门展示，压缩主字号统一14px，用户Shell右侧muted布局；主agent独立review并亲自修复后，40项定向单测、18条Chromium、全仓类型及定向Biome通过，证据见[迭代§7](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#7-第一轮实施记录)。语法高亮已完成：Markdown显式语言、write与编辑替换片段；主agent亲验12项单测、5条Chromium及应用/服务端/e2e类型通过，明暗截图已读取，见[迭代§8](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#8-代码语法高亮)。Subagent结构和实时Shell消息流留后续轮次讨论；read零值/null、bash空命令/null超时与SDK编辑参数形状的展示修正已完成，25项单测及3条Chromium通过，见[参数边界记录](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#71-工具参数边界修正)。本轮未运行全仓测试/build；第一轮截图未读图，高亮明暗截图已读取。G1.5保持未启动。
 
 已完成[输入区上下文用量与直接压缩](iteration/2026-11/2026-11-04-feat-composer-context-usage.md)：发送按钮左侧环形用量入口，点击或悬停600ms打开Popover，区分当前上下文与会话累计；60%/80%分档。`/compact [可选提示词]`直接执行压缩，浮窗按钮复用无提示词动作。已完成确认方案及主agent独立修复，`/compact`立即清空命令，停止与消息行取消均可用；手动/自动压缩共用消息区状态行，成功摘要按操作顺序展示。最新8文件134项定向单测、19条Chromium、全仓类型与定向Biome通过，见[修订记录§5](iteration/2026-11/2026-11-04-feat-composer-context-usage.md#5-压缩取消与消息展示修订方案已确认)。此前初版28项/18条记录保留，未执行全仓回归/build。G1.5未启动。
 
@@ -91,7 +91,7 @@
 | D4b | 失败与取消 | 已确认1A：并行单项失败或取消时其他项继续，链式当前步失败或取消则停止后续。生命周期沿用父运行已有停止流程，仅接通父工具取消信号到子SDK会话与等待任务；清理由调用收尾负责。删除、重载、服务退出沿用现有行为，不另列产品策略或建设调度恢复机制；实现遇到具体问题再讨论 |
 | D5 | SDK工具与旧CLI扩展的同名处理，以及第三方扩展兼容边界 | 已确认B：huan内固定使用内置SDK版subagent，排除外部同名工具注册并提示来源；保留个人扩展文件与Pi TUI行为，其他工具/事件保持原样。先核对公开注册能力，若必须移除整个扩展则暂停讨论，不建设通用兼容系统 |
 
-本次沿用ENV-01/04、RUN-01/02/05/06及RES-01/03/04/05的相关约束；subagent是用户扩展使用暴露的新需求，不追认其为此前已验收的Pi内置能力。已补充能力规范RUN-08并完成本次开发验收。未归属会话管理与代码高亮等待具体需求；G1.5及原OUT范围保持未启动。
+本次沿用ENV-01/04、RUN-01/02/05/06及RES-01/03/04/05的相关约束；subagent是用户扩展使用暴露的新需求，不追认其为此前已验收的Pi内置能力。已补充能力规范RUN-08并完成本次开发验收。未归属会话管理等待具体需求；代码高亮当前范围见本节消息流迭代。G1.5及原OUT范围保持未启动。
 
 2026-11-03，用户确认fast-forward合并，已将main从`5ff6565`快进至`377a60a`，整改总阻塞解除。G1.5尚未启动，须先按能力规范拆分设计与实施；本次合并授权不包含新功能实施。
 

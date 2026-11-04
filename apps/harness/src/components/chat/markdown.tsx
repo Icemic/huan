@@ -1,8 +1,9 @@
 /**
  * 消息 Markdown 渲染：react-markdown + remark-gfm。
  *
- * 代码块复用官方 CodeBlock 组合（语言、复制），由外部 ScrollArea 承担滚动，
- * 内部 pre 保持 overflow-visible；表格横向滚动使用官方 ScrollBar。
+ * 代码块复用官方 CodeBlock 组合（语言、复制），语言受支持时由业务高亮
+ * 组合渲染；由外部 ScrollArea 承担滚动，内部 pre 保持 overflow-visible；
+ * 表格横向滚动使用官方 ScrollBar。
  */
 
 import { memo, type ReactNode } from 'react'
@@ -11,13 +12,13 @@ import remarkGfm from 'remark-gfm'
 import {
   CodeBlock,
   CodeBlockActions,
-  CodeBlockContent,
   CodeBlockCopyButton,
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { HighlightedCodeContent } from './highlighted-code'
 
 const textOf = (node: ReactNode): string => {
   if (node === null || node === undefined || typeof node === 'boolean') return ''
@@ -175,9 +176,7 @@ const components: Components = {
         </CodeBlockHeader>
         {/* 外部 ScrollArea 负责双向滚动与轨道；pre 取消自身滚动和边缘遮罩。 */}
         <ScrollArea className="min-w-0 data-has-overflow-x:pb-2.5 *:data-[slot=scroll-area-viewport]:max-h-[min(60vh,32rem)]">
-          <CodeBlockContent className="overflow-visible" style={{ maskImage: 'none' }}>
-            {code}
-          </CodeBlockContent>
+          <HighlightedCodeContent value={code} language={language} />
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
       </CodeBlock>

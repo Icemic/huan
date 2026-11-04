@@ -76,6 +76,7 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
   const writeCard = page.locator('[data-slot="huan-write-content"]').last()
   await expect(writeCard).toContainText('export const b = 2')
   await expect(writeCard.locator('[data-slot="code-block-line"]')).toHaveCount(3)
+  await expect(writeCard.locator('[style*="--shiki-light"]').first()).toBeVisible()
   await writeCard.hover()
   await writeCard.getByRole('button', { name: '复制写入内容' }).click()
   await expect.poll(() => normalizedClipboard(page)).toBe(content)
@@ -138,6 +139,14 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
   await expect(page.locator('[data-slot="huan-edit-after"]').last()).toContainText(
     'export const b = 20',
   )
+
+  const beforeCode = page.locator('[data-slot="huan-edit-before"]').last()
+  await expect(beforeCode.locator('[style*="--shiki-light"]').first()).toBeVisible()
+  const afterCode = page.locator('[data-slot="huan-edit-after"]').last()
+  await expect(afterCode.locator('[style*="--shiki-light"]').first()).toBeVisible()
+  await afterCode.hover()
+  await afterCode.getByRole('button', { name: '复制替换后内容' }).click()
+  await expect.poll(() => normalizedClipboard(page)).toBe('export const b = 20')
 
   // bash：命令与输出分成两块，显式 timeout 只显示传入值。
   await scriptTurns(request, [

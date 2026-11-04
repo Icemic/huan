@@ -3,7 +3,8 @@
  *
  * 只组合现有 CodeBlock / ScrollArea / 图标按钮：标题统一 12px 次要文字，
  * 正文 14px 等宽，复制按钮静止隐藏并在 hover/键盘聚焦/触屏可见。复制值
- * 始终是原始字符串，空字符串也允许复制。
+ * 始终是原始字符串，空字符串也允许复制。CodeText 的语言可选，受支持时
+ * 交给语法高亮组合。
  */
 
 import { Trans } from '@lingui/react/macro'
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui/code-block'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { HighlightedCodeContent } from './highlighted-code'
 
 const safeJson = (value: unknown): string => {
   try {
@@ -153,18 +155,20 @@ export function BlockScroll({ children, className }: { children: ReactNode; clas
   )
 }
 
-/** 代码正文；不显示行号时保留原文换行与缩进。 */
+/** 代码正文；不显示行号时保留原文换行与缩进，语言受支持时交给高亮组合。 */
 export function CodeText({
   value,
   emptyText,
   lineNumbers = false,
   wrap = false,
+  language,
   className,
 }: {
   value: string
   emptyText?: ReactNode
   lineNumbers?: boolean
   wrap?: boolean
+  language?: string
   className?: string
 }) {
   if (value.length === 0 && emptyText !== undefined) {
@@ -180,18 +184,16 @@ export function CodeText({
     )
   }
   return (
-    <CodeBlockContent
-      wrap={wrap}
+    <HighlightedCodeContent
+      value={value}
+      language={language}
       lineNumbers={lineNumbers}
-      startLine={1}
+      wrap={wrap}
       className={cn(
-        'overflow-visible pt-2 pb-3 leading-[22px] [&_[data-slot=code-block-line]]:before:text-xs',
+        'pt-2 pb-3 leading-[22px] [&_[data-slot=code-block-line]]:before:text-xs',
         className,
       )}
-      style={{ maskImage: 'none' }}
-    >
-      {value}
-    </CodeBlockContent>
+    />
   )
 }
 

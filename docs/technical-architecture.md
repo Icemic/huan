@@ -30,7 +30,7 @@
 
 **Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 18；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
 
-**UI依赖边界（2026-11-03）**：基础组件由shadcn官方CLI安装Base UI版本，`components/ui`默认保留生成文件，小范围修正须在修改处附近注释原因与差异；当前仅Tabs补传orientation。业务组合在外层，ScrollArea通过children与布局属性组合，不在上游文件插入滚动结构。全局导入`shadcn/tailwind.css`提供状态变体、`tw-animate-css`提供进出动效，120/180ms时长在CSS变量统一维护并尊重减少动态效果；业务Dialog保持受控Root到退出完成，关闭立即失效异步读取。主题tokens继续由应用维护。模型选择组合官方Combobox，独立思考强度菜单使用官方DropdownMenuRadioGroup；无自写通用Menu/模型选择器。ReUI尚未采用，Shiki由官方CodeBlock安装带入但当前未启用高亮。应用不直接依赖`radix-ui`/`cmdk`，不保留assistant-ui运行时。主题仅保存在浏览器localStorage。来源与版本见[应用许可说明](../apps/harness/THIRD-PARTY-NOTICES.md)，本次实施记录见[UI调整§5.12](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#512-基础组件来源审计与官方安装整改)。
+**UI依赖边界（2026-11-03）**：基础组件由shadcn官方CLI安装Base UI版本，`components/ui`默认保留生成文件，小范围修正须在修改处附近注释原因与差异；当前仅Tabs补传orientation。业务组合在外层，ScrollArea通过children与布局属性组合，不在上游文件插入滚动结构。全局导入`shadcn/tailwind.css`提供状态变体、`tw-animate-css`提供进出动效，120/180ms时长在CSS变量统一维护并尊重减少动态效果；业务Dialog保持受控Root到退出完成，关闭立即失效异步读取。主题tokens继续由应用维护。模型选择组合官方Combobox，独立思考强度菜单使用官方DropdownMenuRadioGroup；无自写通用Menu/模型选择器。ReUI尚未采用，Shiki由官方CodeBlock安装带入，当前用于Markdown显式语言代码、write内容和edit替换片段，路径语言映射及规模回退见[消息流迭代§8](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#8-代码语法高亮)。应用不直接依赖`radix-ui`/`cmdk`，不保留assistant-ui运行时。主题仅保存在浏览器localStorage。来源与版本见[应用许可说明](../apps/harness/THIRD-PARTY-NOTICES.md)，本次实施记录见[UI调整§5.12](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#512-基础组件来源审计与官方安装整改)。
 
 **运行形态（首期）**：Node服务进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与进程持有方式暂不锁定（D-12）；协议层按可替换传输设计。
 

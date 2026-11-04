@@ -266,3 +266,24 @@ worker按本节实现，不选择其他标题文案、图标、布局、字号�
 修改仅限展示解析及相关验证，保持执行与存储行为。主agent独立review后，将编辑段扩展字段放在`{ index, fields }`中，保留原字段自带的index；null仅影响展示元数据，不推断SDK或历史工具如何执行。
 
 主agent亲验25项定向单测、应用/服务端/e2e类型、3个改动代码文件Biome及3条Chromium通过。新增浏览器流程经GUI导入含9组原始参数的Pi JSONL，覆盖两种用户反馈read、零行限制、null超时、空命令、空写入、对象/JSON/历史单段编辑，逐项展开检查专门内容及原值入口。既有四工具与用户Shell流程同时通过。日志：本机Temp内`huan-tool-edges-unit.log`、`huan-tool-edges-types.log`、`huan-tool-edges-e2e.log`。未运行全仓测试/build，本次未涉及像素样式调整。
+
+
+## 8. 代码语法高亮
+
+用户确认继续接入已安装的Shiki。沿用官方CodeBlock、useHighlightedCode与highlighter，不修改上游文件或增加依赖；业务组件组合高亮行。第一轮中write及替换片段暂缓高亮的限制由本节更新，其他尺寸与交互保持。
+
+范围与规则：
+
+- Markdown围栏显式语言用于高亮，支持现有highlighter的语言与别名；未指定或未知语言保留纯文本。
+- write内容、edit替换前后片段按路径后缀确定语言。兼容Windows及POSIX路径、大小写；映射仅使用当前已安装的语言，包含JS/TS各模块后缀、JSX/TSX、JSON、CSS、HTML、Markdown、Python、SQL、YAML、Rust、TOML、Shell及PowerShell。
+- 使用现有GitHub light/dark主题，仅改变token前景；行号、复制、滚动、空内容及14px/22px保持。write保持行号，Markdown及替换片段无行号。复制始终使用原字符串，保留空行及文件末尾换行。
+- read仍逐字展示文件与SDK提示的混合输出；实际diff保留现有增删行样式，命令与任意终端输出仍用纯文本。通用JSON与未知数据维持现状。
+- 仅挂载可见代码组件时加载语言；高亮加载前、加载失败、未知语言或超过100,000字符/2,000行时保留完整纯文本。官方hook负责流式增量，业务仅组合，不增加全局内容缓存或第二套消息状态。
+
+验证关注：浏览器token颜色与主题切换、流式追加/替换不残留旧内容、语言别名和未知语言、CRLF/空行/末尾换行、write行号、编辑片段、原文复制及大内容回退。回退仅限本节的业务高亮接入，保持原内容和已有代码块能力。
+
+实施记录：worker完成业务组合，主agent独立review后移除仅供测试调用的重复行数函数；语言/上限判断集中在纯函数，原官方高亮源码保持。主agent增加实际SDK消息流和同组件替换测试页，亲验2文件12项单测、5条Chromium、应用/服务端/e2e类型及9个代码文件Biome通过。worker此前报告应用26文件240项单测通过，范围与主agent亲验分别记录。
+
+浏览器覆盖TS别名、Python、流式追加、同组件非前缀内容替换与语言切换、CRLF和空行、write行号与末尾换行复制、编辑片段复制、未知语言及100,001字符回退，以及原Shell与历史参数流程。明暗通过应用设置切换并读取截图，代码、正文和输入区颜色可见，沿用原布局。首次流式用例未收到可见代码，调整为带引导文字及末尾换行的分段计划后验证；未据此宣称原计划的原因已定位。Windows剪贴板换行按既有测试方式将CRLF转换为LF后比较。首次直接切根class的截图含主题状态不一致，已由应用设置流程重新验证。所有用例无retry或跳过断言。
+
+日志位于本机Temp：`huan-syntax-unit.log`、`huan-syntax-types.log`、`huan-syntax-e2e-final.log`；主题设置流程另见`huan-syntax-e2e-theme.log`。截图由`code-highlighting.spec.ts`生成，已读取明暗结果。未运行全仓测试/build。加载失败继续沿用官方hook的纯文本回退，本轮未注入加载故障。

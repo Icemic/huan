@@ -12,6 +12,7 @@ import { Fragment, useMemo } from 'react'
 import { CodeBlockContent, CodeBlockLine } from '@/components/ui/code-block'
 import { useChatStore } from '@/state/app-context'
 import { partOpenOf } from '@/state/chat-store'
+import { languageOfPath } from './code-syntax'
 import {
   BlockScroll,
   CodeText,
@@ -216,6 +217,7 @@ function WriteToolBody({
   const { input } = view
   const output = part.output
   const error = part.status === 'error'
+  const language = languageOfPath(input.path)
   return (
     <>
       {error && output && output.length > 0 ? (
@@ -236,7 +238,12 @@ function WriteToolBody({
         }
       >
         <BlockScroll>
-          <CodeText value={input.content} lineNumbers emptyText={<Trans>空内容 · 0 行</Trans>} />
+          <CodeText
+            value={input.content}
+            language={language}
+            lineNumbers
+            emptyText={<Trans>空内容 · 0 行</Trans>}
+          />
         </BlockScroll>
       </ContentBlockFrame>
       {!error && output && output.length > 0 ? (
@@ -299,6 +306,7 @@ function EditSegments({
 }) {
   const expanded = useChatStore((state) => partOpenOf(state, storeKey, defaultOpen))
   const setOpen = useChatStore((state) => state.setPartOpen)
+  const language = languageOfPath(input.path)
   return (
     <>
       {running ? (
@@ -332,7 +340,11 @@ function EditSegments({
                   actions={<CopyIconButton value={segment.oldText} label="复制替换前内容" />}
                 >
                   <BlockScroll>
-                    <CodeText value={segment.oldText} emptyText={<Trans>空内容</Trans>} />
+                    <CodeText
+                      value={segment.oldText}
+                      language={language}
+                      emptyText={<Trans>空内容</Trans>}
+                    />
                   </BlockScroll>
                 </ContentBlockFrame>
                 <ContentBlockFrame
@@ -341,7 +353,11 @@ function EditSegments({
                   actions={<CopyIconButton value={segment.newText} label="复制替换后内容" />}
                 >
                   <BlockScroll>
-                    <CodeText value={segment.newText} emptyText={<Trans>空内容</Trans>} />
+                    <CodeText
+                      value={segment.newText}
+                      language={language}
+                      emptyText={<Trans>空内容</Trans>}
+                    />
                   </BlockScroll>
                 </ContentBlockFrame>
               </Fragment>
