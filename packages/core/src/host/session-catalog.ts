@@ -358,10 +358,17 @@ export class SessionCatalog {
   /** 冷读快照（不经 AgentSession）。 */
   snapshotFromSessionFile(info: SessionCatalogInfo): HarnessThreadSnapshot {
     const cold = this.loadColdSession(info)
+    const entryIds = messageEntryIdsOf(cold.sessionManager, cold.context.messages)
+    const compaction = coldCompactionPhaseOf(
+      cold.sessionManager,
+      cold.context.messages.length,
+      entryIds,
+    )
     return jsonSafeSnapshot({
       metadata: cold.metadata,
       messages: cold.context.messages as HarnessAgentMessage[],
-      messageEntryIds: messageEntryIdsOf(cold.sessionManager, cold.context.messages),
+      messageEntryIds: entryIds,
+      ...(compaction ? { compaction } : {}),
       readiness: getModelReadiness(
         this.deps.modelRuntime,
         cold.context.model
@@ -458,7 +465,7 @@ import { SettingsManager as SettingsManagerImpl } from '@earendil-works/pi-codin
 const requireSettingsManager = (): typeof SettingsManagerImpl => SettingsManagerImpl
 
 import { jsonSafeSnapshot } from './json-safe.js'
-/** 复用事件模块的消息来源映射，避免两套下标规则。 */
-import { messageEntryIds as messageEntryIdsImpl } from './session-events.js'
+/** 复用事件模块的消息来源映射与冷压缩投影，避免两套口径。 */
+import { coldCompactionPhaseOf, messageEntryIds as messageEntryIdsImpl } from './session-events.js'
 
 const messageEntryIdsOf = messageEntryIdsImpl

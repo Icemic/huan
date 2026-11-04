@@ -29,6 +29,7 @@ import type {
   HarnessAssistantMessage,
   HarnessBashExecutionMessage,
   HarnessBranchSummaryMessage,
+  HarnessCompactionPhase,
   HarnessCompactionSummaryMessage,
   HarnessCustomMessage,
   HarnessImageContent,
@@ -134,6 +135,8 @@ export interface HarnessMessageProjectionInput {
   messageEntryIds?: readonly (string | null)[]
   toolExecutions: Readonly<Record<string, HarnessToolExecutionState>>
   runStatus: HarnessRunStatus
+  /** 当前/最近一次压缩操作；成功摘要会从 SDK 开头位置移出，由状态行承载。 */
+  compaction?: HarnessCompactionPhase
 }
 
 const messageId = (index: number) => `pi-msg:${index}`
@@ -506,6 +509,12 @@ const projectFrom = (
   for (let index = startIndex; index < messages.length; index++) {
     const message = messages[index]
     if (message === undefined) continue
+    if (
+      index === input.compaction?.messageIndex ||
+      index === input.compaction?.summary?.messageIndex
+    ) {
+      flush(false)
+    }
     const isLast = index === messages.length - 1
     const sourceEntryId = sourceEntryIdOf(input, index)
     switch (message.role) {
@@ -643,8 +652,18 @@ const projectFrom = (
       }
 
       case 'compactionSummary': {
-        flush(false)
         const compaction = message as HarnessCompactionSummaryMessage
+        // 当前成功操作对应的摘要由消息区状态行展示；不改变模型消息顺序。
+        if (
+          (input.compaction?.summary?.entryId === sourceEntryId ||
+            (input.compaction?.status === 'compacted' &&
+              input.compaction.entryId === sourceEntryId)) &&
+          sourceEntryId !== undefined
+        ) {
+          flush(false)
+          break
+        }
+        flush(false)
         out.push(
           dataView(
             index,
@@ -837,6 +856,32 @@ const projectedSourceIndex = (message: HarnessMessageView) => {
   return Number.isSafeInteger(index) && index >= 0 ? index : undefined
 }
 
+/** 压缩状态行在展示消息中的插入下标；按服务端消息锚点而不是摘要位置。 */
+export const compactionStatusViewIndex = (
+  views: readonly HarnessMessageView[],
+  compaction: HarnessCompactionPhase | undefined,
+): number => {
+  const messageIndex = compaction?.messageIndex
+  if (messageIndex === undefined) return views.length
+  // 展示消息按来源下标递增；使用二分查找避免流式渲染逐条扫描。
+  let low = 0
+  let high = views.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    const sourceIndex = projectedSourceIndex(views[middle] as HarnessMessageView)
+    if (sourceIndex === undefined) {
+      for (let index = 0; index < views.length; index++) {
+        const fallback = projectedSourceIndex(views[index] as HarnessMessageView)
+        if (fallback !== undefined && fallback >= messageIndex) return index
+      }
+      return views.length
+    }
+    if (sourceIndex >= messageIndex) high = middle
+    else low = middle + 1
+  }
+  return low
+}
+
 const validatedProjectedSourceIndices = (
   messages: readonly HarnessMessageView[],
   minimumExclusive = -1,
@@ -953,6 +998,21 @@ export class HarnessMessageViewProjector {
   public project(input: HarnessMessageProjectionInput): readonly HarnessMessageView[] {
     const previousInput = this.previousInput
     if (!previousInput) {
+      const previousViews = this.views
+      this.toolResults = buildToolResultMap(input)
+      this.toolCallIndices = buildToolCallIndices(input.messages)
+      this.views = shareHarnessMessageViews(
+        projectFrom(input, 0, this.toolResults, this.toolCallIndices),
+        this.views,
+      )
+      this.projectedSourceIndices = validatedProjectedSourceIndices(this.views)
+      this.changedViewIndex = this.views === previousViews ? undefined : 0
+      this.previousInput = input
+      return this.views
+    }
+
+    // 压缩状态变化会影响摘要是否展示与插入位置；直接重投影，避免增量边界错位。
+    if (previousInput.compaction !== input.compaction) {
       const previousViews = this.views
       this.toolResults = buildToolResultMap(input)
       this.toolCallIndices = buildToolCallIndices(input.messages)

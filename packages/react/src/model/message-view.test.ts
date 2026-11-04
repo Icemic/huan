@@ -6,6 +6,7 @@ import type {
 } from '@huan/protocol'
 import { describe, expect, it } from 'vitest'
 import {
+  compactionStatusViewIndex,
   type HarnessMessageProjectionInput,
   HarnessMessageViewProjector,
   projectHarnessMessages,
@@ -585,6 +586,65 @@ describe('message-view（独立展示投影）', () => {
     expect(running[1]?.status).toEqual({ type: 'running' })
     const idle = projectHarnessMessages(input(messages, { runStatus: 'idle' }))
     expect(idle[1]?.status).toEqual({ type: 'complete', reason: 'stop' })
+  })
+
+  it('新压缩取消时已有摘要保持锚点，助手组不会跨过操作位置', () => {
+    const messages: HarnessAgentMessage[] = [
+      { role: 'compactionSummary', summary: '摘要', tokensBefore: 100, timestamp: 1 },
+      assistant([{ type: 'text', text: '保留的助手' }]),
+      assistant([{ type: 'text', text: '后续助手' }]),
+    ]
+    const phase = {
+      active: false,
+      status: 'cancelled' as const,
+      operationId: 'new-op',
+      messageIndex: 3,
+      summary: { entryId: 'c1', messageIndex: 2 },
+    }
+    const views = projectHarnessMessages(
+      input(messages, {
+        messageEntryIds: ['c1', 'a1', 'a2'],
+        compaction: phase,
+      }),
+    )
+    expect(views.map((view) => view.id)).toEqual(['pi-msg:1', 'pi-msg:2'])
+    expect(compactionStatusViewIndex(views, { active: false, messageIndex: 2 })).toBe(1)
+    expect(compactionStatusViewIndex(views, phase)).toBe(2)
+  })
+
+  it('成功压缩隐藏开头摘要，状态行位于保留消息后、后续回复前', () => {
+    const messages: HarnessAgentMessage[] = [
+      {
+        role: 'compactionSummary',
+        summary: '既有摘要',
+        tokensBefore: 100,
+        timestamp: 3,
+      },
+      user('保留在结果前'),
+      assistant([{ type: 'text', text: '后续回复' }]),
+    ]
+    const compaction = {
+      active: false as const,
+      status: 'compacted' as const,
+      operationId: 'op-1',
+      entryId: 'c1',
+      messageIndex: 2,
+    }
+    const views = projectHarnessMessages(
+      input(messages, {
+        messageEntryIds: ['c1', 'e1', 'e2'],
+        compaction,
+      }),
+    )
+    // SDK 摘要位于模型消息开头，但已由状态行承载，不重复显示。
+    expect(
+      views
+        .flatMap((view) => view.parts)
+        .some((part) => part.type === 'data' && part.name === 'pi-compaction-summary'),
+    ).toBe(false)
+    expect(views.map((view) => view.id)).toEqual(['pi-msg:1', 'pi-msg:2'])
+    // 插入点在保留消息之后、后续回复之前。
+    expect(compactionStatusViewIndex(views, compaction)).toBe(1)
   })
 })
 

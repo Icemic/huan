@@ -83,6 +83,7 @@ export type {
   HarnessToolViewPart,
 } from './model/message-view.js'
 export {
+  compactionStatusViewIndex,
   HarnessMessageViewProjector,
   projectHarnessMessages,
   shareHarnessMessageViews,

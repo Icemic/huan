@@ -23,6 +23,8 @@ type MappedSessionEvent = Exclude<
 export type MapSessionEventContext = {
   /** turn_start / turn_end 在 SDK 事件中无序号，由宿主按序推导。 */
   turnIndex: number
+  /** 当前压缩操作的稳定标识；仅压缩事件携带。 */
+  compactionOperationId?: string
 }
 
 /**
@@ -114,7 +116,14 @@ export function mapSessionEvent(
         event: { type: 'queue_update', steering: event.steering, followUp: event.followUp },
       }
     case 'compaction_start':
-      return { kind: 'mapped', event: { type: 'compaction_start', reason: event.reason } }
+      return {
+        kind: 'mapped',
+        event: {
+          type: 'compaction_start',
+          reason: event.reason,
+          ...(ctx.compactionOperationId ? { operationId: ctx.compactionOperationId } : {}),
+        },
+      }
     case 'compaction_end':
       return {
         kind: 'mapped',
@@ -123,6 +132,7 @@ export function mapSessionEvent(
           reason: event.reason,
           aborted: event.aborted,
           willRetry: event.willRetry,
+          ...(ctx.compactionOperationId ? { operationId: ctx.compactionOperationId } : {}),
           ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),
           ...(event.result && event.result.tokensBefore !== undefined
             ? { tokensBefore: event.result.tokensBefore }

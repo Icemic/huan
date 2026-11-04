@@ -76,6 +76,8 @@ const catalog: HarnessCommandCatalog = {
 const createFakeClient = () => {
   const sent: { threadId: string; content: string; streamingBehavior?: string }[] = []
   const bash: { threadId: string; command: string; exclude: boolean }[] = []
+  const compactions: { threadId: string; instructions?: string }[] = []
+  const compactionAborts: string[] = []
   const searches: { query?: string }[] = []
   const renamed: { threadId: string; title: string }[] = []
   const client = {
@@ -263,6 +265,17 @@ const createFakeClient = () => {
         }
       },
     ),
+    compactThread: vi.fn(async (threadId: string, input?: { customInstructions?: string }) => {
+      compactions.push({
+        threadId,
+        ...(input?.customInstructions ? { instructions: input.customInstructions } : {}),
+      })
+      return { status: 'compacted' as const, tokensBefore: 10, estimatedTokensAfter: 4 }
+    }),
+    abortThreadCompaction: vi.fn(async (threadId: string) => {
+      compactionAborts.push(threadId)
+      return { status: 'requested' as const }
+    }),
     renameThread: vi.fn(async (threadId: string, title: string) => {
       renamed.push({ threadId, title })
     }),
@@ -274,7 +287,7 @@ const createFakeClient = () => {
     subscribeProviderAuth: vi.fn(() => () => {}),
     subscribeHostInteractions: vi.fn(() => () => {}),
   } as unknown as HarnessClient
-  return { client, sent, bash, searches, renamed }
+  return { client, sent, bash, compactions, compactionAborts, searches, renamed }
 }
 
 const createApp = (
@@ -562,16 +575,87 @@ describe('composer feature：管理命令路由到 feature 动作', () => {
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/login unknown-provider')
   })
 
-  it('/compact 打开运行面板 compact 分段并预填指令', async () => {
+  it('/compact 直接压缩当前目标并携带指令，不打开运行面板或发送消息', async () => {
     const fake = createFakeClient()
     const { browser, composer, runtime } = createApp(fake.client)
     const draftId = selectThread(browser)
     browser.windowStore.getState().editDraftText(draftId, '/compact 保留决策与风险')
     await composer.getState().submit()
-    expect(runtime.getState().open).toBe(true)
-    expect(runtime.getState().section).toBe('compact')
-    expect(runtime.getState().compactInstructions).toBe('保留决策与风险')
+    expect(fake.compactions).toEqual([{ threadId: 't1', instructions: '保留决策与风险' }])
+    expect(runtime.getState().open).toBe(false)
+    expect(fake.sent).toEqual([])
+    // 成功结果由消息区状态行承载；输入区不重复提示。
+    expect(composer.getState().notice).toBeUndefined()
     expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/compact 本地检查失败时保留输入，不在开始前伪造运行', async () => {
+    const fake = createFakeClient()
+    const { browser, composer } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    browser.serviceStore.getState().applyThreadEvent('t1', {
+      type: 'agent_start',
+      threadId: 't1',
+      seq: 1,
+    })
+    browser.windowStore.getState().editDraftText(draftId, '/compact')
+    await composer.getState().submit()
+    expect(fake.compactions).toEqual([])
+    expect(composer.getState().notice).toContain('模型正在运行')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/compact')
+
+    browser.serviceStore.getState().applyThreadSnapshot('t1', {
+      ...snapshotOf('t1'),
+      seq: 2,
+    })
+    vi.mocked(fake.client.compactThread).mockImplementationOnce(async (threadId) => {
+      fake.compactions.push({ threadId })
+      return { status: 'failed', message: '压缩失败' }
+    })
+    expect(browser.serviceStore.getState().threadsById.t1?.status).toBe('idle')
+    expect(composer.getState().busy).toBeUndefined()
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('/compact')
+    await composer.getState().submit()
+    expect(fake.compactions).toHaveLength(1)
+    // 未收到开始事件的失败仍必须可见；已开始的失败由消息行显示。
+    expect(composer.getState().notice).toBe('压缩未开始：压缩失败')
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+  })
+
+  it('/compact 立即清空捕获草稿、停止走压缩取消且不覆盖后来的草稿', async () => {
+    const fake = createFakeClient()
+    const { browser, composer } = createApp(fake.client)
+    const draftId = selectThread(browser)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.mocked(fake.client.compactThread).mockImplementationOnce(async (threadId) => {
+      fake.compactions.push({ threadId })
+      await gate
+      return { status: 'cancelled' as const }
+    })
+    browser.windowStore.getState().editDraftText(draftId, '/compact')
+    await composer.getState().submit()
+    expect(fake.compactions).toHaveLength(1)
+    expect(composer.getState().busy).toBeUndefined()
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('')
+
+    browser.serviceStore.getState().applyThreadEvent('t1', {
+      type: 'compaction_start',
+      reason: 'manual',
+      operationId: 'op-1',
+      threadId: 't1',
+      seq: 2,
+    })
+    await composer.getState().stop()
+    expect(fake.compactionAborts).toEqual(['t1'])
+
+    browser.windowStore.getState().editDraftText(draftId, '后来的草稿')
+    release()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(browser.windowStore.getState().draftsById[draftId]?.text).toBe('后来的草稿')
   })
 
   it('/scoped-models 定位统一设置模型页', async () => {

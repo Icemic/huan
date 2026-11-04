@@ -17,10 +17,24 @@ export type HarnessCompactionReason = 'manual' | 'threshold' | 'overflow'
  * 会话的压缩运行态（快照与事件共用）。
  *
  * `error` 是最近一次失败原因；成功后清除。取消不算失败，不写该字段。
+ * 当前/最近一次操作的标识、结局与消息锚点也在这里投影；宿主以同一份
+ * 记录同时响应事件与快照，浏览器不自行拼接第二套状态。
  */
 export type HarnessCompactionPhase = {
   active: boolean
   reason?: HarnessCompactionReason
+  /** 当前/最近一次操作的稳定标识；同一操作的 start/end/快照保持一致。 */
+  operationId?: string
+  /** 最近一次操作结局；进行中或冷读无记录时缺失。 */
+  status?: 'compacted' | 'cancelled' | 'failed'
+  /** 成功时对应的 Pi compaction entry；用于摘要展开与操作定位。 */
+  entryId?: string
+  /** 当前上下文中保留的持久摘要位置；新操作进行中或失败时仍展示它。 */
+  summary?: { entryId: string; messageIndex: number }
+  /** 结果行在会话消息中的插入位置；之后到达的消息显示在结果行后。 */
+  messageIndex?: number
+  tokensBefore?: number
+  estimatedTokensAfter?: number
   error?: string
 }
 

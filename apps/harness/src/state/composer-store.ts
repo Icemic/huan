@@ -794,12 +794,67 @@ export const createComposerFeatureStore = (
           notice: '请从左侧会话列表选择要恢复的会话。',
         }))
         return true
-      case 'compact':
-        await runtimeStore.getState().openPanel({
-          section: 'compact',
-          ...(args.trim() ? { instructions: args.trim() } : {}),
-        })
+      case 'compact': {
+        // 直接执行共用压缩动作；本地检查通过后立即消费捕获版本的命令并解除输入忙状态，
+        // 停止按钮与消息状态行由服务端会话事实驱动。
+        const threadId = currentThreadId()
+        if (!threadId) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: '当前还没有后端会话；先发送普通消息或新建会话后再压缩。',
+          }))
+          return false
+        }
+        const metadata = browser.serviceStore.getState().threadsById[threadId]
+        if (metadata?.compactionActive) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: '上下文压缩进行中，请稍候。',
+          }))
+          return false
+        }
+        if (metadata?.status === 'running' || metadata?.retryActive) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: '模型正在运行，请先停止后再压缩。',
+          }))
+          return false
+        }
+        if (metadata?.treeOperation) {
+          setIfAlive((current) => ({
+            ...current,
+            notice: '会话结构操作进行中，请稍候再压缩。',
+          }))
+          return false
+        }
+        const current = currentDraft()
+        if (!current?.draft) return false
+        const origin = browser.windowStore.getState().selectionRevision
+        const unchanged = () => origin === browser.windowStore.getState().selectionRevision
+        // 先按捕获的草稿版本消费，后续请求不阻塞输入；后来编辑的草稿不受影响。
+        consumeCommandText(current.draftId, current.draft.revision)
+        void runtimeStore
+          .getState()
+          .runCompaction(threadId, args.trim() || undefined)
+          .then((outcome) => {
+            // 只有尚未开始的 busy 需要输入区提示；成功/失败/取消由事件状态行承载。
+            if (!unchanged() || (outcome.status !== 'busy' && outcome.status !== 'failed')) return
+            const phase = browser.serviceStore.getState().sessionDataById[threadId]?.compaction
+            if (outcome.status === 'failed' && phase?.status === 'failed') return
+            setIfAlive((state) => ({
+              ...state,
+              notice: `压缩未开始：${outcome.message}`,
+            }))
+          })
+          .catch((error) => {
+            if (!unchanged()) return
+            setIfAlive((state) => ({
+              ...state,
+              notice: `压缩未开始：${errorText(error)}`,
+            }))
+          })
         return true
+      }
       case 'scoped-models':
         // 全局模型范围固定在统一设置的模型页；不再打开运行面板或上下文设置。
         settingsUiStore.getState().openPage('models')
@@ -928,6 +983,18 @@ export const createComposerFeatureStore = (
       const threadId = currentThreadId()
       if (!threadId) {
         set({ notice: '当前还没有后端会话可停止。' })
+        return
+      }
+      const metadata = browser.serviceStore.getState().threadsById[threadId]
+      if (metadata?.compactionActive) {
+        try {
+          const result = await runtimeStore.getState().abortThreadCompaction(threadId)
+          if (result.status === 'idle') {
+            set({ notice: '当前没有进行中的压缩。' })
+          }
+        } catch (error) {
+          set({ notice: `取消压缩未发出：${errorText(error)}` })
+        }
         return
       }
       const result = await browser.sessionActions.stop(threadId)

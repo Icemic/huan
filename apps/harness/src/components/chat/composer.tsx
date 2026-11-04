@@ -28,6 +28,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ComposerContextUsage } from '@/components/composer-context-usage'
 import {
   ComposerCompletionMenu,
   ComposerNotice,
@@ -527,6 +528,7 @@ export function ChatComposer() {
               onQueueModeChange={setQueueMode}
             />
             <div className="ms-auto flex min-w-0 items-center gap-1">
+              <ComposerContextUsage />
               <ComposerSendButton
                 isRunning={running}
                 queueMode={queueMode}
@@ -535,7 +537,10 @@ export function ChatComposer() {
                 onSubmit={() => submit()}
               />
               {running && threadId ? (
-                <ComposerStopButton busy={busy !== undefined} onStop={stop} />
+                <ComposerStopButton
+                  busy={busy !== undefined && metadata?.compactionActive !== true}
+                  onStop={stop}
+                />
               ) : null}
             </div>
           </InputGroupAddon>

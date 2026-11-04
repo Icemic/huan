@@ -5,10 +5,16 @@
  * 新输出提示和回底按钮是 DOM 交互。无选择时输入区会明确落到工作区目标。
  */
 
-import { useServiceStore, useThreadMetadata, useThreadSession, useWindowStore } from '@huan/react'
+import {
+  compactionStatusViewIndex,
+  useServiceStore,
+  useThreadMetadata,
+  useThreadSession,
+  useWindowStore,
+} from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { ArrowDownIcon, MessagesSquareIcon } from 'lucide-react'
-import { memo, type ReactNode, type UIEvent, useCallback, useEffect } from 'react'
+import { memo, type ReactNode, type UIEvent, useCallback, useEffect, useMemo } from 'react'
 import { PiHostUiRequests } from '@/components/pi-thread-host-ui'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -16,6 +22,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { ChatMessage } from './chat-message'
+import { CompactionStatusRow, type CompactionSummaryView } from './compaction-status'
 import { ChatComposer } from './composer'
 import { useMessageViews } from './use-message-views'
 import { useStickToBottom } from './use-stick-to-bottom'
@@ -92,14 +99,53 @@ export function ChatView() {
     void loadThread(threadId).catch(() => undefined)
   }, [loadThread, session, threadId])
   const title = metadata?.title ?? metadata?.name
+  const compaction = session?.compaction
+  const compactionPhase =
+    compaction && (compaction.active || compaction.status) ? compaction : undefined
+  const compactionSummary: CompactionSummaryView | undefined = (() => {
+    const entryId =
+      compaction?.summary?.entryId ??
+      (compactionPhase?.status === 'compacted' ? compactionPhase.entryId : undefined)
+    if (!entryId) return undefined
+    // SDK 可能把 compaction 自带的 system 消息排在摘要前；摘要仍在上下文开头附近。
+    const limit = Math.min(session?.messages.length ?? 0, 4)
+    for (let index = 0; index < limit; index++) {
+      const message = session?.messages[index]
+      if (
+        message?.role === 'compactionSummary' &&
+        typeof message.summary === 'string' &&
+        session?.messageEntryIds[index] === entryId
+      ) {
+        return {
+          summary: message.summary,
+          ...(typeof message.tokensBefore === 'number'
+            ? { tokensBefore: message.tokensBefore }
+            : {}),
+        }
+      }
+    }
+    return undefined
+  })()
+  const persistedPhase =
+    compaction?.summary && compactionPhase?.status !== 'compacted'
+      ? {
+          active: false,
+          status: 'compacted' as const,
+          entryId: compaction.summary.entryId,
+          messageIndex: compaction.summary.messageIndex,
+        }
+      : undefined
+  const persistedViewIndex = compactionStatusViewIndex(views, persistedPhase)
+  const compactionViewIndex = compactionStatusViewIndex(views, compactionPhase)
   const threadKey =
     selection?.kind === 'thread'
       ? `thread:${selection.threadId}`
       : selection?.kind === 'new'
         ? `new:${selection.workspaceId ?? ''}:${selection.startProjectPath}`
         : 'none'
+  const contentVersion = useMemo(() => ({ views, compaction }), [views, compaction])
   const { scrollRef, contentRef, following, hasNewOutput, onScroll, scrollToBottom } =
-    useStickToBottom(threadKey, views)
+    useStickToBottom(threadKey, contentVersion)
 
   // 官方 ScrollArea 不暴露 Viewport ref：根节点挂载后取唯一视口，
   // 滚动跟随仍以真实滚动元素为准。
@@ -120,6 +166,15 @@ export function ChatView() {
   )
 
   const loading = threadId !== undefined && views.length === 0 && session?.loadState !== 'loaded'
+  const compactionStatus = compactionPhase ? (
+    <CompactionStatusRow
+      key={`${threadId}:compaction:${compactionPhase.operationId ?? compactionPhase.status ?? 'active'}`}
+      phase={compactionPhase}
+      summary={compactionPhase.status === 'compacted' ? compactionSummary : undefined}
+      threadId={threadId}
+    />
+  ) : null
+  const showCompactionStatus = compactionStatus !== null
   let body: ReactNode
   if (!selection) {
     body = (
@@ -132,7 +187,7 @@ export function ChatView() {
     body = <ChatEmpty title={<Trans>新会话</Trans>} path={selection.startProjectPath} />
   } else if (loading) {
     body = <HistorySkeleton />
-  } else if (views.length === 0 && session?.lastError) {
+  } else if (views.length === 0 && session?.lastError && !showCompactionStatus) {
     body = (
       <Empty className="min-h-72 border-0">
         <EmptyHeader>
@@ -156,7 +211,7 @@ export function ChatView() {
         </EmptyHeader>
       </Empty>
     )
-  } else if (views.length === 0) {
+  } else if (views.length === 0 && !showCompactionStatus) {
     body = (
       <ChatEmpty
         title={<Trans>还没有消息</Trans>}
@@ -164,11 +219,25 @@ export function ChatView() {
       />
     )
   } else {
+    const persistedStatus = persistedPhase ? (
+      <CompactionStatusRow
+        key={`compaction:entry:${persistedPhase.entryId}`}
+        phase={persistedPhase}
+        summary={compactionSummary}
+        threadId={threadId}
+      />
+    ) : null
+    const items: ReactNode[] = []
+    views.forEach((view, index) => {
+      if (persistedStatus && index === persistedViewIndex) items.push(persistedStatus)
+      if (index === compactionViewIndex) items.push(compactionStatus)
+      items.push(<ChatMessage key={view.id} view={view} threadId={threadId} title={title} />)
+    })
+    if (persistedStatus && persistedViewIndex >= views.length) items.push(persistedStatus)
+    if (compactionViewIndex >= views.length) items.push(compactionStatus)
     body = (
       <div data-slot="huan-chat-messages" className="flex flex-col gap-6">
-        {views.map((view) => (
-          <ChatMessage key={view.id} view={view} threadId={threadId} title={title} />
-        ))}
+        {items}
       </div>
     )
   }
@@ -191,7 +260,7 @@ export function ChatView() {
             <div
               className={cn(
                 'flex flex-1 flex-col',
-                views.length === 0 && !loading && 'justify-center',
+                views.length === 0 && !loading && !showCompactionStatus && 'justify-center',
               )}
             >
               {body}

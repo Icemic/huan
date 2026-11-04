@@ -176,9 +176,13 @@ test('手动压缩成功与取消后恢复', async ({ page, request }) => {
   const dialog = await openPanel(page)
   await dialog.getByRole('textbox', { name: '压缩指令' }).fill('保留关键决策')
   await dialog.getByRole('button', { name: '压缩上下文' }).click()
-  await expect(dialog.getByRole('status')).toContainText('压缩完成')
+  await expect(
+    page.locator('[data-slot="huan-compaction-status"][data-status="compacted"]'),
+  ).toContainText('上下文已压缩')
   await closePanel(page)
-  await expect(page.locator('[data-slot="huan-compaction-summary"]').last()).toBeVisible()
+  await expect(page.locator('[data-slot="huan-compaction-status"]')).toHaveCount(1)
+  await page.getByRole('button', { name: /上下文已压缩/ }).click()
+  await expect(page.locator('[data-slot="huan-compaction-status"]')).toContainText(DEFAULT_REPLY)
 
   // 手动压缩取消：新会话凑够可压缩历史，再挂起摘要请求后取消。
   await startNewSession(page, workspaceName)
@@ -191,7 +195,9 @@ test('手动压缩成功与取消后恢复', async ({ page, request }) => {
   await cancelDialog.getByRole('button', { name: '压缩上下文' }).click()
   await expect(cancelDialog.getByText(/压缩中（手动）/)).toBeVisible()
   await cancelDialog.getByRole('button', { name: '取消压缩' }).click()
-  await expect(cancelDialog.getByRole('status')).toContainText('压缩已取消')
+  await expect(
+    page.locator('[data-slot="huan-compaction-status"][data-status="cancelled"]'),
+  ).toContainText('压缩已取消')
   await closePanel(page)
   await resetStream(request)
 

@@ -61,7 +61,7 @@ describe('thread-state（元数据与运行数据分离的纯归约）', () => {
     expect(state.session).not.toHaveProperty('queue')
     expect(state.session).not.toHaveProperty('contextUsage')
     expect(state.session).not.toHaveProperty('retry')
-    expect(state.session).not.toHaveProperty('compaction')
+    expect(state.session.compaction).toBeUndefined()
   })
 
   it('整体应用快照并标记为 loaded', () => {
@@ -319,16 +319,32 @@ describe('thread-state（元数据与运行数据分离的纯归约）', () => {
   it('跟踪压缩与重试标志（只存元数据）', () => {
     let state = apply(
       createHarnessThreadReduction('t1'),
-      ev({ type: 'compaction_start', reason: 'threshold' }),
+      ev({ type: 'compaction_start', reason: 'threshold', operationId: 'op-1' }),
     )
     expect(state.metadata.compactionActive).toBe(true)
     expect(state.metadata.compactionReason).toBe('threshold')
+    expect(state.session.compaction).toMatchObject({
+      active: true,
+      operationId: 'op-1',
+      messageIndex: 0,
+    })
     state = apply(
       state,
-      ev({ type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: false }),
+      ev({
+        type: 'compaction_end',
+        reason: 'threshold',
+        aborted: false,
+        willRetry: false,
+        operationId: 'op-1',
+      }),
     )
     expect(state.metadata.compactionActive).toBe(false)
     expect(state.metadata.compactionReason).toBeUndefined()
+    expect(state.session.compaction).toMatchObject({
+      active: false,
+      operationId: 'op-1',
+      status: 'compacted',
+    })
 
     state = apply(state, ev({ type: 'auto_retry_start', attempt: 2, delayMs: 500 }))
     expect(state.metadata.retryActive).toBe(true)
@@ -733,7 +749,7 @@ describe('用户 Shell 与压缩运行态', () => {
       }),
     )
     expect(state.session.bash).toEqual(bashRun)
-    expect(state.session.compactionError).toBe('Compaction failed: x')
+    expect(state.session.compaction).toEqual({ active: false, error: 'Compaction failed: x' })
     expect(state.metadata.autoCompactionEnabled).toBe(false)
   })
 
@@ -752,14 +768,18 @@ describe('用户 Shell 与压缩运行态', () => {
         errorMessage: 'Compaction failed: 合成失败',
       }),
     )
-    expect(state.session.compactionError).toBe('Compaction failed: 合成失败')
+    expect(state.session.compaction).toMatchObject({
+      active: false,
+      status: 'failed',
+      error: 'Compaction failed: 合成失败',
+    })
 
     state = apply(state, ev({ type: 'compaction_start', reason: 'manual' }))
     state = apply(
       state,
       ev({ type: 'compaction_end', reason: 'manual', aborted: true, willRetry: false }),
     )
-    expect(state.session.compactionError).toBeUndefined()
+    expect(state.session.compaction).toMatchObject({ active: false, status: 'cancelled' })
 
     state = apply(state, ev({ type: 'compaction_start', reason: 'manual' }))
     state = apply(
@@ -773,7 +793,12 @@ describe('用户 Shell 与压缩运行态', () => {
         estimatedTokensAfter: 20,
       }),
     )
-    expect(state.session.compactionError).toBeUndefined()
+    expect(state.session.compaction).toMatchObject({
+      active: false,
+      status: 'compacted',
+      tokensBefore: 100,
+      estimatedTokensAfter: 20,
+    })
   })
 })
 

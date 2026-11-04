@@ -372,6 +372,7 @@ export class LiveSessions {
         inFlight: new Set(),
         currentRun: undefined,
         bash: undefined,
+        lastCompaction: undefined,
         compactionReason: undefined,
         lastCompactionError: undefined,
         lastCompactionAborted: false,

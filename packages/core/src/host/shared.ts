@@ -228,6 +228,20 @@ export type ThreadHostUiState = {
 /** 当前工具的瞬态状态；只保留活动调用，结束即移除，不形成第二份执行历史。 */
 export type ActiveToolExecution = HarnessToolExecutionSnapshot
 
+/** 最近一次压缩操作的宿主记录；成功可追溯到 Pi compaction entry，失败/取消只存活于 live record。 */
+export type CompactionRecord = {
+  operationId: string
+  status: 'running' | 'compacted' | 'cancelled' | 'failed'
+  reason: HarnessCompactionReason
+  /** 操作开始时的消息位置；成功快照会按 Pi entry 重新计算。 */
+  messageIndex: number
+  leafId?: string | null
+  entryId?: string
+  tokensBefore?: number
+  estimatedTokensAfter?: number
+  error?: string
+}
+
 export type ThreadRecord = {
   threadId: string
   session: AgentSession
@@ -268,6 +282,8 @@ export type ThreadRecord = {
   currentRun: CurrentRun | undefined
   /** 当前/最近一条用户 Shell；持久化为历史消息后才清除。 */
   bash: UserBashRun | undefined
+  /** 当前/最近一次压缩操作；失败/取消不写日志，进程重启后由 Pi entry 重建成功记录。 */
+  lastCompaction?: CompactionRecord
   /** 压缩触发原因（进行中）；由 compaction_start/end 事件维护。 */
   compactionReason: HarnessCompactionReason | undefined
   /** 最近一次压缩失败原因（成功/取消时清除）；取消不算失败。 */

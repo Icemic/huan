@@ -693,6 +693,16 @@ describe('上下文压缩', () => {
     const pending = host.compactThread(threadId, { customInstructions: '压缩测试' })
     await model.waitForPending()
     expect(model.lastBody()).toContain('<conversation>')
+    const startEvent = await collector.waitForAny((event) => event.type === 'compaction_start')
+    if (startEvent.type !== 'compaction_start' || !startEvent.operationId) {
+      throw new Error('缺少压缩开始标识')
+    }
+    const runningSnapshot = await host.getThread(threadId)
+    expect(runningSnapshot.compaction).toMatchObject({
+      active: true,
+      operationId: startEvent.operationId,
+      messageIndex: runningSnapshot.messages.length,
+    })
     model.release('合成压缩摘要')
     const outcome = await pending
     expect(outcome.status).toBe('compacted')
@@ -703,6 +713,12 @@ describe('上下文压缩', () => {
     const snapshot = await host.getThread(threadId)
     expect(snapshot.compaction?.active).toBe(false)
     expect(snapshot.compaction?.error).toBeUndefined()
+    expect(snapshot.compaction).toMatchObject({
+      status: 'compacted',
+      operationId: startEvent.operationId,
+    })
+    expect(snapshot.compaction?.entryId).toBeDefined()
+    expect(snapshot.compaction?.messageIndex).toBe(snapshot.messages.length)
     expect(snapshot.messages.some((message) => message.role === 'compactionSummary')).toBe(true)
     // 原始历史仍保留在 Pi 文件中（压缩只追加摘要条目）。
     const after = await readFile(sessionFile, 'utf8')
@@ -714,7 +730,102 @@ describe('上下文压缩', () => {
       (event) => event.type === 'compaction_end' && event.reason === 'manual',
     )
     expect(endEvent.type === 'compaction_end' ? endEvent.errorMessage : undefined).toBeUndefined()
+    expect(endEvent.type === 'compaction_end' ? endEvent.operationId : undefined).toBe(
+      startEvent.operationId,
+    )
+    // 重新读取 live 快照仍保持同一操作与结果。
+    expect((await host.getThread(threadId)).compaction?.operationId).toBe(startEvent.operationId)
     collector.unsubscribe()
+  })
+
+  it('自动压缩使用同一状态行事实，并在后续响应前定位成功摘要', async () => {
+    const threadId = await createTurn('长历史'.repeat(1500), '历史回复'.repeat(100))
+    await addTurn(threadId, '第二轮'.repeat(300), '第二轮回复'.repeat(100))
+    const settings = JSON.parse(await readFile(settingsFile(), 'utf8'))
+    settings.compaction.reserveTokens = 31_000
+    await writeFile(settingsFile(), JSON.stringify(settings))
+    await host.reloadResources({ threadId, trigger: 'settings' })
+    const events = collectEvents(threadId)
+    const sending = host.sendMessage(threadId, { content: '继续' })
+    await model.waitForPending()
+    expect(model.lastBody()).toContain('<conversation>')
+    const running = await host.getThread(threadId)
+    expect(running.compaction).toMatchObject({ active: true, reason: 'threshold' })
+    model.release('自动摘要')
+    // SDK 可分别摘要较早历史与保留边界前的部分轮次，两次均属于同一操作。
+    await model.waitForPending()
+    expect(model.lastBody()).toContain('context summarization assistant')
+    model.release('边界摘要')
+    await model.waitForPending()
+    expect(model.lastBody()).not.toContain('context summarization assistant')
+    // 降低触发阈值仅用于发起本轮自动压缩，结果后的响应不再触发下一轮。
+    const toggled = await host.setAutoCompaction(threadId, false)
+    expect(toggled.status).toBe('saved')
+    model.release('自动压缩后的回复')
+    await sending
+    await waitIdle(threadId)
+    const snapshot = await host.getThread(threadId)
+    expect(snapshot.compaction).toMatchObject({ status: 'compacted', reason: 'threshold' })
+    expect(snapshot.compaction?.messageIndex).toBeLessThan(snapshot.messages.length)
+    expect(events.events.some((event) => event.type === 'compaction_end')).toBe(true)
+    events.unsubscribe()
+  })
+
+  it('成功后重启仍从 Pi compaction entry 恢复状态行', async () => {
+    const threadId = await createCompactableThread()
+    const pending = host.compactThread(threadId)
+    await model.waitForPending()
+    model.release('重启摘要')
+    await pending
+    await addTurn(threadId, '压缩后的提问', '压缩后的回复')
+    const before = await host.getThread(threadId)
+    const entryId = before.compaction?.entryId
+    expect(entryId).toBeDefined()
+    expect(before.compaction?.messageIndex).toBeLessThan(before.messages.length)
+
+    await restartHost()
+    const snapshot = await host.getThread(threadId)
+    expect(snapshot.compaction).toMatchObject({
+      active: false,
+      status: 'compacted',
+      operationId: `compaction:entry:${entryId}`,
+      entryId,
+      messageIndex: before.compaction?.messageIndex,
+    })
+    expect(snapshot.compaction?.messageIndex).toBeLessThan(snapshot.messages.length)
+  })
+
+  it('新一轮取消仍保留已有成功摘要锚点，切回压缩前分支不显示旧结果', async () => {
+    const threadId = await createCompactableThread()
+    const before = await host.getThread(threadId)
+    const targetId = before.messageEntryIds?.find((id) => id !== null)
+    if (!targetId) throw new Error('缺少分支目标')
+    const first = host.compactThread(threadId)
+    await model.waitForPending()
+    model.release('保留的摘要')
+    await first
+    await addTurn(threadId, '摘要之后提问'.repeat(30), '摘要之后回复'.repeat(30))
+    await addTurn(threadId, '另一轮提问'.repeat(30), '另一轮回复'.repeat(30))
+    const success = await host.getThread(threadId)
+    const second = host.compactThread(threadId)
+    await model.waitForPending()
+    const running = await host.getThread(threadId)
+    expect(running.compaction?.summary).toEqual(success.compaction?.summary)
+    await host.abortThreadCompaction(threadId)
+    await second
+    const cancelled = await host.getThread(threadId)
+    expect(cancelled.compaction?.status).toBe('cancelled')
+    expect(cancelled.compaction?.summary).toEqual(success.compaction?.summary)
+    const tree = await host.getThreadTree(threadId)
+    const navigated = await host.navigateThreadTree(threadId, {
+      targetId,
+      summarize: false,
+      expectedRevision: tree.revision,
+    })
+    expect(navigated.status).toBe('applied')
+    const earlier = await host.getThread(threadId)
+    expect(earlier.compaction?.status).toBeUndefined()
+    expect(earlier.compaction?.summary).toBeUndefined()
   })
 
   it('压缩失败：保留历史并暴露错误；不写入摘要', async () => {
@@ -732,9 +843,22 @@ describe('上下文压缩', () => {
     const snapshot = await host.getThread(threadId)
     expect(snapshot.compaction?.active).toBe(false)
     expect(snapshot.compaction?.error).toContain('Compaction failed')
+    expect(snapshot.compaction).toMatchObject({ status: 'failed' })
+    expect(snapshot.compaction?.entryId).toBeUndefined()
     expect(snapshot.messages.some((message) => message.role === 'compactionSummary')).toBe(false)
     expect(await readFile(sessionFile, 'utf8')).toBe(before)
+    const startEvent = await collector.waitForAny((event) => event.type === 'compaction_start')
+    const endEvent = await collector.waitForAny((event) => event.type === 'compaction_end')
+    expect(snapshot.compaction?.operationId).toBe(
+      startEvent.type === 'compaction_start' ? startEvent.operationId : undefined,
+    )
+    expect(endEvent.type === 'compaction_end' ? endEvent.operationId : undefined).toBe(
+      snapshot.compaction?.operationId,
+    )
     collector.unsubscribe()
+    // 失败只存在于 live 快照，重启后不重建操作日志。
+    await restartHost()
+    expect((await host.getThread(threadId)).compaction?.status).not.toBe('failed')
   })
 
   it('取消压缩：结果为 cancelled，原始树保持不变，取消不算失败', async () => {
@@ -748,9 +872,22 @@ describe('上下文压缩', () => {
     const snapshot = await host.getThread(threadId)
     expect(snapshot.compaction?.active).toBe(false)
     expect(snapshot.compaction?.error).toBeUndefined()
+    expect(snapshot.compaction).toMatchObject({ status: 'cancelled' })
+    expect(snapshot.compaction?.entryId).toBeUndefined()
     expect(snapshot.messages.some((message) => message.role === 'compactionSummary')).toBe(false)
+    const startEvent = await collector.waitForAny((event) => event.type === 'compaction_start')
+    const endEvent = await collector.waitForAny((event) => event.type === 'compaction_end')
+    expect(snapshot.compaction?.operationId).toBe(
+      startEvent.type === 'compaction_start' ? startEvent.operationId : undefined,
+    )
+    expect(endEvent.type === 'compaction_end' ? endEvent.operationId : undefined).toBe(
+      snapshot.compaction?.operationId,
+    )
     expect(await host.abortThreadCompaction(threadId)).toEqual({ status: 'idle' })
     collector.unsubscribe()
+    // 取消同样不写永久日志。
+    await restartHost()
+    expect((await host.getThread(threadId)).compaction?.status).not.toBe('cancelled')
   })
 
   it('删除会话会取消进行中的压缩并结束', async () => {

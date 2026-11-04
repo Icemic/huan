@@ -11,6 +11,7 @@ import type {
   HarnessBashRun,
   HarnessClientEvent,
   HarnessClientEventBody,
+  HarnessCompactionPhase,
   HarnessHostUiCommandTarget,
   HarnessHostUiNotification,
   HarnessHostUiRequest,
@@ -103,11 +104,153 @@ export const bashViewOf = (run: UserBashRun): HarnessBashRun => ({
   ...(run.result ? { result: run.result } : {}),
 })
 
-const compactionPhaseOf = (record: ThreadRecord) => ({
-  active: record.session.isCompacting,
-  ...(record.compactionReason ? { reason: record.compactionReason } : {}),
-  ...(record.lastCompactionError ? { error: record.lastCompactionError } : {}),
-})
+const compactionPhaseOf = (
+  record: ThreadRecord,
+  messageEntryIds: readonly (string | null)[],
+): HarnessCompactionPhase => {
+  const persisted = coldCompactionPhaseOf(
+    record.sessionManager,
+    record.session.messages.length,
+    messageEntryIds,
+  )
+  const candidate = record.lastCompaction
+  const leafId = record.sessionManager.getLeafId()
+  const latest =
+    candidate &&
+    (candidate.status === 'running' ||
+      (candidate.entryId
+        ? persisted?.entryId === candidate.entryId
+        : candidate.leafId === leafId ||
+          record.sessionManager.getBranch().some((entry) => entry.id === candidate.leafId)))
+      ? candidate
+      : undefined
+  if (record.session.isCompacting) {
+    return {
+      active: true,
+      ...(record.compactionReason ? { reason: record.compactionReason } : {}),
+      ...(latest?.operationId ? { operationId: latest.operationId } : {}),
+      ...(latest ? { messageIndex: latest.messageIndex } : {}),
+      ...(persisted?.summary ? { summary: persisted.summary } : {}),
+    }
+  }
+  if (latest) {
+    if (latest.status === 'compacted') {
+      return {
+        active: false,
+        operationId: latest.operationId,
+        reason: latest.reason,
+        status: 'compacted',
+        ...(persisted?.summary ? { summary: persisted.summary } : {}),
+        ...(latest.entryId ? { entryId: latest.entryId } : {}),
+        ...(latest.entryId
+          ? { messageIndex: compactionMessageIndex(record, latest.entryId, messageEntryIds) }
+          : {}),
+        ...(latest.tokensBefore !== undefined ? { tokensBefore: latest.tokensBefore } : {}),
+        ...(latest.estimatedTokensAfter !== undefined
+          ? { estimatedTokensAfter: latest.estimatedTokensAfter }
+          : {}),
+      }
+    }
+    return {
+      active: false,
+      operationId: latest.operationId,
+      reason: latest.reason,
+      status: latest.status === 'cancelled' ? 'cancelled' : 'failed',
+      ...(persisted?.summary ? { summary: persisted.summary } : {}),
+      ...(latest.messageIndex !== undefined ? { messageIndex: latest.messageIndex } : {}),
+      ...(latest.tokensBefore !== undefined ? { tokensBefore: latest.tokensBefore } : {}),
+      ...(latest.estimatedTokensAfter !== undefined
+        ? { estimatedTokensAfter: latest.estimatedTokensAfter }
+        : {}),
+      ...(latest.error ? { error: latest.error } : {}),
+    }
+  }
+  // 成功是唯一持久事实：冷打开/重启后从当前分支的最新 compaction entry 重建。
+  if (persisted) return persisted
+  return {
+    active: false,
+    ...(record.lastCompactionError ? { error: record.lastCompactionError } : {}),
+  }
+}
+
+/** 当前活动分支最后一条压缩 entry；用于冷历史重建成功状态。 */
+const latestCompactionEntryFrom = (sessionManager: ThreadRecord['sessionManager']) => {
+  const branch = sessionManager.getBranch()
+  for (let index = branch.length - 1; index >= 0; index--) {
+    const entry = branch[index]
+    if (entry?.type === 'compaction') return entry
+  }
+  return undefined
+}
+
+const latestCompactionEntry = (record: ThreadRecord) =>
+  latestCompactionEntryFrom(record.sessionManager)
+
+/**
+ * 结果行在消息中的锚点：压缩 entry 之后的消息才是后续回复。
+ * 模型投影把摘要放到开头，不能用投影下标；按 branch 顺序找出第一条未来消息。
+ */
+const compactionMessageIndexFrom = (
+  sessionManager: ThreadRecord['sessionManager'],
+  messageCount: number,
+  entryId: string,
+  messageEntryIds: readonly (string | null)[],
+): number => {
+  const branch = sessionManager.getBranch()
+  const entryIndex = branch.findIndex((entry) => entry.id === entryId)
+  if (entryIndex < 0) return messageCount
+  const futureIds = new Set(branch.slice(entryIndex + 1).map((entry) => entry.id))
+  const index = messageEntryIds.findIndex(
+    (id) => id === null || (id !== undefined && futureIds.has(id)),
+  )
+  return index >= 0 ? index : messageCount
+}
+
+const compactionMessageIndex = (
+  record: ThreadRecord,
+  entryId: string,
+  messageEntryIds: readonly (string | null)[],
+): number =>
+  compactionMessageIndexFrom(
+    record.sessionManager,
+    record.session.messages.length,
+    entryId,
+    messageEntryIds,
+  )
+
+/** 冷读快照的成功状态：只从 Pi 投影 entry 重建，不伪造失败/取消记录。 */
+export const coldCompactionPhaseOf = (
+  sessionManager: ThreadRecord['sessionManager'],
+  messageCount: number,
+  messageEntryIds: readonly (string | null)[],
+): HarnessCompactionPhase | undefined => {
+  const entry = latestCompactionEntryFrom(sessionManager)
+  if (!entry) return undefined
+  return {
+    active: false,
+    operationId: `compaction:entry:${entry.id}`,
+    status: 'compacted',
+    entryId: entry.id,
+    summary: {
+      entryId: entry.id,
+      messageIndex: compactionMessageIndexFrom(
+        sessionManager,
+        messageCount,
+        entry.id,
+        messageEntryIds,
+      ),
+    },
+    messageIndex: compactionMessageIndexFrom(
+      sessionManager,
+      messageCount,
+      entry.id,
+      messageEntryIds,
+    ),
+    ...(entry.tokensBefore !== undefined ? { tokensBefore: entry.tokensBefore } : {}),
+  }
+}
+
+const compactionOperationIdOf = (record: ThreadRecord): string => `compaction:${record.seq + 1}`
 
 export class SessionEvents {
   /** key = `<threadId>\0<callerId>`；仅驻留内存，不进入会话记录。 */
@@ -442,13 +585,15 @@ export class SessionEvents {
     const pending = record.uiBridge.pending()
     const hostUi = this.hostUiViewOf(record)
     const activeTools = [...record.activeTools.values()]
+    const messages = isolateMessages(record.session.messages)
+    const entryIds = messageEntryIds(record.sessionManager, record.session.messages)
     return jsonSafeSnapshot({
       metadata: this.metadataOf(record),
-      messages: isolateMessages(record.session.messages),
-      messageEntryIds: messageEntryIds(record.sessionManager, record.session.messages),
+      messages,
+      messageEntryIds: entryIds,
       ...(activeTools.length ? { toolExecutions: activeTools } : {}),
       ...(record.bash ? { bash: bashViewOf(record.bash) } : {}),
-      compaction: compactionPhaseOf(record),
+      compaction: compactionPhaseOf(record, entryIds),
       readiness: getModelReadiness(
         this.deps.modelRuntime,
         record.session.model
@@ -497,15 +642,43 @@ export class SessionEvents {
   /** 会话事件入口：活动工具、压缩、运行归属、协议映射与结算快照。 */
   onSessionEvent(record: ThreadRecord, event: SessionEvent): void {
     if (event.type === 'turn_start') record.turnIndex += 1
-    // 压缩运行态：原因从事件维护，失败原因在成功后清除（取消不算失败）。
+    // 压缩运行态：开始建立操作标识，结束更新同一标识的结局；成功关联 Pi entry。
     if (event.type === 'compaction_start') {
       record.compactionReason = event.reason
       record.lastCompactionAborted = false
+      record.lastCompactionError = undefined
+      record.lastCompaction = {
+        operationId: compactionOperationIdOf(record),
+        status: 'running',
+        reason: event.reason,
+        messageIndex: record.session.messages.length,
+        leafId: record.sessionManager.getLeafId(),
+      }
     }
     if (event.type === 'compaction_end') {
+      const previous = record.lastCompaction
+      const entry =
+        !event.aborted && !event.errorMessage ? latestCompactionEntry(record) : undefined
       record.lastCompactionAborted = event.aborted
       // 取消不算失败；成功会自然清空为 undefined。
       record.lastCompactionError = event.aborted ? undefined : event.errorMessage
+      record.lastCompaction = {
+        operationId:
+          previous?.status === 'running' ? previous.operationId : compactionOperationIdOf(record),
+        status: event.aborted ? 'cancelled' : event.errorMessage ? 'failed' : 'compacted',
+        reason: event.reason,
+        leafId: previous?.leafId ?? record.sessionManager.getLeafId(),
+        messageIndex:
+          previous?.status === 'running' ? previous.messageIndex : record.session.messages.length,
+        ...(entry ? { entryId: entry.id } : {}),
+        ...(event.result?.tokensBefore !== undefined
+          ? { tokensBefore: event.result.tokensBefore }
+          : {}),
+        ...(event.result?.estimatedTokensAfter !== undefined
+          ? { estimatedTokensAfter: event.result.estimatedTokensAfter }
+          : {}),
+        ...(event.errorMessage ? { error: event.errorMessage } : {}),
+      }
       record.compactionReason = undefined
     }
     if (event.type === 'session_info_changed') this.deps.invalidateCatalog(record.workspacePath)
@@ -546,7 +719,12 @@ export class SessionEvents {
     // 结算后不存在活动工具；防止取消路径缺少 tool_execution_end 时残留。
     if (event.type === 'agent_settled') record.activeTools.clear()
 
-    const mapped = mapSessionEvent(event, { turnIndex: record.turnIndex })
+    const mapped = mapSessionEvent(event, {
+      turnIndex: record.turnIndex,
+      ...(record.lastCompaction?.operationId
+        ? { compactionOperationId: record.lastCompaction.operationId }
+        : {}),
+    })
     if (mapped.kind === 'mapped') this.emit(record, mapped.event)
     if (settledError !== undefined) this.emit(record, { type: 'error', error: settledError })
     // 运行结算/压缩完成时补权威来源映射与树版本，不在每个 token 聚合整树。

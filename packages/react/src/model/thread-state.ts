@@ -8,7 +8,7 @@
  * 设计：
  * - 元数据（`threadsById`）与运行数据（`sessionDataById`）各保存一份：
  *   status、队列、contextUsage、压缩/重试活动标志、模型配置等只在元数据；
- *   消息、工具执行、Host UI 请求、Shell、readiness、加载状态只在运行数据。
+ *   消息、压缩操作结果、工具执行、Host UI 请求、Shell、readiness、加载状态只在运行数据。
  * - 权威记录是 `HarnessAgentMessage[]`。`snapshot` 事件整体替换它，并且是
  *   **权威的**——因此 reducer 不依赖脆弱的事件顺序，任何分歧都会在下次快照
  *   处自愈。
@@ -26,6 +26,7 @@ import type {
   HarnessAssistantMessage,
   HarnessBashRun,
   HarnessClientEvent,
+  HarnessCompactionPhase,
   HarnessContextUsage,
   HarnessHostUiRequest,
   HarnessQueuedMessage,
@@ -68,8 +69,8 @@ export interface HarnessThreadSession {
   streamingMessageIndex: number | undefined
   /** 实时流式工具输出，按 `toolCallId` 索引。 */
   toolExecutions: Readonly<Record<string, HarnessToolExecutionState>>
-  /** 最近一次压缩失败原因；成功/取消后清除。活动标志在元数据。 */
-  compactionError: string | undefined
+  /** 当前/最近一次压缩操作；事件与快照更新同一份事实。 */
+  compaction: HarnessCompactionPhase | undefined
   /** 用户 Shell 的实时/刚完成状态；持久化为历史消息后由快照清除。 */
   bash: HarnessBashRun | undefined
   /** 待处理的阻断式 Host UI 请求。 */
@@ -95,7 +96,7 @@ export const createHarnessThreadSession = (): HarnessThreadSession => ({
   messageEntryIds: [],
   streamingMessageIndex: undefined,
   toolExecutions: {},
-  compactionError: undefined,
+  compaction: undefined,
   bash: undefined,
   hostUiRequests: [],
   hostUi: undefined,
@@ -180,7 +181,7 @@ const applySnapshot = (
     toolExecutions: Object.fromEntries(
       (snapshot.toolExecutions ?? []).map((execution) => [execution.toolCallId, execution]),
     ),
-    compactionError: snapshot.compaction?.error,
+    compaction: snapshot.compaction,
     bash: snapshot.bash,
     hostUiRequests: snapshot.hostUiRequests ?? [],
     hostUi: snapshot.hostUi,
@@ -451,26 +452,58 @@ export const reduceHarnessThreadState = (
         stampSession(state.session, event.seq),
       )
 
-    case 'compaction_start':
+    case 'compaction_start': {
+      const operationId = event.operationId ?? `compaction:${event.seq}`
       return withSession(
         withMetadata(state, {
           ...state.metadata,
           compactionActive: true,
           compactionReason: event.reason,
         }),
-        stampSession({ ...state.session, compactionError: undefined }, event.seq),
+        stampSession(
+          {
+            ...state.session,
+            compaction: {
+              active: true,
+              reason: event.reason,
+              ...(state.session.compaction?.summary
+                ? { summary: state.session.compaction.summary }
+                : {}),
+              ...(operationId ? { operationId } : {}),
+              messageIndex: state.session.messages.length,
+            },
+          },
+          event.seq,
+        ),
       )
+    }
 
     case 'compaction_end': {
       const metadata: HarnessThreadMetadata = { ...state.metadata, compactionActive: false }
       delete metadata.compactionReason
       // 失败保留 errorMessage；取消不算失败（不保留错误）。
+      const current = state.session.compaction
+      const operationId = event.operationId ?? current?.operationId ?? `compaction:${event.seq}`
+      const status = event.aborted ? 'cancelled' : event.errorMessage ? 'failed' : 'compacted'
+      const messageIndex = current?.active ? current.messageIndex : state.session.messages.length
       return withSession(
         withMetadata(state, metadata),
         stampSession(
           {
             ...state.session,
-            compactionError: event.aborted || !event.errorMessage ? undefined : event.errorMessage,
+            compaction: {
+              active: false,
+              reason: event.reason,
+              ...(operationId ? { operationId } : {}),
+              status,
+              ...(current?.summary ? { summary: current.summary } : {}),
+              ...(messageIndex !== undefined ? { messageIndex } : {}),
+              ...(event.tokensBefore !== undefined ? { tokensBefore: event.tokensBefore } : {}),
+              ...(event.estimatedTokensAfter !== undefined
+                ? { estimatedTokensAfter: event.estimatedTokensAfter }
+                : {}),
+              ...(event.errorMessage ? { error: event.errorMessage } : {}),
+            },
           },
           event.seq,
         ),

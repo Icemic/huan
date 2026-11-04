@@ -1,7 +1,7 @@
 /**
  * 运行操作弹层：直接 Shell 与上下文压缩。
  *
- * 由会话操作菜单或 `/compact` 命令打开对应分段。
+ * 由会话操作菜单打开；输入框 `/compact` 直接执行压缩，不打开此面板。
  * 业务状态（固定 target、表单、busy）全部在 runtime feature Zustand；
  * 本组件只选择状态并触发动作。
  * Shell/压缩结果始终来自服务端事件，不猜测成功；取消不伪装为完成。
@@ -139,7 +139,6 @@ export function RuntimeOperationsDialog() {
   const bash = session?.bash
   const compactionActive = metadata?.compactionActive === true
   const autoCompaction = metadata?.autoCompactionEnabled
-  const compactionError = session?.compactionError
 
   return (
     <Dialog
@@ -269,7 +268,6 @@ export function RuntimeOperationsDialog() {
                   </span>
                 )}
               </div>
-              {compactionError && <StatusLine tone="error">{compactionError}</StatusLine>}
               <StatusLine tone="muted">
                 <Trans>
                   压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。

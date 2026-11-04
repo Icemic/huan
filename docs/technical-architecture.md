@@ -161,6 +161,8 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
 
 ---
 
+输入区上下文Popover的打开/统计/操作状态归既有runtime feature，独立于运行面板target；常驻环形直接订阅服务端metadata.contextUsage，浮窗仅打开期间按记录边界变化重读getThreadDetails累计统计，关闭/换目标失效迟到结果。`/compact [可选提示词]`、浮窗无提示词按钮和原面板共用runCompaction，服务端结构闸门仍为权威，客户端不覆盖草稿或将命令发送为普通聊天。服务端compaction快照以operationId关联执行结果及消息位置，保留最近live失败/取消；成功复用Pi压缩entry，冷读重建，浏览器仅调整展示顺序，不改模型上下文。输入命令按捕获版本立即清空，长请求不占用停止按钮，所有入口结果统一进入消息行。具体交互与验证见[上下文用量迭代](iteration/2026-11/2026-11-04-feat-composer-context-usage.md)。
+
 ## 4. 协议与传输（@huan/protocol）
 
 - Node 服务与 UI 之间的接口为 JSON-safe 的 `HarnessClient`，按 host、认证、MCP、工作区、目录、会话与配置领域组合，不提供通用 RPC。

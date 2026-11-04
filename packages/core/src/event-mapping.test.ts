@@ -140,21 +140,28 @@ describe('mapSessionEvent', () => {
     })
   })
 
-  it('compaction_* 保留原因与重试标记', () => {
+  it('compaction_* 保留原因、重试标记与同一操作标识', () => {
+    const compactionCtx = { ...ctx, compactionOperationId: 'op-1' }
     expect(
-      mapSessionEvent({ type: 'compaction_start', reason: 'threshold' } as never, ctx),
+      mapSessionEvent({ type: 'compaction_start', reason: 'threshold' } as never, compactionCtx),
     ).toEqual({
       kind: 'mapped',
-      event: { type: 'compaction_start', reason: 'threshold' },
+      event: { type: 'compaction_start', reason: 'threshold', operationId: 'op-1' },
     })
     expect(
       mapSessionEvent(
         { type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: true } as never,
-        ctx,
+        compactionCtx,
       ),
     ).toEqual({
       kind: 'mapped',
-      event: { type: 'compaction_end', reason: 'threshold', aborted: false, willRetry: true },
+      event: {
+        type: 'compaction_end',
+        reason: 'threshold',
+        aborted: false,
+        willRetry: true,
+        operationId: 'op-1',
+      },
     })
   })
 

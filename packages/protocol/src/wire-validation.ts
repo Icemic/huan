@@ -579,6 +579,19 @@ const isCompactionPhase = (value: unknown): boolean =>
     value.reason === 'manual' ||
     value.reason === 'threshold' ||
     value.reason === 'overflow') &&
+  isOptionalString(value.operationId) &&
+  (value.status === undefined ||
+    value.status === 'compacted' ||
+    value.status === 'cancelled' ||
+    value.status === 'failed') &&
+  isOptionalString(value.entryId) &&
+  (value.summary === undefined ||
+    (isRecord(value.summary) &&
+      typeof value.summary.entryId === 'string' &&
+      typeof value.summary.messageIndex === 'number')) &&
+  isOptionalNumber(value.messageIndex) &&
+  isOptionalNumber(value.tokensBefore) &&
+  isOptionalNumber(value.estimatedTokensAfter) &&
   isOptionalString(value.error)
 
 /** 结构操作状态守卫。 */

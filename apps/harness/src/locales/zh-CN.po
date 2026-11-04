@@ -16,7 +16,7 @@ msgstr "（空）"
 msgid "{0} 个项目"
 msgstr "{0} 个项目"
 
-#: src/components/runtime-operations.tsx:192
+#: src/components/runtime-operations.tsx:191
 msgid "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 msgstr "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 
@@ -61,10 +61,16 @@ msgstr "Solarized Light"
 msgid "Token"
 msgstr "Token"
 
-#: src/components/runtime-operations.tsx:259
+#: src/components/composer-context-usage.tsx:141
+msgid "上下文"
+msgstr "上下文"
+
+#: src/components/runtime-operations.tsx:258
 msgid "上下文压缩"
 msgstr "上下文压缩"
 
+#: src/components/chat/compaction-status.tsx:93
+#: src/components/chat/compaction-status.tsx:107
 #: src/components/chat/data-part.tsx:157
 msgid "上下文已压缩"
 msgstr "上下文已压缩"
@@ -126,7 +132,7 @@ msgstr "仍通过{leftoverSource}提供凭据，请修改对应配置"
 msgid "从 JSONL 文件导入 Pi 会话。"
 msgstr "从 JSONL 文件导入 Pi 会话。"
 
-#: src/components/chat/chat-view.tsx:128
+#: src/components/chat/chat-view.tsx:183
 msgid "从左侧选择会话，或直接在下方输入以新建会话。"
 msgstr "从左侧选择会话，或直接在下方输入以新建会话。"
 
@@ -154,7 +160,7 @@ msgstr "会话将保存到服务端，请确认其中没有不希望保留的敏
 msgid "会话文件"
 msgstr "会话文件"
 
-#: src/components/chat/chat-view.tsx:143
+#: src/components/chat/chat-view.tsx:198
 msgid "会话暂时不可用"
 msgstr "会话暂时不可用"
 
@@ -266,11 +272,11 @@ msgstr "先修复 JSON 解析错误，常用项表单才可用。"
 msgid "先修复 JSON 解析错误，此页表单才可用。"
 msgstr "先修复 JSON 解析错误，此页表单才可用。"
 
-#: src/components/runtime-operations.tsx:312
+#: src/components/runtime-operations.tsx:310
 msgid "先建立或打开会话，才能压缩。"
 msgstr "先建立或打开会话，才能压缩。"
 
-#: src/components/runtime-operations.tsx:248
+#: src/components/runtime-operations.tsx:247
 msgid "先建立或打开会话，才能执行 Shell。"
 msgstr "先建立或打开会话，才能执行 Shell。"
 
@@ -305,7 +311,7 @@ msgid "共 {0} 条"
 msgstr "共 {0} 条"
 
 #: src/components/pi-mcp-panel.tsx:1653
-#: src/components/runtime-operations.tsx:330
+#: src/components/runtime-operations.tsx:328
 #: src/components/session-dialogs.tsx:302
 #: src/components/session-tree-dialog.tsx:751
 #: src/components/settings-resources-dialog.tsx:388
@@ -428,12 +434,16 @@ msgstr "协议版本不匹配：宿主 {0}，页面 {HARNESS_PROTOCOL_VERSION}�
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 
-#: src/components/runtime-operations.tsx:292
+#: src/components/runtime-operations.tsx:290
 msgid "压缩上下文"
 msgstr "压缩上下文"
 
+#: src/components/composer-context-usage.tsx:267
+msgid "压缩中…"
+msgstr "压缩中…"
+
 #. placeholder {0}: compactionReasonLabel(metadata?.compactionReason)
-#: src/components/runtime-operations.tsx:264
+#: src/components/runtime-operations.tsx:263
 msgid "压缩中（{0}）"
 msgstr "压缩中（{0}）"
 
@@ -441,19 +451,36 @@ msgstr "压缩中（{0}）"
 msgid "压缩保留最近 tokens"
 msgstr "压缩保留最近 tokens"
 
+#. placeholder {0}: summary.tokensBefore
+#: src/components/chat/compaction-status.tsx:111
+msgid "压缩前约 {0} tokens"
+msgstr "压缩前约 {0} tokens"
+
 #: src/components/session-dialogs.tsx:244
 msgid "压缩后上下文未知，等待下一次响应"
 msgstr "压缩后上下文未知，等待下一次响应"
 
-#: src/components/runtime-operations.tsx:274
+#: src/components/composer-context-usage.tsx:177
+msgid "压缩后用量待更新"
+msgstr "压缩后用量待更新"
+
+#: src/components/chat/compaction-status.tsx:152
+msgid "压缩失败"
+msgstr "压缩失败"
+
+#: src/components/runtime-operations.tsx:272
 msgid "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
 msgstr "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
+
+#: src/components/chat/compaction-status.tsx:135
+msgid "压缩已取消"
+msgstr "压缩已取消"
 
 #: src/components/settings-forms.tsx:414
 msgid "压缩预留 tokens"
 msgstr "压缩预留 tokens"
 
-#: src/components/chat/tool-part.tsx:353
+#: src/components/chat/tool-part.tsx:355
 msgid "参数"
 msgstr "参数"
 
@@ -476,15 +503,16 @@ msgstr "取回全部"
 msgid "取消"
 msgstr "取消"
 
-#: src/components/runtime-operations.tsx:244
+#: src/components/runtime-operations.tsx:243
 msgid "取消 Shell"
 msgstr "取消 Shell"
 
-#: src/components/subagent-task-dialog.tsx:325
+#: src/components/subagent-task-dialog.tsx:329
 msgid "取消任务"
 msgstr "取消任务"
 
-#: src/components/runtime-operations.tsx:300
+#: src/components/chat/compaction-status.tsx:74
+#: src/components/runtime-operations.tsx:298
 msgid "取消压缩"
 msgstr "取消压缩"
 
@@ -573,11 +601,11 @@ msgstr "启动默认模型未配置：{0}"
 msgid "启用"
 msgstr "启用"
 
-#: src/components/chat/chat-view.tsx:212
+#: src/components/chat/chat-view.tsx:281
 msgid "回到底部"
 msgstr "回到底部"
 
-#: src/components/chat/chat-view.tsx:163
+#: src/components/chat/chat-view.tsx:218
 msgid "在下方输入内容，继续这个会话。"
 msgstr "在下方输入内容，继续这个会话。"
 
@@ -611,11 +639,11 @@ msgstr "多项目工作区"
 msgid "失败"
 msgstr "失败"
 
-#: src/components/subagent-task-dialog.tsx:279
+#: src/components/subagent-task-dialog.tsx:283
 msgid "子任务"
 msgstr "子任务"
 
-#: src/components/subagent-task-dialog.tsx:386
+#: src/components/subagent-task-dialog.tsx:390
 msgid "子会话（只读）"
 msgstr "子会话（只读）"
 
@@ -774,7 +802,7 @@ msgstr "工具与图片"
 msgid "工具与资源"
 msgstr "工具与资源"
 
-#: src/components/chat/tool-part.tsx:332
+#: src/components/chat/tool-part.tsx:334
 msgid "工具仍在运行，以下为部分输出。"
 msgstr "工具仍在运行，以下为部分输出。"
 
@@ -782,7 +810,7 @@ msgstr "工具仍在运行，以下为部分输出。"
 msgid "工具关联："
 msgstr "工具关联："
 
-#: src/components/chat/tool-part.tsx:346
+#: src/components/chat/tool-part.tsx:348
 msgid "工具执行失败，未返回可读输出。"
 msgstr "工具执行失败，未返回可读输出。"
 
@@ -795,7 +823,7 @@ msgstr "工具版本"
 msgid "工具结果 {0}"
 msgstr "工具结果 {0}"
 
-#: src/components/chat/tool-part.tsx:399
+#: src/components/chat/tool-part.tsx:401
 msgid "工具详情"
 msgstr "工具详情"
 
@@ -808,7 +836,7 @@ msgstr "工具调用 {0}"
 msgid "已信任"
 msgstr "已信任"
 
-#: src/components/chat/composer.tsx:155
+#: src/components/chat/composer.tsx:156
 msgid "已取回队列，但输入框已有新内容"
 msgstr "已取回队列，但输入框已有新内容"
 
@@ -877,7 +905,7 @@ msgstr "应用到当前会话"
 msgid "应用配置后连接"
 msgstr "应用配置后连接"
 
-#: src/components/chat/chat-view.tsx:127
+#: src/components/chat/chat-view.tsx:182
 msgid "开始对话"
 msgstr "开始对话"
 
@@ -950,7 +978,7 @@ msgid "当前状态"
 msgstr "当前状态"
 
 #. placeholder {0}: autoCompaction ? '开' : '关'
-#: src/components/runtime-operations.tsx:305
+#: src/components/runtime-operations.tsx:303
 msgid "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 msgstr "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 
@@ -967,11 +995,11 @@ msgstr "当前输入草稿不会带到新会话；切换后编辑器将显示所
 msgid "忽略"
 msgstr "忽略"
 
-#: src/components/chat/tool-part.tsx:461
+#: src/components/chat/tool-part.tsx:463
 msgid "思考中"
 msgstr "思考中"
 
-#: src/components/chat/tool-part.tsx:461
+#: src/components/chat/tool-part.tsx:463
 msgid "思考完成"
 msgstr "思考完成"
 
@@ -1099,7 +1127,7 @@ msgstr "收起分支"
 msgid "收起分支：{0}"
 msgstr "收起分支：{0}"
 
-#: src/components/chat/composer.tsx:119
+#: src/components/chat/composer.tsx:120
 msgid "放回输入"
 msgstr "放回输入"
 
@@ -1107,7 +1135,7 @@ msgstr "放回输入"
 msgid "文件配置预览"
 msgstr "文件配置预览"
 
-#: src/components/chat/chat-view.tsx:132
+#: src/components/chat/chat-view.tsx:187
 #: src/components/session-context-bar.tsx:34
 msgid "新会话"
 msgstr "新会话"
@@ -1162,6 +1190,14 @@ msgstr "显示指令/系统提示文本"
 msgid "暂无会话"
 msgstr "暂无会话"
 
+#: src/components/composer-context-usage.tsx:173
+msgid "暂无用量"
+msgstr "暂无用量"
+
+#: src/components/composer-context-usage.tsx:244
+msgid "暂无统计"
+msgstr "暂无统计"
+
 #: src/components/import-thread-dialog.tsx:221
 msgid "替代起始目录"
 msgstr "替代起始目录"
@@ -1179,7 +1215,7 @@ msgstr "有待打开的会话。"
 msgid "有效期 {0} 秒"
 msgstr "有效期 {0} 秒"
 
-#: src/components/chat/chat-view.tsx:212
+#: src/components/chat/chat-view.tsx:281
 msgid "有新输出"
 msgstr "有新输出"
 
@@ -1251,6 +1287,10 @@ msgstr "未配置"
 msgid "本会话临时"
 msgstr "本会话临时"
 
+#: src/components/composer-context-usage.tsx:184
+msgid "本会话累计"
+msgstr "本会话累计"
+
 #: src/components/workspace-manager.tsx:175
 msgid "本次允许"
 msgstr "本次允许"
@@ -1287,7 +1327,7 @@ msgstr "检查路径与信任…"
 msgid "模型"
 msgstr "模型"
 
-#: src/components/subagent-task-dialog.tsx:295
+#: src/components/subagent-task-dialog.tsx:299
 msgid "模型："
 msgstr "模型："
 
@@ -1345,9 +1385,13 @@ msgstr "正在准备子任务…"
 msgid "正在切换会话上下文…"
 msgstr "正在切换会话上下文…"
 
-#: src/components/chat/chat-view.tsx:46
+#: src/components/chat/chat-view.tsx:53
 msgid "正在加载会话…"
 msgstr "正在加载会话…"
+
+#: src/components/chat/compaction-status.tsx:56
+msgid "正在压缩上下文…"
+msgstr "正在压缩上下文…"
 
 #: src/components/pi-host-status.tsx:82
 msgid "正在查询宿主配置…"
@@ -1389,7 +1433,7 @@ msgstr "正在读取会话树…"
 msgid "正在读取会话统计…"
 msgstr "正在读取会话统计…"
 
-#: src/components/subagent-task-dialog.tsx:364
+#: src/components/subagent-task-dialog.tsx:368
 msgid "正在读取子任务…"
 msgstr "正在读取子任务…"
 
@@ -1459,7 +1503,7 @@ msgstr "消息"
 msgid "深色"
 msgstr "深色"
 
-#: src/components/chat/composer.tsx:518
+#: src/components/chat/composer.tsx:519
 msgid "添加图片"
 msgstr "添加图片"
 
@@ -1496,7 +1540,7 @@ msgstr "用于新会话；当前会话的模型仍由输入区选择。"
 msgid "用户 {0}"
 msgstr "用户 {0}"
 
-#: src/components/runtime-operations.tsx:183
+#: src/components/runtime-operations.tsx:182
 msgid "用户 Shell"
 msgstr "用户 Shell"
 
@@ -1524,7 +1568,7 @@ msgstr "用户配置"
 msgid "用自定义指令替换默认摘要提示"
 msgstr "用自定义指令替换默认摘要提示"
 
-#: src/components/subagent-task-dialog.tsx:302
+#: src/components/subagent-task-dialog.tsx:306
 msgid "用量："
 msgstr "用量："
 
@@ -1576,13 +1620,17 @@ msgstr "确认重新读取文件"
 msgid "稍后处理"
 msgstr "稍后处理"
 
-#: src/components/runtime-operations.tsx:268
+#: src/components/runtime-operations.tsx:267
 msgid "空闲"
 msgstr "空闲"
 
 #: src/components/session-dialogs.tsx:247
 msgid "窗口"
 msgstr "窗口"
+
+#: src/components/composer-context-usage.tsx:267
+msgid "立即压缩上下文"
+msgstr "立即压缩上下文"
 
 #: src/components/subagent-task-card.tsx:45
 msgid "等待"
@@ -1592,13 +1640,13 @@ msgstr "等待"
 msgid "等待任务输出…"
 msgstr "等待任务输出…"
 
-#: src/components/chat/tool-part.tsx:337
+#: src/components/chat/tool-part.tsx:339
 #: src/components/subagent-task-card.tsx:128
 msgid "等待你的答复"
 msgstr "等待你的答复"
 
 #. placeholder {0}: requests.length
-#: src/components/subagent-task-dialog.tsx:370
+#: src/components/subagent-task-dialog.tsx:374
 msgid "等待子任务交互（{0}）"
 msgstr "等待子任务交互（{0}）"
 
@@ -1645,10 +1693,18 @@ msgstr "结果已截断"
 msgid "缓存写 {0}"
 msgstr "缓存写 {0}"
 
+#: src/components/composer-context-usage.tsx:235
+msgid "缓存命中率"
+msgstr "缓存命中率"
+
 #. placeholder {0}: formatTokens(stats.tokens.cacheRead)
 #: src/components/session-dialogs.tsx:228
 msgid "缓存读 {0}"
 msgstr "缓存读 {0}"
+
+#: src/components/composer-context-usage.tsx:227
+msgid "缓存读取"
+msgstr "缓存读取"
 
 #: src/components/pi-mcp-panel.tsx:1544
 msgid "编辑全局配置"
@@ -1752,9 +1808,14 @@ msgstr "请在环境变量或 models.json 中配置凭据。"
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
 
-#: src/components/subagent-task-dialog.tsx:283
+#: src/components/subagent-task-dialog.tsx:287
 msgid "读取子任务摘要与只读会话…"
 msgstr "读取子任务摘要与只读会话…"
+
+#. placeholder {0}: contextUsage.statsError
+#: src/components/composer-context-usage.tsx:193
+msgid "读取累计统计失败：{0}"
+msgstr "读取累计统计失败：{0}"
 
 #: src/components/session-actions-menu.tsx:193
 msgid "资源"
@@ -1829,12 +1890,17 @@ msgstr "转向"
 msgid "轮询间隔 {0} 秒"
 msgstr "轮询间隔 {0} 秒"
 
+#: src/components/composer-context-usage.tsx:211
+msgid "输入"
+msgstr "输入"
+
 #. placeholder {0}: formatTokens(stats.tokens.input)
 #: src/components/session-dialogs.tsx:223
 msgid "输入 {0}"
 msgstr "输入 {0}"
 
-#: src/components/chat/tool-part.tsx:377
+#: src/components/chat/tool-part.tsx:379
+#: src/components/composer-context-usage.tsx:219
 msgid "输出"
 msgstr "输出"
 
@@ -1843,7 +1909,7 @@ msgstr "输出"
 msgid "输出 {0}"
 msgstr "输出 {0}"
 
-#: src/components/runtime-operations.tsx:235
+#: src/components/runtime-operations.tsx:234
 msgid "运行 Shell"
 msgstr "运行 Shell"
 
@@ -1852,7 +1918,11 @@ msgstr "运行 Shell"
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/runtime-operations.tsx:159
+#: src/components/composer-context-usage.tsx:271
+msgid "运行中暂不可压缩"
+msgstr "运行中暂不可压缩"
+
+#: src/components/runtime-operations.tsx:158
 #: src/components/session-actions-menu.tsx:151
 #: src/components/session-actions-menu.tsx:184
 msgid "运行操作"
@@ -1867,11 +1937,11 @@ msgstr "运行版本 {0}"
 msgid "还没有工作区。"
 msgstr "还没有工作区。"
 
-#: src/components/chat/chat-view.tsx:162
+#: src/components/chat/chat-view.tsx:217
 msgid "还没有消息"
 msgstr "还没有消息"
 
-#: src/components/chat/composer.tsx:166
+#: src/components/chat/composer.tsx:167
 msgid "追加到输入"
 msgstr "追加到输入"
 
@@ -1949,8 +2019,9 @@ msgid "重置改动"
 msgstr "重置改动"
 
 #: src/app.tsx:104
-#: src/components/chat/chat-view.tsx:154
-#: src/components/subagent-task-dialog.tsx:348
+#: src/components/chat/chat-view.tsx:209
+#: src/components/composer-context-usage.tsx:203
+#: src/components/subagent-task-dialog.tsx:352
 msgid "重试"
 msgstr "重试"
 
@@ -1974,7 +2045,7 @@ msgstr "附件预览"
 msgid "隐藏指令/系统提示文本"
 msgstr "隐藏指令/系统提示文本"
 
-#: src/components/runtime-operations.tsx:320
+#: src/components/runtime-operations.tsx:318
 msgid "需要会话的操作在左侧新建会话后可用。"
 msgstr "需要会话的操作在左侧新建会话后可用。"
 

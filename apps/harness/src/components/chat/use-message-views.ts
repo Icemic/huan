@@ -39,11 +39,13 @@ export const useMessageViews = (threadId: string | undefined): readonly HarnessM
     if (cache.current?.threadId !== threadId) {
       cache.current = { threadId, projector: new HarnessMessageViewProjector() }
     }
+    const compaction = session.compaction
     return cache.current.projector.project({
       messages: session.messages,
       messageEntryIds: session.messageEntryIds,
       toolExecutions: session.toolExecutions,
       runStatus,
+      ...(compaction && (compaction.active || compaction.status) ? { compaction } : {}),
     })
   }, [session, runStatus, threadId])
 }

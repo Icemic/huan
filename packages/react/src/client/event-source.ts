@@ -172,12 +172,13 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
     case 'queue_update':
       return isStringArray(event.steering) && isStringArray(event.followUp)
     case 'compaction_start':
-      return typeof event.reason === 'string'
+      return typeof event.reason === 'string' && isOptionalString(event.operationId)
     case 'compaction_end':
       return (
         typeof event.reason === 'string' &&
         typeof event.aborted === 'boolean' &&
         typeof event.willRetry === 'boolean' &&
+        isOptionalString(event.operationId) &&
         isOptionalString(event.errorMessage) &&
         isOptionalNumber(event.tokensBefore) &&
         isOptionalNumber(event.estimatedTokensAfter)

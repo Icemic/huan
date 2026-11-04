@@ -367,12 +367,14 @@ export type HarnessClientEventBody =
       parentToolCallId?: string
     }
   | { type: 'queue_update'; steering: readonly string[]; followUp: readonly string[] }
-  | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow' }
+  | { type: 'compaction_start'; reason: 'manual' | 'threshold' | 'overflow'; operationId?: string }
   | {
       type: 'compaction_end'
       reason: 'manual' | 'threshold' | 'overflow'
       aborted: boolean
       willRetry: boolean
+      /** 与对应 compaction_start 相同；缺失时由客户端沿用进行中标识。 */
+      operationId?: string
       /** 失败原因（取消时不写）。 */
       errorMessage?: string
       /** 压缩前的上下文 token 估算（成功时）。 */
@@ -487,7 +489,7 @@ export type HarnessThreadSnapshot = {
   hostUi?: HarnessThreadHostUi
   /** 用户 Shell 的实时/刚完成状态；持久化为历史消息后清除。 */
   bash?: HarnessBashRun
-  /** 压缩运行态（进行中、原因与最近失败原因）。 */
+  /** 压缩运行态（进行中/最近结局、操作标识与展示锚点）。 */
   compaction?: HarnessCompactionPhase
   readiness?: HarnessRuntimeReadiness
   /** 快照反映的每线程序号；HTTP 冷读可缺席。 */
