@@ -89,8 +89,12 @@ function describeEntry(entry: SessionEntry): {
           text ??
           error ??
           (toolNames.length > 0 ? `工具调用：${toolNames.join('、')}` : '(空助手消息)')
+        // 只有没有任何正文/错误的工具调用才整体归入工具节点；正文或错误仍按助手
+        // 消息呈现，不根据摘要是否以「工具调用：」开头来猜测类型。
+        const kind: HarnessTreeEntryKind =
+          toolCalls.length > 0 && text === undefined && error === undefined ? 'tool' : 'assistant'
         return {
-          kind: 'assistant',
+          kind,
           role,
           summary,
           ...(toolCalls.length > 0 ? { hasToolCalls: true } : {}),

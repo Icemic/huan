@@ -64,9 +64,12 @@ async function openTree(page: Page): Promise<void> {
 }
 
 async function navigateToRow(page: Page, rowText: string): Promise<void> {
+  // 非活动分支默认折叠；通过界面搜索揭示目标后再导航。
+  await treeDialog(page).getByRole('textbox', { name: '搜索会话树' }).fill(rowText)
   const row = treeRows(page).filter({ hasText: rowText }).first()
   await row.hover()
   await row.getByRole('button', { name: '跳转到此节点' }).click()
+  await treeDialog(page).getByRole('textbox', { name: '搜索会话树' }).fill('')
 }
 
 /** 按标题（显式名称或首条用户消息）读取会话 ID。 */
@@ -331,6 +334,7 @@ test('克隆当前活动路径排除废弃分支；父子各自发送互不污�
   // 完整树中也没有废弃分支（不是只隐藏了活动路径）。
   await openTree(page)
   await treeDialog(page).getByRole('button', { name: '全部', exact: true }).click()
+  await treeDialog(page).getByRole('textbox', { name: '搜索会话树' }).fill(abandonedReply)
   await expect(treeRows(page).filter({ hasText: abandonedReply })).toHaveCount(0)
   await treeDialog(page).getByRole('button', { name: '关闭' }).first().click()
 
@@ -346,6 +350,7 @@ test('克隆当前活动路径排除废弃分支；父子各自发送互不污�
   await expect(userMessages(page2)).toHaveCount(2)
   await openTree(page2)
   await treeDialog(page2).getByRole('button', { name: '全部', exact: true }).click()
+  await treeDialog(page2).getByRole('textbox', { name: '搜索会话树' }).fill(abandonedReply)
   await expect(treeRows(page2).filter({ hasText: abandonedReply })).toHaveCount(1)
   await treeDialog(page2).getByRole('button', { name: '关闭' }).first().click()
 

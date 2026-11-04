@@ -11,10 +11,13 @@ import { useServiceStore, useWindowStore } from '@huan/react'
 import { msg } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react'
 import { Trans } from '@lingui/react/macro'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   BotIcon,
   BoxesIcon,
   CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CopyIcon,
   FileTextIcon,
   GitBranchIcon,
@@ -27,7 +30,7 @@ import {
   WrenchIcon,
   XIcon,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -41,9 +44,14 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import {
+  buildSessionTreeIndex,
+  projectSessionTree,
+  type SessionTreeFilter,
+  type SessionTreeVisibleRow,
+} from '@/lib/session-tree-view'
 import { cn } from '@/lib/utils'
 import { useSessionsStore } from '@/state/app-context'
-import type { SessionTreeFilter } from '@/state/sessions-store'
 
 const kindIcon: Record<HarnessTreeEntryKind, typeof UserIcon> = {
   user: UserIcon,
@@ -61,24 +69,37 @@ const formatNodeTime = (timestamp: string | undefined): string | undefined => {
   return time.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
-/** 单行摘要、标签与跳转/分叉操作。 */
+/** 单行摘要、标签与跳转/分叉操作；分支入口额外提供折叠。 */
 function TreeNodeRow({
   node,
   depth,
+  branch,
+  expanded,
+  hiddenCount,
+  contextOnly,
+  first,
   selected,
   busy,
+  onToggle,
   onNavigate,
   onEditLabel,
   onFork,
 }: {
   node: HarnessThreadTreeNode
   depth: number
+  branch: boolean
+  expanded: boolean
+  hiddenCount: number
+  contextOnly: boolean
+  first: boolean
   selected: boolean
   busy: boolean
+  onToggle: () => void
   onNavigate: () => void
   onEditLabel: () => void
   onFork: () => void
 }) {
+  const { i18n } = useLingui()
   const Icon = kindIcon[node.kind]
   const time = formatNodeTime(node.timestamp)
   return (
@@ -89,15 +110,51 @@ function TreeNodeRow({
       data-active={node.active ? 'true' : undefined}
       data-leaf={node.isLeaf ? 'true' : undefined}
       data-selected={selected ? 'true' : undefined}
+      data-branch={branch ? 'true' : undefined}
+      data-expanded={branch ? (expanded ? 'true' : 'false') : undefined}
+      data-context-only={contextOnly ? 'true' : undefined}
       className={cn(
-        'group hover:bg-muted/60 flex min-w-0 items-center gap-1.5 rounded-md py-1 pe-1 text-xs transition-colors',
+        'group hover:bg-muted/60 relative flex min-w-0 items-center gap-1.5 rounded-md py-1 pe-1 text-xs transition-colors',
         selected && 'bg-muted',
+        contextOnly && 'text-muted-foreground',
         node.active && 'text-foreground',
+        branch && !first && 'border-border/60 border-t',
       )}
-      style={{ paddingInlineStart: 6 + depth * 14 }}
+      style={{ paddingInlineStart: depth * 14 }}
     >
+      {depth > 0 && (
+        <span
+          aria-hidden
+          className="bg-border/60 pointer-events-none absolute inset-y-0 w-px"
+          style={{ insetInlineStart: depth * 14 - 7 }}
+        />
+      )}
+      {branch ? (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="shrink-0"
+          aria-label={expanded ? i18n._(msg`收起分支`) : i18n._(msg`展开分支`)}
+          aria-expanded={expanded}
+          title={
+            expanded
+              ? i18n._(msg`收起分支：${node.summary}`)
+              : i18n._(msg`展开分支：${node.summary}（另有 ${hiddenCount} 条）`)
+          }
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggle()
+          }}
+        >
+          {expanded ? <ChevronDownIcon aria-hidden /> : <ChevronRightIcon aria-hidden />}
+        </Button>
+      ) : depth > 0 ? (
+        // 同深度的分支行带折叠按钮：非分支行保留等宽占位；depth 0 单链没有按钮，不留空位。
+        <span aria-hidden className="size-6 shrink-0" />
+      ) : null}
       <span
         aria-hidden
+        data-slot="huan-tree-kind-icon"
         title={node.role ?? node.entryType}
         className={cn(
           'flex size-5 shrink-0 items-center justify-center rounded',
@@ -116,6 +173,11 @@ function TreeNodeRow({
       >
         {node.summary}
       </span>
+      {hiddenCount > 0 && (
+        <span className="text-muted-foreground/80 border-border/60 shrink-0 rounded border px-1 text-[10px] tabular-nums">
+          <Trans>另有 {hiddenCount} 条</Trans>
+        </span>
+      )}
       {time && (
         <span className="text-muted-foreground/70 shrink-0 font-mono text-[10px]">{time}</span>
       )}
@@ -284,7 +346,14 @@ export function SessionTreeDialog() {
   const saveLabel = useSessionsStore((state) => state.saveTreeLabel)
   const cancelSummary = useSessionsStore((state) => state.cancelTreeNavigation)
   const openFork = useSessionsStore((state) => state.openFork)
-  const listRef = useRef<HTMLDivElement>(null)
+  const toggleBranch = useSessionsStore((state) => state.toggleTreeBranch)
+  // 官方 ScrollArea 不暴露 Viewport ref：根节点挂载后取唯一真实滚动元素。
+  const [scrollViewport, setScrollViewport] = useState<HTMLDivElement | null>(null)
+  const bindListRoot = useCallback((node: HTMLDivElement | null) => {
+    setScrollViewport(
+      node?.querySelector<HTMLDivElement>('[data-slot="scroll-area-viewport"]') ?? null,
+    )
+  }, [])
 
   const operation = tree.tree?.operation ?? metadata?.treeOperation
   const summarizing = operation?.status === 'summarizing'
@@ -294,57 +363,67 @@ export function SessionTreeDialog() {
     if (tree.open) syncTreeRevision(metadata?.treeRevision)
   }, [metadata?.treeRevision, syncTreeRevision, tree.open])
 
-  // 选中节点滚动到可视区域；树加载完成后也重新定位。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: tree.tree 变化表示加载完成，需要重新定位选中行。
-  useEffect(() => {
-    if (!tree.selectedEntryId || !tree.open) return
-    const row = listRef.current?.querySelector<HTMLElement>(
-      `[data-entry-id="${tree.selectedEntryId}"]`,
-    )
-    row?.scrollIntoView({ block: 'nearest' })
-  }, [tree.selectedEntryId, tree.open, tree.tree])
+  // 完整树索引只随快照变化；筛选、搜索与折叠再生成一次可见行。
+  const index = useMemo(
+    () => (tree.tree ? buildSessionTreeIndex(tree.tree.nodes) : undefined),
+    [tree.tree],
+  )
+  const visibleRows = useMemo(
+    () =>
+      index
+        ? projectSessionTree(index, {
+            expanded: tree.expandedEntryIds,
+            filter: tree.filter,
+            search: tree.search,
+          })
+        : [],
+    [index, tree.expandedEntryIds, tree.filter, tree.search],
+  )
 
-  const visibleNodes = useMemo(() => {
-    if (!tree.tree) return [] as Array<{ node: HarnessThreadTreeNode; depth: number }>
-    const needle = tree.search.trim().toLowerCase()
-    const matches = (node: HarnessThreadTreeNode): boolean => {
-      if (tree.filter === 'conversation') {
-        return (
-          node.kind === 'user' ||
-          node.kind === 'assistant' ||
-          node.kind === 'summary' ||
-          node.kind === 'custom'
-        )
-      }
-      if (tree.filter === 'tools') return node.kind === 'tool' || node.hasToolCalls === true
-      if (tree.filter === 'labeled') return node.label !== undefined
-      return true
+  // 以真实 Viewport 为滚动元素；行高由 measureElement 动态测量，标签表单也计入同一行。
+  const virtualizer = useVirtualizer({
+    count: visibleRows.length,
+    getScrollElement: () => scrollViewport,
+    estimateSize: () => 36,
+    overscan: 6,
+    getItemKey: (rowIndex) => visibleRows[rowIndex]?.node.entryId ?? rowIndex,
+  })
+  const virtualItems = virtualizer.getVirtualItems()
+
+  // 定位 effect 通过 ref 读取最新可见行，避免展开/折叠引起的行重排也重置滚动位置。
+  const visibleRowsRef = useRef<SessionTreeVisibleRow[]>([])
+  useEffect(() => {
+    visibleRowsRef.current = visibleRows
+  }, [visibleRows])
+
+  // 只在打开、选中/leaf、搜索或筛选变化时定位；滚动导致的虚拟行重渲染不触发跳转。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: leaf/搜索/筛选变化需要重新定位，可见行由 ref 读取。
+  useEffect(() => {
+    if (!tree.open || !scrollViewport) return
+    const selectedEntryId = tree.selectedEntryId
+    if (!selectedEntryId) return
+    const rows = visibleRowsRef.current
+    const visibleIndices = new Map(rows.map((row, rowIndex) => [row.node.entryId, rowIndex]))
+    // 当前落点可能是筛选隐藏的状态记录；定位最近的可见祖先，保留叶子身份本身。
+    let targetId: string | null | undefined = selectedEntryId
+    let rowIndex = visibleIndices.get(targetId)
+    while (rowIndex === undefined && targetId) {
+      targetId = index?.parentById.get(targetId)
+      if (targetId) rowIndex = visibleIndices.get(targetId)
     }
-    const visibleIds = new Set<string>()
-    for (const node of tree.tree.nodes) {
-      if (!matches(node)) continue
-      if (needle) {
-        const haystack =
-          `${node.summary} ${node.label ?? ''} ${node.role ?? ''} ${node.entryId}`.toLowerCase()
-        if (!haystack.includes(needle)) continue
-      }
-      visibleIds.add(node.entryId)
-    }
-    // 过滤后按最近可见祖先重算缩进；单次先序，O(n)。
-    const depthById = new Map<string, number>()
-    const rendered: Array<{ node: HarnessThreadTreeNode; depth: number }> = []
-    for (const node of tree.tree.nodes) {
-      const parentDepth = node.parentId ? depthById.get(node.parentId) : undefined
-      const visibleParent = node.parentId !== null && visibleIds.has(node.parentId)
-      const depth =
-        node.parentId === null || parentDepth === undefined
-          ? 0
-          : parentDepth + (visibleParent ? 1 : 0)
-      depthById.set(node.entryId, depth)
-      if (visibleIds.has(node.entryId)) rendered.push({ node, depth })
-    }
-    return rendered
-  }, [tree.filter, tree.search, tree.tree])
+    if (rowIndex === undefined) return
+    // 本版 react-virtual 没有 nearest 字面量：auto 仅在行不可见时按最近边滚动。
+    virtualizer.scrollToIndex(rowIndex, { align: 'auto' })
+  }, [
+    tree.open,
+    tree.selectedEntryId,
+    tree.tree?.leafId,
+    tree.search,
+    tree.filter,
+    scrollViewport,
+    index,
+    virtualizer,
+  ])
 
   const filters: Array<{ value: SessionTreeFilter; label: string }> = [
     { value: 'conversation', label: i18n._(msg`对话`) },
@@ -352,6 +431,7 @@ export function SessionTreeDialog() {
     { value: 'all', label: i18n._(msg`全部`) },
     { value: 'labeled', label: i18n._(msg`已标记`) },
   ]
+  // 桌面放宽到 896px；官方基础 max-w-[calc(100%-2rem)] 继续提供移动端安全边距，高度不变。
   return (
     <Dialog
       open={tree.open}
@@ -359,7 +439,10 @@ export function SessionTreeDialog() {
         if (!next) closeTree()
       }}
     >
-      <DialogContent aria-label={i18n._(msg`会话树`)} className="flex max-h-[82vh] flex-col">
+      <DialogContent
+        aria-label={i18n._(msg`会话树`)}
+        className="flex h-[min(82dvh,44rem)] flex-col sm:max-w-4xl"
+      >
         <DialogHeader>
           <DialogTitle>
             <Trans>会话树</Trans>
@@ -456,19 +539,21 @@ export function SessionTreeDialog() {
         </div>
 
         <ScrollArea
+          ref={bindListRoot}
           data-slot="huan-tree-list"
+          data-total-count={visibleRows.length}
           className={cn(
-            'flex min-h-24 flex-1 flex-col rounded-md border border-border/70',
+            'flex min-h-0 flex-1 flex-col rounded-md border border-border/70',
             '*:data-[slot=scroll-area-viewport]:flex-1',
           )}
         >
-          <div ref={listRef} className="p-1">
+          <div className="p-1">
             {tree.loading && !tree.tree ? (
               <div className="text-muted-foreground flex items-center gap-2 p-2 text-xs">
                 <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
                 <Trans>正在读取会话树…</Trans>
               </div>
-            ) : visibleNodes.length === 0 ? (
+            ) : visibleRows.length === 0 ? (
               <div className="text-muted-foreground p-2 text-xs">
                 {tree.tree?.nodes.length === 0 ? (
                   <Trans>该会话还没有条目。</Trans>
@@ -477,59 +562,78 @@ export function SessionTreeDialog() {
                 )}
               </div>
             ) : (
-              visibleNodes.map(({ node, depth }) => (
-                <div key={node.entryId}>
-                  <TreeNodeRow
-                    node={node}
-                    depth={depth}
-                    selected={tree.selectedEntryId === node.entryId}
-                    busy={tree.busy || operation !== undefined}
-                    onNavigate={() => beginNavigation(node)}
-                    onEditLabel={() => beginLabel(node.entryId)}
-                    onFork={() => {
-                      if (!threadId) return
-                      openFork({
-                        threadId,
-                        position: 'before',
-                        entryId: node.entryId,
-                      })
-                    }}
-                  />
-                  {label?.entryId === node.entryId && (
-                    <div className="bg-muted/40 mb-1 flex items-center gap-1.5 rounded-md p-1.5">
-                      <Input
-                        autoFocus
-                        className="h-6 text-xs"
-                        aria-label={i18n._(msg`节点标签`)}
-                        placeholder={i18n._(msg`留空即清除标签`)}
-                        value={label.value}
-                        onChange={(event) => setLabelValue(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') void saveLabel()
-                          if (event.key === 'Escape') cancelLabel()
+              <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualItems.map((virtualRow) => {
+                  const row = visibleRows[virtualRow.index]
+                  if (!row) return null
+                  const node = row.node
+                  return (
+                    <div
+                      key={node.entryId}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      className="absolute top-0 left-0 w-full"
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    >
+                      <TreeNodeRow
+                        node={node}
+                        depth={row.depth}
+                        branch={row.branch}
+                        expanded={row.expanded}
+                        hiddenCount={row.hiddenCount}
+                        contextOnly={row.contextOnly === true}
+                        first={virtualRow.index === 0}
+                        selected={tree.selectedEntryId === node.entryId}
+                        busy={tree.busy || operation !== undefined}
+                        onToggle={() => toggleBranch(node.entryId)}
+                        onNavigate={() => beginNavigation(node)}
+                        onEditLabel={() => beginLabel(node.entryId)}
+                        onFork={() => {
+                          if (!threadId) return
+                          openFork({
+                            threadId,
+                            position: 'before',
+                            entryId: node.entryId,
+                          })
                         }}
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={i18n._(msg`保存标签`)}
-                        disabled={tree.busy}
-                        onClick={() => void saveLabel()}
-                      >
-                        <CheckIcon aria-hidden />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={i18n._(msg`取消编辑标签`)}
-                        onClick={cancelLabel}
-                      >
-                        <XIcon aria-hidden />
-                      </Button>
+                      {label?.entryId === node.entryId && (
+                        <div className="bg-muted/40 mt-1 flex items-center gap-1.5 rounded-md p-1.5">
+                          <Input
+                            autoFocus
+                            className="h-6 text-xs"
+                            aria-label={i18n._(msg`节点标签`)}
+                            placeholder={i18n._(msg`留空即清除标签`)}
+                            value={label.value}
+                            onChange={(event) => setLabelValue(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') void saveLabel()
+                              if (event.key === 'Escape') cancelLabel()
+                            }}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={i18n._(msg`保存标签`)}
+                            disabled={tree.busy}
+                            onClick={() => void saveLabel()}
+                          >
+                            <CheckIcon aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={i18n._(msg`取消编辑标签`)}
+                            onClick={cancelLabel}
+                          >
+                            <XIcon aria-hidden />
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))
+                  )
+                })}
+              </div>
             )}
           </div>
         </ScrollArea>

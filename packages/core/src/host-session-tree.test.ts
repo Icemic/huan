@@ -12,6 +12,7 @@ import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createHarnessHost, type HarnessHost, ThreadStructureBusyError } from './host.js'
 import { defaultSessionsRoot } from './session-dir.js'
+import { buildSessionTree } from './session-tree.js'
 import {
   createIsolatedPiEnv,
   type IsolatedPiEnv,
@@ -853,5 +854,92 @@ describe('冷树结构细节与损坏落点', () => {
     expect(cold.metadata.treeRevision).toBe(`v1:${entryCount}:null`)
     expect((await host.getThreadDetails(threadId)).branchEntryCount).toBe(0)
     expect((await host.getThreadTree(threadId)).leafId).toBeNull()
+  })
+})
+
+describe('冷树工具调用分类', () => {
+  it('纯工具调用归为 tool，有正文/错误或普通文本仍为 assistant', () => {
+    const manager = SessionManager.create(env.workspace, env.defaultSessionDir(env.workspace))
+    const usage = {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    }
+    const baseAssistant = {
+      role: 'assistant' as const,
+      api: 'openai-completions' as const,
+      provider: 'huan-test',
+      model: 'test-model-a',
+      usage,
+      timestamp: Date.now(),
+    }
+    const toolCall = (id: string) => ({
+      type: 'toolCall' as const,
+      id,
+      name: 'read',
+      arguments: { path: 'a.txt' },
+    })
+
+    const pureToolId = manager.appendMessage({
+      ...baseAssistant,
+      content: [
+        { type: 'thinking', thinking: '先读取文件' },
+        { type: 'text', text: '  \n\t ' },
+        toolCall('call_pure'),
+      ],
+      stopReason: 'toolUse',
+    })
+    const textWithCallId = manager.appendMessage({
+      ...baseAssistant,
+      content: [{ type: 'text', text: '准备调用工具' }, toolCall('call_text')],
+      stopReason: 'toolUse',
+    })
+    const errorWithCallId = manager.appendMessage({
+      ...baseAssistant,
+      content: [toolCall('call_error')],
+      stopReason: 'error',
+      errorMessage: '合成模型失败',
+    })
+    const plainTextId = manager.appendMessage({
+      ...baseAssistant,
+      content: [{ type: 'text', text: '工具调用：read' }],
+      stopReason: 'stop',
+    })
+
+    const nodes = new Map(
+      buildSessionTree(manager.getSessionId(), manager, {
+        branchSummarySkipPrompt: true,
+      }).nodes.map((node) => [node.entryId, node]),
+    )
+
+    expect(nodes.get(pureToolId)).toMatchObject({
+      kind: 'tool',
+      role: 'assistant',
+      entryType: 'message',
+      summary: '工具调用：read',
+      hasToolCalls: true,
+    })
+    expect(nodes.get(textWithCallId)).toMatchObject({
+      kind: 'assistant',
+      role: 'assistant',
+      summary: '准备调用工具',
+      hasToolCalls: true,
+    })
+    expect(nodes.get(errorWithCallId)).toMatchObject({
+      kind: 'assistant',
+      role: 'assistant',
+      summary: '合成模型失败',
+      hasToolCalls: true,
+    })
+    // 普通正文恰好以「工具调用：」开头时，不能按摘要前缀误判为工具节点。
+    expect(nodes.get(plainTextId)).toMatchObject({
+      kind: 'assistant',
+      role: 'assistant',
+      summary: '工具调用：read',
+    })
+    expect(nodes.get(plainTextId)?.hasToolCalls).toBeUndefined()
   })
 })

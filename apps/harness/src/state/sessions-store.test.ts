@@ -7,6 +7,7 @@ import type {
   HarnessThreadImportResult,
   HarnessThreadSnapshot,
   HarnessThreadTree,
+  HarnessThreadTreeNode,
   HarnessTreeNavigateResult,
 } from '@huan/protocol'
 import { createHarnessBrowser, type HarnessBrowser } from '@huan/react'
@@ -29,6 +30,56 @@ const treeOf = (threadId: string, revision = `v1:0:${threadId}`): HarnessThreadT
   leafId: null,
   revision,
   nodes: [],
+  branchSummarySkipPrompt: true,
+})
+
+const treeNodeOf = (
+  entryId: string,
+  parentId: string | null,
+  depth: number,
+  overrides: Partial<HarnessThreadTreeNode> = {},
+): HarnessThreadTreeNode => ({
+  entryId,
+  parentId,
+  depth,
+  kind: 'user',
+  entryType: 'message',
+  summary: entryId,
+  active: false,
+  isLeaf: false,
+  childCount: 0,
+  ...overrides,
+})
+
+/** 根下 a/b 两个分支，各带一个叶节点；用于核对活动路径初始化。 */
+const forkedTreeOf = (
+  threadId: string,
+  leaf: 'a1' | 'b1',
+  revision: string,
+): HarnessThreadTree => ({
+  threadId,
+  leafId: leaf,
+  revision,
+  nodes: [
+    treeNodeOf('r', null, 0, { childCount: 2, active: true }),
+    treeNodeOf('a', 'r', 1, { childCount: 1, active: leaf === 'a1' }),
+    treeNodeOf('a1', 'a', 2, { isLeaf: leaf === 'a1', active: leaf === 'a1' }),
+    treeNodeOf('b', 'r', 1, { childCount: 1, active: leaf === 'b1' }),
+    treeNodeOf('b1', 'b', 2, { isLeaf: leaf === 'b1', active: leaf === 'b1' }),
+  ],
+  branchSummarySkipPrompt: true,
+})
+
+/** 去掉 a/b 分叉的单链，用于核对失效展开 ID 被丢弃。 */
+const chainTreeOf = (threadId: string, leafId: string, revision: string): HarnessThreadTree => ({
+  threadId,
+  leafId,
+  revision,
+  nodes: [
+    treeNodeOf('r', null, 0, { childCount: 1, active: true }),
+    treeNodeOf('b', 'r', 1, { childCount: 1, active: true }),
+    treeNodeOf(leafId, 'b', 2, { isLeaf: true, active: true }),
+  ],
   branchSummarySkipPrompt: true,
 })
 
@@ -574,5 +625,132 @@ describe('sessions feature：定向 consume 来源保护', () => {
       threadId: 'target',
     })
     expect(browser.windowStore.getState().draftsById['thread:target']?.text).toBe('目标文本')
+  })
+})
+
+describe('sessions feature：会话树分支展开与落点选中', () => {
+  it('打开树时展开活动路径并选中 leaf；关闭保留展开状态，重开按当前路径重置', async () => {
+    const fake = createFakeClient()
+    fake.tree.mockResolvedValue(forkedTreeOf('t1', 'a1', 'v1'))
+    const browser = createBrowser(fake.client)
+    const sessions = createSessionsFeatureStore({ browser })
+
+    sessions.getState().openTree('t1')
+    await waitForTree(sessions)
+    expect([...sessions.getState().tree.expandedEntryIds]).toEqual(['a'])
+    expect(sessions.getState().tree.selectedEntryId).toBe('a1')
+
+    sessions.getState().toggleTreeBranch('a')
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+    // 非分支入口或无子节点的分支入口不产生 toggle。
+    sessions.getState().toggleTreeBranch('r')
+    sessions.getState().toggleTreeBranch('a1')
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+    sessions.getState().toggleTreeBranch('b')
+    expect([...sessions.getState().tree.expandedEntryIds]).toEqual(['b'])
+    sessions.getState().toggleTreeBranch('b')
+
+    sessions.getState().closeTree()
+    expect(sessions.getState().tree.tree?.leafId).toBe('a1')
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+
+    sessions.getState().openTree('t1')
+    await waitForTree(sessions)
+    expect([...sessions.getState().tree.expandedEntryIds]).toEqual(['a'])
+    expect(sessions.getState().tree.selectedEntryId).toBe('a1')
+  })
+
+  it('刷新保留用户收起；leaf 改变补开新路径并丢弃失效展开 ID', async () => {
+    const fake = createFakeClient()
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'a1', 'v1'))
+    const browser = createBrowser(fake.client)
+    const sessions = createSessionsFeatureStore({ browser })
+
+    sessions.getState().openTree('t1')
+    await waitForTree(sessions)
+    sessions.getState().toggleTreeBranch('a')
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'a1', 'v2'))
+    await sessions.getState().refreshTree()
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+    expect(sessions.getState().tree.selectedEntryId).toBe('a1')
+
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'b1', 'v3'))
+    await sessions.getState().refreshTree()
+    expect([...sessions.getState().tree.expandedEntryIds]).toEqual(['b'])
+    expect(sessions.getState().tree.selectedEntryId).toBe('b1')
+
+    fake.tree.mockResolvedValueOnce(chainTreeOf('t1', 'b1', 'v4'))
+    await sessions.getState().refreshTree()
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+    expect(sessions.getState().tree.selectedEntryId).toBe('b1')
+  })
+
+  it('leaf 改变时保留 beginNavigation 的显式选择，不被新 leaf 覆盖', async () => {
+    const fake = createFakeClient()
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'a1', 'v1'))
+    const browser = createBrowser(fake.client)
+    const sessions = createSessionsFeatureStore({ browser })
+
+    sessions.getState().openTree('t1')
+    await waitForTree(sessions)
+    const target = sessions.getState().tree.tree?.nodes.find((node) => node.entryId === 'b')
+    if (!target) throw new Error('缺少分支节点')
+    sessions.getState().beginTreeNavigation(target)
+    expect(sessions.getState().tree.selectedEntryId).toBe('b')
+
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'b1', 'v2'))
+    await sessions.getState().refreshTree()
+    expect(sessions.getState().tree.selectedEntryId).toBe('b')
+    expect([...sessions.getState().tree.expandedEntryIds].sort()).toEqual(['a', 'b'])
+  })
+
+  it('导航成功后的刷新按新 leaf 补开分支并选中新落点', async () => {
+    const fake = createFakeClient()
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'a1', 'v1'))
+    const browser = createBrowser(fake.client)
+    const sessions = createSessionsFeatureStore({ browser })
+
+    sessions.getState().openTree('t1')
+    await waitForTree(sessions)
+    sessions.getState().toggleTreeBranch('a')
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+
+    fake.tree.mockResolvedValueOnce(forkedTreeOf('t1', 'b1', 'v2'))
+    fake.navigate.mockResolvedValueOnce({
+      status: 'applied',
+      leafId: 'b1',
+      treeRevision: 'v2',
+      snapshot: snapshotOf('t1', {
+        metadata: { id: 't1', status: 'idle', leafId: 'b1', treeRevision: 'v2' },
+      }),
+    })
+    const result = await sessions.getState().navigateTree({
+      targetId: 'b1',
+      expectedRevision: 'v1',
+    })
+    expect(result.status).toBe('applied')
+    await vi.waitFor(() => expect(sessions.getState().tree.tree?.leafId).toBe('b1'))
+    expect([...sessions.getState().tree.expandedEntryIds]).toEqual(['b'])
+    expect(sessions.getState().tree.selectedEntryId).toBe('b1')
+  })
+
+  it('关闭后迟到的树结果不写回展开或选中状态', async () => {
+    const fake = createFakeClient()
+    const oldTree = deferred<HarnessThreadTree>()
+    fake.tree.mockImplementationOnce(async () => oldTree.promise)
+    const browser = createBrowser(fake.client)
+    const sessions = createSessionsFeatureStore({ browser })
+
+    sessions.getState().openTree('t1')
+    await vi.waitFor(() => expect(fake.tree).toHaveBeenCalledWith('t1'))
+    sessions.getState().closeTree()
+    oldTree.resolve(forkedTreeOf('t1', 'b1', 'v2'))
+    await Promise.resolve()
+
+    expect(sessions.getState().tree.tree).toBeUndefined()
+    expect(sessions.getState().tree.expandedEntryIds.size).toBe(0)
+    expect(sessions.getState().tree.selectedEntryId).toBeUndefined()
   })
 })

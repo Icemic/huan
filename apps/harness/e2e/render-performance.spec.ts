@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises'
+import type { HarnessThreadTree } from '@huan/protocol'
 import { type APIRequestContext, expect, type Page, test } from '@playwright/test'
 import {
   assistantMessages,
@@ -133,6 +134,27 @@ async function openImportedSession(
   await expect(dialog.getByRole('status')).toContainText('会话已导入', { timeout: 30_000 })
   await dialog.getByRole('button', { name: '打开已导入会话' }).click()
   await expect(dialog).toHaveCount(0)
+}
+
+/** 对话过滤可见的节点类型；与面板 conversation 过滤保持一致。 */
+const conversationKinds: ReadonlySet<string> = new Set(['user', 'assistant', 'summary', 'custom'])
+
+/**
+ * 按对话过滤回溯 leaf 的最近可见祖先。
+ *
+ * 导入会在活动链末尾追加 state 条目成为 leaf，默认对话过滤隐藏它；面板定位
+ * 的正是这个祖先，而不是伪造可见 leaf。
+ */
+function nearestConversationEntryId(tree: HarnessThreadTree): string {
+  const byId = new Map(tree.nodes.map((node) => [node.entryId, node]))
+  let cursor = tree.leafId
+  while (cursor !== null) {
+    const node = byId.get(cursor)
+    if (!node) throw new Error(`树响应缺少节点：${cursor}`)
+    if (conversationKinds.has(node.kind)) return node.entryId
+    cursor = node.parentId
+  }
+  throw new Error('活动链上没有对话过滤可见的节点')
 }
 
 // 只在测试浏览器内观察提交并计数函数入口，不向生产组件加入计数器。
@@ -316,23 +338,57 @@ test('大量历史下输入与流式输出不刷新无关会话行', async ({ pa
     expect(markdownView.tables).toBe(1)
     expect(markdownView.codeBlocks).toBeGreaterThan(0)
 
-    // 代表性长树：导入 120 轮会话后测量树面板首次列出全部节点的时间。
+    // 代表性长树：导入 120 轮（240 条消息）会话后测量打开虚拟列表并定位当前可见落点的时间。
     console.log('phase tree: writing source')
     const treeSource = await writeTreeSource(request, prefix)
     console.log('phase tree: importing')
     await openImportedSession(page, treeSource.path, treeSource.workspaceName)
     console.log('phase tree: opening panel')
     const treeStart = Date.now()
+    // 首次读树由菜单动作触发，必须先挂响应等待；再按真实 leaf 回溯对话过滤下的可见落点。
+    const pendingTree = page.waitForResponse(
+      (response) => response.request().method() === 'GET' && response.url().endsWith('/tree'),
+    )
     await chooseSessionAction(page, '会话树')
+    const treeResponse = await pendingTree
+    expect(treeResponse.ok()).toBe(true)
+    const tree = (await treeResponse.json()) as HarnessThreadTree
     const treeDialog = page.getByRole('dialog', { name: '会话树' })
     await expect(treeDialog).toBeVisible()
+    const treeList = treeDialog.locator('[data-slot="huan-tree-list"]')
     const treeRows = treeDialog.locator('[data-slot="huan-tree-row"]')
-    await expect(treeRows.first()).toBeVisible()
+    const leafRows = treeDialog.locator('[data-slot="huan-tree-row"][data-leaf="true"]')
+    // 导入追加的 state leaf 被默认对话过滤隐藏，落点停在末条助手回复；
+    // 首次定位也会滚动到该行，首行此时不在视口内。
+    const currentEntryId = nearestConversationEntryId(tree)
+    expect(currentEntryId).toBe('assistant-119')
+    const currentRow = treeDialog.locator(
+      `[data-slot="huan-tree-row"][data-entry-id="${currentEntryId}"]`,
+    )
+    await expect(currentRow).toBeVisible()
+    // 虚拟列表按可视区挂载并带 overscan，只有滚到位才算完成定位。
+    await expect(currentRow).toBeInViewport()
+    await expect(currentRow).toHaveAttribute('data-active', 'true')
+    await expect(leafRows).toHaveCount(0)
     const treeMs = Date.now() - treeStart
-    const treeCount = await treeRows.count()
-    measurements.push({ tree: { ms: treeMs, rows: treeCount } })
-    console.log(JSON.stringify({ tree: { ms: treeMs, rows: treeCount } }))
-    expect(treeCount).toBeGreaterThan(200)
+    const totalCount = Number(await treeList.getAttribute('data-total-count'))
+    const mountedCount = await treeRows.count()
+    measurements.push({ tree: { ms: treeMs, totalCount, mountedCount } })
+    console.log(JSON.stringify({ tree: { ms: treeMs, totalCount, mountedCount } }))
+    expect(totalCount).toBeGreaterThan(200)
+    // 虚拟列表只挂载可视行与少量预渲染行，不能把挂载数当全量节点数。
+    expect(mountedCount).toBeGreaterThan(0)
+    expect(mountedCount).toBeLessThan(80)
+
+    // 滚到顶部后首行必须重新挂载并可见。
+    const treeViewport = treeList.locator('[data-slot="scroll-area-viewport"]')
+    await treeViewport.evaluate((element) => {
+      element.scrollTop = 0
+    })
+    await expect.poll(async () => treeViewport.evaluate((element) => element.scrollTop)).toBe(0)
+    const firstRow = treeList.locator('[data-index="0"] [data-slot="huan-tree-row"]')
+    await expect(firstRow).toBeVisible()
+    await expect(firstRow).toHaveAttribute('data-entry-id', 'user-0')
     await page.keyboard.press('Escape')
     await expect(treeDialog).toHaveCount(0)
 

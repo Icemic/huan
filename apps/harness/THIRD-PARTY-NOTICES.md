@@ -92,6 +92,12 @@ SOFTWARE.
 - 安装版本：1.4.0；许可：MIT（许可文本随依赖分发）。
 - 用途：官方组件animate-in/out、淡入淡出、缩放与滑动的CSS工具类。全局速度由应用CSS变量维护，不改包内源码；系统减少动态效果偏好在应用层处理。
 
+## @tanstack/react-virtual
+
+- 来源：https://github.com/TanStack/virtual
+- 安装版本：3.14.24；许可：MIT（许可文本随依赖分发）。
+- 用途：会话树可见行虚拟渲染、动态行高测量与索引定位，滚动容器继续使用官方ScrollArea。
+
 ## Geist 可变字体
 
 - 来源：https://github.com/vercel/geist-font

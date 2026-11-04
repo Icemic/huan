@@ -27,11 +27,15 @@ import type {
 } from '@huan/protocol'
 import { draftIdOf, type HarnessBrowser, type HarnessDraftTarget } from '@huan/react'
 import { createStore, type StoreApi } from 'zustand/vanilla'
+import {
+  buildSessionTreeIndex,
+  resolveSessionTreeExpansion,
+  type SessionTreeFilter,
+} from '../lib/session-tree-view'
 
-/** 树过滤模式。 */
-export type SessionTreeFilter = 'conversation' | 'tools' | 'all' | 'labeled'
+export type { SessionTreeFilter } from '../lib/session-tree-view'
 
-/** 树面板状态；只保存查询/选择/提示与当前面板取回文本。 */
+/** 树面板状态；保存查询/选择/展开/提示与当前面板取回文本。 */
 export interface SessionTreePanelState {
   panelId: string
   epoch: number
@@ -45,6 +49,8 @@ export interface SessionTreePanelState {
   selectedEntryId: string | undefined
   filter: SessionTreeFilter
   search: string
+  /** 本面板手动展开的分支入口；重开面板时按活动路径重新初始化。 */
+  expandedEntryIds: ReadonlySet<string>
   /** 本面板的停止/导航取回文本；不自动发送。 */
   recoveredQueue: HarnessTreeQueueRecovery | undefined
 }
@@ -229,6 +235,8 @@ export interface SessionsFeatureState {
   setTreeFilter: (filter: SessionTreeFilter) => void
   setTreeSearch: (search: string) => void
   selectTreeEntry: (entryId: string | undefined) => void
+  /** 切换带后代的分支入口；无子节点或非分支入口忽略。 */
+  toggleTreeBranch: (entryId: string) => void
   navigateTree: (input: SessionTreeNavigateInput) => Promise<HarnessTreeNavigateResult>
   /** 打开导航确认表单；捕获当前目标与草稿是否非空。 */
   beginTreeNavigation: (node: HarnessThreadTreeNode) => void
@@ -308,6 +316,9 @@ export interface CreateSessionsFeatureStoreOptions {
 /** 浏览器上传 JSONL 文本上限（与宿主一致，20MiB）。 */
 const IMPORT_UPLOAD_LIMIT = 20 * 1024 * 1024
 
+/** 空展开集合可共享；每次切换都创建新 Set，不原地修改。 */
+const EMPTY_TREE_EXPANDED: ReadonlySet<string> = new Set()
+
 const errorText = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : String(error)
 
@@ -324,6 +335,7 @@ const emptyTreePanel = (panelId: string): SessionTreePanelState => ({
   selectedEntryId: undefined,
   filter: 'conversation',
   search: '',
+  expandedEntryIds: EMPTY_TREE_EXPANDED,
   recoveredQueue: undefined,
 })
 
@@ -545,7 +557,20 @@ export const createSessionsFeatureStore = (
           const current = get()
           if (current.disposed || request !== treeRequest) return
           if (current.tree.epoch !== epoch || current.tree.threadId !== threadId) return
-          set({ tree: { ...current.tree, tree, loading: false, error: undefined } })
+          const expansion = resolveSessionTreeExpansion(current.tree.tree, tree, {
+            expanded: current.tree.expandedEntryIds,
+            selectedEntryId: current.tree.selectedEntryId,
+          })
+          set({
+            tree: {
+              ...current.tree,
+              tree,
+              expandedEntryIds: expansion.expandedEntryIds,
+              selectedEntryId: expansion.selectedEntryId,
+              loading: false,
+              error: undefined,
+            },
+          })
         } catch (error) {
           const current = get()
           if (current.disposed || request !== treeRequest) return
@@ -588,6 +613,18 @@ export const createSessionsFeatureStore = (
         const state = get()
         if (state.disposed) return
         set({ tree: { ...state.tree, selectedEntryId: entryId } })
+      },
+
+      toggleTreeBranch: (entryId) => {
+        const state = get()
+        const tree = state.tree.tree
+        if (state.disposed || !tree) return
+        const index = buildSessionTreeIndex(tree.nodes)
+        if (index.byId.get(entryId)?.expandable !== true) return
+        const expandedEntryIds = new Set(state.tree.expandedEntryIds)
+        if (expandedEntryIds.has(entryId)) expandedEntryIds.delete(entryId)
+        else expandedEntryIds.add(entryId)
+        set({ tree: { ...state.tree, expandedEntryIds } })
       },
 
       beginTreeNavigation: (node) => {

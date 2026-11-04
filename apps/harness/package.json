@@ -24,6 +24,7 @@
     "@huan/react": "workspace:*",
     "@lingui/core": "^6.8.0",
     "@lingui/react": "^6.8.0",
+    "@tanstack/react-virtual": "3.14.24",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "hono": "4.13.12",
