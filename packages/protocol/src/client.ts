@@ -79,6 +79,7 @@ import type {
   HarnessSettingsSnapshot,
   HarnessSettingsTargetInput,
 } from './settings.js'
+import type { HarnessSubagentClient } from './subagent.js'
 import type {
   HarnessClientEvent,
   HarnessCreateThreadInput,
@@ -384,4 +385,5 @@ export type HarnessClient = HarnessHostClient &
   HarnessWorkspaceClient &
   HarnessCatalogClient &
   HarnessSessionClient &
+  HarnessSubagentClient &
   HarnessConfigurationClient

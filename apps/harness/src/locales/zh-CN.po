@@ -73,15 +73,15 @@ msgstr "上下文已压缩"
 msgid "上传文件"
 msgstr "上传文件"
 
-#: src/components/session-tree-dialog.tsx:273
+#: src/components/session-tree-dialog.tsx:274
 msgid "不会自动发送；可复制或恢复到输入框。"
 msgstr "不会自动发送；可复制或恢复到输入框。"
 
-#: src/components/chat/tool-part.tsx:88
+#: src/components/chat/tool-part.tsx:168
 msgid "不完整"
 msgstr "不完整"
 
-#: src/components/session-tree-dialog.tsx:663
+#: src/components/session-tree-dialog.tsx:665
 msgid "不摘要（只切换上下文）"
 msgstr "不摘要（只切换上下文）"
 
@@ -134,6 +134,10 @@ msgstr "从左侧选择会话，或直接在下方输入以新建会话。"
 msgid "从这条消息分叉"
 msgstr "从这条消息分叉"
 
+#: src/components/subagent-task-dialog.tsx:201
+msgid "任务尚未开始运行，暂无子会话记录。"
+msgstr "任务尚未开始运行，暂无子会话记录。"
+
 #: src/components/session-dialogs.tsx:166
 msgid "会话 ID"
 msgstr "会话 ID"
@@ -155,8 +159,8 @@ msgid "会话暂时不可用"
 msgstr "会话暂时不可用"
 
 #: src/components/session-actions-menu.tsx:211
-#: src/components/session-tree-dialog.tsx:441
-#: src/components/session-tree-dialog.tsx:446
+#: src/components/session-tree-dialog.tsx:443
+#: src/components/session-tree-dialog.tsx:448
 msgid "会话树"
 msgstr "会话树"
 
@@ -180,7 +184,7 @@ msgstr "作为新会话导入"
 msgid "使用源会话起始目录"
 msgstr "使用源会话起始目录"
 
-#: src/components/session-tree-dialog.tsx:685
+#: src/components/session-tree-dialog.tsx:687
 msgid "例如：重点保留文件改动与失败命令"
 msgstr "例如：重点保留文件改动与失败命令"
 
@@ -207,7 +211,7 @@ msgstr "保存后同步到已打开的会话；项目设置覆盖仍然有效。
 msgid "保存所有设置更改"
 msgstr "保存所有设置更改"
 
-#: src/components/session-tree-dialog.tsx:615
+#: src/components/session-tree-dialog.tsx:617
 msgid "保存标签"
 msgstr "保存标签"
 
@@ -227,7 +231,7 @@ msgstr "修改"
 msgid "修改服务器"
 msgstr "修改服务器"
 
-#: src/components/session-tree-dialog.tsx:732
+#: src/components/session-tree-dialog.tsx:734
 msgid "停止并跳转"
 msgstr "停止并跳转"
 
@@ -236,7 +240,7 @@ msgid "停止运行"
 msgstr "停止运行"
 
 #. placeholder {0}: items.length
-#: src/components/session-tree-dialog.tsx:270
+#: src/components/session-tree-dialog.tsx:271
 msgid "停止运行后取回 {0} 条未发送消息"
 msgstr "停止运行后取回 {0} 条未发送消息"
 
@@ -246,6 +250,7 @@ msgstr "停用"
 
 #: src/components/pi-host-interactions.tsx:85
 #: src/components/pi-thread-host-ui.tsx:109
+#: src/components/subagent-task-dialog.tsx:163
 msgid "允许"
 msgstr "允许"
 
@@ -285,7 +290,7 @@ msgstr "克隆当前会话"
 msgid "全局服务器配置；连接与工具从会话查看。"
 msgstr "全局服务器配置；连接与工具从会话查看。"
 
-#: src/components/session-tree-dialog.tsx:430
+#: src/components/session-tree-dialog.tsx:431
 msgid "全部"
 msgstr "全部"
 
@@ -302,7 +307,7 @@ msgstr "共 {0} 条"
 #: src/components/pi-mcp-panel.tsx:1653
 #: src/components/runtime-operations.tsx:330
 #: src/components/session-dialogs.tsx:302
-#: src/components/session-tree-dialog.tsx:749
+#: src/components/session-tree-dialog.tsx:751
 #: src/components/settings-resources-dialog.tsx:388
 #: src/components/workspace-manager.tsx:661
 msgid "关闭"
@@ -348,7 +353,7 @@ msgid "凭据说明"
 msgstr "凭据说明"
 
 #: src/components/chat/data-part.tsx:171
-#: src/components/session-tree-dialog.tsx:659
+#: src/components/session-tree-dialog.tsx:661
 msgid "分支摘要"
 msgstr "分支摘要"
 
@@ -373,11 +378,11 @@ msgstr "删除"
 msgid "删除会话"
 msgstr "删除会话"
 
-#: src/components/session-tree-dialog.tsx:746
+#: src/components/session-tree-dialog.tsx:748
 msgid "刷新"
 msgstr "刷新"
 
-#: src/components/session-tree-dialog.tsx:527
+#: src/components/session-tree-dialog.tsx:529
 msgid "刷新会话树"
 msgstr "刷新会话树"
 
@@ -448,7 +453,7 @@ msgstr "压缩失败或取消都会保留原始消息树；压缩可能产生模
 msgid "压缩预留 tokens"
 msgstr "压缩预留 tokens"
 
-#: src/components/chat/tool-part.tsx:235
+#: src/components/chat/tool-part.tsx:353
 msgid "参数"
 msgstr "参数"
 
@@ -464,7 +469,8 @@ msgstr "取回全部"
 #: src/components/session-dialogs.tsx:355
 #: src/components/session-dialogs.tsx:448
 #: src/components/session-fork-dialog.tsx:101
-#: src/components/session-tree-dialog.tsx:722
+#: src/components/session-tree-dialog.tsx:724
+#: src/components/subagent-task-card.tsx:158
 #: src/components/workspace-manager.tsx:498
 #: src/components/workspace-manager.tsx:616
 msgid "取消"
@@ -474,20 +480,28 @@ msgstr "取消"
 msgid "取消 Shell"
 msgstr "取消 Shell"
 
+#: src/components/subagent-task-dialog.tsx:325
+msgid "取消任务"
+msgstr "取消任务"
+
 #: src/components/runtime-operations.tsx:300
 msgid "取消压缩"
 msgstr "取消压缩"
+
+#: src/components/subagent-task-card.tsx:186
+msgid "取消失败："
+msgstr "取消失败："
 
 #: src/components/session-actions-menu.tsx:238
 #: src/components/session-dialogs.tsx:283
 msgid "取消归档"
 msgstr "取消归档"
 
-#: src/components/session-tree-dialog.tsx:473
+#: src/components/session-tree-dialog.tsx:475
 msgid "取消摘要"
 msgstr "取消摘要"
 
-#: src/components/session-tree-dialog.tsx:624
+#: src/components/session-tree-dialog.tsx:626
 msgid "取消编辑标签"
 msgstr "取消编辑标签"
 
@@ -496,11 +510,15 @@ msgstr "取消编辑标签"
 msgid "取消认证"
 msgstr "取消认证"
 
+#: src/components/subagent-task-dialog.tsx:186
+msgid "取消请求"
+msgstr "取消请求"
+
 #: src/components/settings-resource-pane.tsx:84
 msgid "受信装配缓存（未重新执行扩展）"
 msgstr "受信装配缓存（未重新执行扩展）"
 
-#: src/components/session-tree-dialog.tsx:177
+#: src/components/session-tree-dialog.tsx:178
 msgid "另有 {hiddenCount} 条"
 msgstr "另有 {hiddenCount} 条"
 
@@ -532,7 +550,7 @@ msgstr "后台扩展请求修改输入框"
 
 #: src/components/pi-composer-tools.tsx:63
 #: src/components/pi-composer-tools.tsx:197
-#: src/components/session-tree-dialog.tsx:289
+#: src/components/session-tree-dialog.tsx:290
 msgid "后续"
 msgstr "后续"
 
@@ -584,15 +602,32 @@ msgstr "复制输出"
 msgid "外观"
 msgstr "外观"
 
-#: src/app.tsx:178
+#: src/app.tsx:179
 msgid "多项目工作区"
 msgstr "多项目工作区"
 
 #: src/components/runtime-operations.tsx:62
+#: src/components/subagent-task-card.tsx:51
 msgid "失败"
 msgstr "失败"
 
-#: src/components/chat/tool-part.tsx:85
+#: src/components/subagent-task-dialog.tsx:279
+msgid "子任务"
+msgstr "子任务"
+
+#: src/components/subagent-task-dialog.tsx:386
+msgid "子会话（只读）"
+msgstr "子会话（只读）"
+
+#: src/components/subagent-task-dialog.tsx:212
+msgid "子会话暂无消息。"
+msgstr "子会话暂无消息。"
+
+#: src/components/subagent-task-dialog.tsx:203
+msgid "子会话正在启动，暂无消息。"
+msgstr "子会话正在启动，暂无消息。"
+
+#: src/components/chat/tool-part.tsx:165
 msgid "子调用摘要"
 msgstr "子调用摘要"
 
@@ -605,7 +640,11 @@ msgstr "字段校验失败"
 msgid "存储方式"
 msgstr "存储方式"
 
-#: src/components/chat/tool-part.tsx:88
+#: src/components/subagent-task-card.tsx:49
+msgid "完成"
+msgstr "完成"
+
+#: src/components/chat/tool-part.tsx:168
 msgid "完整"
 msgstr "完整"
 
@@ -630,7 +669,7 @@ msgstr "宿主交互"
 msgid "宿主状态"
 msgstr "宿主状态"
 
-#: src/components/session-tree-dialog.tsx:428
+#: src/components/session-tree-dialog.tsx:429
 #: src/components/settings-dialog.tsx:50
 #: src/components/settings-dialog.tsx:239
 msgid "对话"
@@ -706,7 +745,7 @@ msgstr "工作区元数据不可用，会话归属修改已禁用。"
 msgid "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
 msgstr "工作区元数据不可用；请先修复 state.json。当前修改已禁用。"
 
-#: src/app.tsx:116
+#: src/app.tsx:117
 msgid "工作区元数据不可用（{workspaceState}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
 msgstr "工作区元数据不可用（{workspaceState}）。冷历史仍可只读查看；新建会话、会话归属和成员修改已禁用。请修复宿主 huan/state.json 后重启宿主。"
 
@@ -718,7 +757,7 @@ msgstr "工作区名称"
 msgid "工作目录"
 msgstr "工作目录"
 
-#: src/components/session-tree-dialog.tsx:429
+#: src/components/session-tree-dialog.tsx:430
 msgid "工具"
 msgstr "工具"
 
@@ -735,7 +774,7 @@ msgstr "工具与图片"
 msgid "工具与资源"
 msgstr "工具与资源"
 
-#: src/components/chat/tool-part.tsx:218
+#: src/components/chat/tool-part.tsx:332
 msgid "工具仍在运行，以下为部分输出。"
 msgstr "工具仍在运行，以下为部分输出。"
 
@@ -743,7 +782,7 @@ msgstr "工具仍在运行，以下为部分输出。"
 msgid "工具关联："
 msgstr "工具关联："
 
-#: src/components/chat/tool-part.tsx:228
+#: src/components/chat/tool-part.tsx:346
 msgid "工具执行失败，未返回可读输出。"
 msgstr "工具执行失败，未返回可读输出。"
 
@@ -756,7 +795,7 @@ msgstr "工具版本"
 msgid "工具结果 {0}"
 msgstr "工具结果 {0}"
 
-#: src/components/chat/tool-part.tsx:278
+#: src/components/chat/tool-part.tsx:399
 msgid "工具详情"
 msgstr "工具详情"
 
@@ -775,6 +814,7 @@ msgstr "已取回队列，但输入框已有新内容"
 
 #: src/components/chat/data-part.tsx:69
 #: src/components/runtime-operations.tsx:66
+#: src/components/subagent-task-card.tsx:53
 msgid "已取消"
 msgstr "已取消"
 
@@ -808,7 +848,7 @@ msgstr "已有会话 ID：{0}"
 msgid "已有完全相同的会话"
 msgstr "已有完全相同的会话"
 
-#: src/components/session-tree-dialog.tsx:431
+#: src/components/session-tree-dialog.tsx:432
 msgid "已标记"
 msgstr "已标记"
 
@@ -845,7 +885,7 @@ msgstr "开始对话"
 msgid "开始新会话"
 msgstr "开始新会话"
 
-#: src/components/session-tree-dialog.tsx:289
+#: src/components/session-tree-dialog.tsx:290
 msgid "引导"
 msgstr "引导"
 
@@ -855,7 +895,7 @@ msgstr "引导"
 msgid "归档"
 msgstr "归档"
 
-#: src/components/session-tree-dialog.tsx:191
+#: src/components/session-tree-dialog.tsx:192
 msgid "当前"
 msgstr "当前"
 
@@ -880,7 +920,7 @@ msgstr "当前会话目录"
 msgid "当前分支 {0} 条记录"
 msgstr "当前分支 {0} 条记录"
 
-#: src/components/session-tree-dialog.tsx:652
+#: src/components/session-tree-dialog.tsx:654
 msgid "当前响应仍在运行。确认后将停止响应、取回未发送队列，再切换上下文；该操作不会自动发送任何消息。"
 msgstr "当前响应仍在运行。确认后将停止响应、取回未发送队列，再切换上下文；该操作不会自动发送任何消息。"
 
@@ -927,11 +967,11 @@ msgstr "当前输入草稿不会带到新会话；切换后编辑器将显示所
 msgid "忽略"
 msgstr "忽略"
 
-#: src/components/chat/tool-part.tsx:338
+#: src/components/chat/tool-part.tsx:461
 msgid "思考中"
 msgstr "思考中"
 
-#: src/components/chat/tool-part.tsx:338
+#: src/components/chat/tool-part.tsx:461
 msgid "思考完成"
 msgstr "思考完成"
 
@@ -1011,6 +1051,7 @@ msgstr "找不到此服务商：{focusedProvider}，请重新选择。"
 
 #: src/components/pi-host-interactions.tsx:93
 #: src/components/pi-thread-host-ui.tsx:117
+#: src/components/subagent-task-dialog.tsx:171
 msgid "拒绝"
 msgstr "拒绝"
 
@@ -1025,6 +1066,7 @@ msgstr "授权链接不是 http(s)，已拒绝显示。"
 #: src/components/pi-host-interactions.tsx:99
 #: src/components/pi-provider-auth.tsx:177
 #: src/components/pi-thread-host-ui.tsx:123
+#: src/components/subagent-task-dialog.tsx:177
 msgid "提交"
 msgstr "提交"
 
@@ -1032,11 +1074,11 @@ msgstr "提交"
 msgid "提交回填"
 msgstr "提交回填"
 
-#: src/components/session-tree-dialog.tsx:506
+#: src/components/session-tree-dialog.tsx:508
 msgid "搜索会话树"
 msgstr "搜索会话树"
 
-#: src/components/session-tree-dialog.tsx:505
+#: src/components/session-tree-dialog.tsx:507
 msgid "搜索摘要、标签或 ID"
 msgstr "搜索摘要、标签或 ID"
 
@@ -1100,7 +1142,7 @@ msgstr "新建工作区"
 msgid "无"
 msgstr "无"
 
-#: src/app.tsx:99
+#: src/app.tsx:100
 msgid "无法读取工作区与会话列表，请检查宿主连接后重试。"
 msgstr "无法读取工作区与会话列表，请检查宿主连接后重试。"
 
@@ -1221,9 +1263,17 @@ msgstr "本次拒绝"
 msgid "条目 / 版本"
 msgstr "条目 / 版本"
 
+#: src/components/subagent-task-dialog.tsx:115
+msgid "来源："
+msgstr "来源："
+
 #: src/components/settings-inspector.tsx:21
 msgid "来源按顶层键："
 msgstr "来源按顶层键："
+
+#: src/components/subagent-task-card.tsx:148
+msgid "查看"
+msgstr "查看"
 
 #: src/components/pi-mcp-panel.tsx:1433
 msgid "查看当前会话的 MCP 连接、工具和登录。"
@@ -1236,6 +1286,10 @@ msgstr "检查路径与信任…"
 #: src/components/session-dialogs.tsx:181
 msgid "模型"
 msgstr "模型"
+
+#: src/components/subagent-task-dialog.tsx:295
+msgid "模型："
+msgstr "模型："
 
 #: src/components/settings-dialog.tsx:49
 #: src/components/settings-dialog.tsx:226
@@ -1279,11 +1333,15 @@ msgstr "模型范围"
 msgid "模型认证"
 msgstr "模型认证"
 
-#: src/components/session-tree-dialog.tsx:479
+#: src/components/session-tree-dialog.tsx:481
 msgid "正在保存标签…"
 msgstr "正在保存标签…"
 
-#: src/components/session-tree-dialog.tsx:481
+#: src/components/chat/tool-part.tsx:220
+msgid "正在准备子任务…"
+msgstr "正在准备子任务…"
+
+#: src/components/session-tree-dialog.tsx:483
 msgid "正在切换会话上下文…"
 msgstr "正在切换会话上下文…"
 
@@ -1303,11 +1361,11 @@ msgstr "正在查询项目信任…"
 msgid "正在检查起始项目与信任…"
 msgstr "正在检查起始项目与信任…"
 
-#: src/components/session-tree-dialog.tsx:465
+#: src/components/session-tree-dialog.tsx:467
 msgid "正在生成分支摘要（可能计费）…"
 msgstr "正在生成分支摘要（可能计费）…"
 
-#: src/components/chat/chat-message.tsx:186
+#: src/components/chat/chat-message.tsx:190
 msgid "正在等待模型输出…"
 msgstr "正在等待模型输出…"
 
@@ -1323,13 +1381,17 @@ msgstr "正在读取 MCP 认证状态…"
 msgid "正在读取 MCP 配置原文…"
 msgstr "正在读取 MCP 配置原文…"
 
-#: src/components/session-tree-dialog.tsx:552
+#: src/components/session-tree-dialog.tsx:554
 msgid "正在读取会话树…"
 msgstr "正在读取会话树…"
 
 #: src/components/session-dialogs.tsx:199
 msgid "正在读取会话统计…"
 msgstr "正在读取会话统计…"
+
+#: src/components/subagent-task-dialog.tsx:364
+msgid "正在读取子任务…"
+msgstr "正在读取子任务…"
 
 #: src/components/import-thread-dialog.tsx:203
 msgid "正在读取文件…"
@@ -1369,7 +1431,7 @@ msgstr "没有匹配的会话。"
 msgid "没有匹配的模型。"
 msgstr "没有匹配的模型。"
 
-#: src/components/session-tree-dialog.tsx:559
+#: src/components/session-tree-dialog.tsx:561
 msgid "没有匹配的节点。"
 msgstr "没有匹配的节点。"
 
@@ -1421,7 +1483,7 @@ msgstr "父会话"
 msgid "环境变量"
 msgstr "环境变量"
 
-#: src/components/session-tree-dialog.tsx:664
+#: src/components/session-tree-dialog.tsx:666
 msgid "生成摘要（调用模型，可能计费）"
 msgstr "生成摘要（调用模型，可能计费）"
 
@@ -1458,11 +1520,15 @@ msgstr "用户设置尚未读取；请关闭后重试。"
 msgid "用户配置"
 msgstr "用户配置"
 
-#: src/components/session-tree-dialog.tsx:696
+#: src/components/session-tree-dialog.tsx:698
 msgid "用自定义指令替换默认摘要提示"
 msgstr "用自定义指令替换默认摘要提示"
 
-#: src/components/session-tree-dialog.tsx:604
+#: src/components/subagent-task-dialog.tsx:302
+msgid "用量："
+msgstr "用量："
+
+#: src/components/session-tree-dialog.tsx:606
 msgid "留空即清除标签"
 msgstr "留空即清除标签"
 
@@ -1492,11 +1558,11 @@ msgstr "确认删除"
 msgid "确认导入"
 msgstr "确认导入"
 
-#: src/components/session-tree-dialog.tsx:711
+#: src/components/session-tree-dialog.tsx:713
 msgid "确认替换当前输入框草稿；所选节点没有原文时清空"
 msgstr "确认替换当前输入框草稿；所选节点没有原文时清空"
 
-#: src/components/session-tree-dialog.tsx:732
+#: src/components/session-tree-dialog.tsx:734
 msgid "确认跳转"
 msgstr "确认跳转"
 
@@ -1518,9 +1584,23 @@ msgstr "空闲"
 msgid "窗口"
 msgstr "窗口"
 
-#: src/components/chat/tool-part.tsx:223
+#: src/components/subagent-task-card.tsx:45
+msgid "等待"
+msgstr "等待"
+
+#: src/components/subagent-task-card.tsx:181
+msgid "等待任务输出…"
+msgstr "等待任务输出…"
+
+#: src/components/chat/tool-part.tsx:337
+#: src/components/subagent-task-card.tsx:128
 msgid "等待你的答复"
 msgstr "等待你的答复"
+
+#. placeholder {0}: requests.length
+#: src/components/subagent-task-dialog.tsx:370
+msgid "等待子任务交互（{0}）"
+msgstr "等待子任务交互（{0}）"
 
 #. placeholder {0}: requests.length
 #: src/components/pi-thread-host-ui.tsx:160
@@ -1582,12 +1662,12 @@ msgstr "编辑当前项目的 MCP 配置。"
 msgid "自定义"
 msgstr "自定义"
 
-#: src/components/session-tree-dialog.tsx:665
-#: src/components/session-tree-dialog.tsx:684
+#: src/components/session-tree-dialog.tsx:667
+#: src/components/session-tree-dialog.tsx:686
 msgid "自定义摘要指令"
 msgstr "自定义摘要指令"
 
-#: src/components/session-tree-dialog.tsx:603
+#: src/components/session-tree-dialog.tsx:605
 msgid "节点标签"
 msgstr "节点标签"
 
@@ -1636,7 +1716,11 @@ msgstr "设置 JSON"
 msgid "诊断详情"
 msgstr "诊断详情"
 
-#: src/components/session-tree-dialog.tsx:557
+#: src/components/subagent-task-dialog.tsx:205
+msgid "该任务没有可读取的子会话记录。"
+msgstr "该任务没有可读取的子会话记录。"
+
+#: src/components/session-tree-dialog.tsx:559
 msgid "该会话还没有条目。"
 msgstr "该会话还没有条目。"
 
@@ -1667,6 +1751,10 @@ msgstr "请在环境变量或 models.json 中配置凭据。"
 #: src/components/session-dialogs.tsx:203
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
+
+#: src/components/subagent-task-dialog.tsx:283
+msgid "读取子任务摘要与只读会话…"
+msgstr "读取子任务摘要与只读会话…"
 
 #: src/components/session-actions-menu.tsx:193
 msgid "资源"
@@ -1723,11 +1811,11 @@ msgstr "路径缺失"
 msgid "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 msgstr "路径缺失或不是目录；记录会保留，会话仍固定原起始目录。"
 
-#: src/components/session-tree-dialog.tsx:646
+#: src/components/session-tree-dialog.tsx:648
 msgid "跳转到"
 msgstr "跳转到"
 
-#: src/components/session-tree-dialog.tsx:449
+#: src/components/session-tree-dialog.tsx:451
 msgid "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
 msgstr "跳转只改变会话上下文，不恢复项目文件。运行中导航会先停止当前响应并取回未发送队列。"
 
@@ -1746,7 +1834,7 @@ msgstr "轮询间隔 {0} 秒"
 msgid "输入 {0}"
 msgstr "输入 {0}"
 
-#: src/components/chat/tool-part.tsx:256
+#: src/components/chat/tool-part.tsx:377
 msgid "输出"
 msgstr "输出"
 
@@ -1760,6 +1848,7 @@ msgid "运行 Shell"
 msgstr "运行 Shell"
 
 #: src/components/runtime-operations.tsx:58
+#: src/components/subagent-task-card.tsx:47
 msgid "运行中"
 msgstr "运行中"
 
@@ -1842,7 +1931,7 @@ msgstr "配置版本"
 msgid "配置预览"
 msgstr "配置预览"
 
-#: src/app.tsx:124
+#: src/app.tsx:125
 #: src/components/pi-host-status.tsx:219
 msgid "重新查询"
 msgstr "重新查询"
@@ -1859,8 +1948,9 @@ msgstr "重新读取文件"
 msgid "重置改动"
 msgstr "重置改动"
 
-#: src/app.tsx:103
+#: src/app.tsx:104
 #: src/components/chat/chat-view.tsx:154
+#: src/components/subagent-task-dialog.tsx:348
 msgid "重试"
 msgstr "重试"
 

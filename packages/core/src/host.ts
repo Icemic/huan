@@ -94,6 +94,7 @@ import {
   ThreadStructureBusyError,
   UnsupportedHostCommandActionError,
 } from './host/shared.js'
+import { SubagentSessions } from './host/subagent-sessions.js'
 import { createHostInteractions } from './host-interactions.js'
 import { createMcpHost, type McpHost } from './mcp-host.js'
 import { mapSessionInfo } from './metadata.js'
@@ -329,6 +330,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     modelRuntime,
     events,
   })
+  let subagents: SubagentSessions
   const assembly = new ProjectAssembly({
     agentDir,
     workspacePath,
@@ -345,6 +347,17 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     refreshCatalogOnStart: startRefresh,
     listScopeInfos: () => catalog.listScopeInfos(),
     workspaceSnapshotOf,
+    subagents: {
+      createTask: (context) => subagents.createTask(context),
+      runTask: (input) => subagents.runTask(input),
+    },
+  })
+  subagents = new SubagentSessions({
+    agentDir,
+    modelRuntime,
+    workspaceStore,
+    assembly,
+    events,
   })
 
   live = new LiveSessions({
@@ -564,6 +577,18 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   }
 
   const client: HarnessClient = {
+    getSubagentTask: (parentThreadId, taskId) => {
+      assertActive()
+      return subagents.getTask(parentThreadId, taskId)
+    },
+    cancelSubagentTask: (parentThreadId, taskId) => {
+      assertActive()
+      return subagents.cancelTask(parentThreadId, taskId)
+    },
+    respondSubagentTask: (parentThreadId, taskId, response) => {
+      assertActive()
+      return subagents.respondTask(parentThreadId, taskId, response)
+    },
     async getHostInfo(): Promise<HarnessHostInfo> {
       assertActive()
       const scope = catalog.scopeOf(workspacePath)
@@ -1128,10 +1153,12 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
       // 先结算所有宿主级启动请求与认证流程，解除 project/session 装配等待。
       interactions.dispose()
       await providerAuth.dispose()
+      const closingSubagents = subagents.dispose()
       // live 负责 pending opens 中止与逐 record 收尾（同一 retire 流程）。
       await live.disposeAll().catch((error) => {
         pushDiagnostic(`会话收尾：${String(error)}`)
       })
+      await closingSubagents
       await Promise.allSettled(closingMcp)
       // 共享 OAuth/log 必须等所有连接关闭后再收尾；放在其他 cleanup 之后，
       // 不让登录/日志落盘阻塞会话回收。

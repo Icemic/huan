@@ -34,6 +34,36 @@
 - 不包含上游的工作区定义校验、`<agentDir>` 扫描与 `pi-workspaces:active`
   自定义会话条目。
 
+## Pi subagent示例
+
+- 来源：`@earendil-works/pi-coding-agent@1.4.0`的`examples/extensions/subagent/`。
+- 作者：Mario Zechner；许可：MIT。
+- `src/subagent-definitions.ts`、`src/subagent-tool.ts`参考示例的agents目录发现、三种调用模式、`{previous}`替换、8项/4并发与输出限制。huan重新实现SDK执行、定义校验、任务记录与GUI交互，不复用CLI子进程及TUI展示。
+
+```text
+MIT License
+
+Copyright (c) 2025 Mario Zechner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## MIT License
 
 ```text

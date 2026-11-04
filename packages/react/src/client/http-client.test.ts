@@ -1,6 +1,8 @@
 import type {
   HarnessAnyClientEvent,
   HarnessClientEvent,
+  HarnessSubagentTask,
+  HarnessSubagentTaskView,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
@@ -47,6 +49,21 @@ const _sseResponse = (
 const snapshot: HarnessThreadSnapshot = {
   metadata: { id: 't1', status: 'idle' },
   messages: [],
+}
+
+const subagentTask: HarnessSubagentTask = {
+  taskId: 'task-1',
+  parentThreadId: 't1',
+  agent: 'reviewer',
+  task: '审查改动',
+  status: 'running',
+  usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, cost: 0.01 },
+}
+
+const subagentView: HarnessSubagentTaskView = {
+  task: subagentTask,
+  snapshot: { metadata: { id: 't1', status: 'running' }, messages: [] },
+  requests: [{ id: 'r1', kind: 'confirm', title: '继续？', message: '子任务等待确认。' }],
 }
 
 const _openSharedSse = () => {
@@ -315,6 +332,50 @@ describe('createHarnessHttpClient', () => {
       method: 'POST',
       body: { response: { requestId: 'r1', confirmed: true } },
     })
+  })
+
+  it('reads a subagent task view by parent thread and task id', async () => {
+    const { fn, calls } = fakeFetch(() => json(subagentView))
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+
+    await expect(client.getSubagentTask('t1', 'task-1')).resolves.toEqual(subagentView)
+    expect(calls[0]).toMatchObject({
+      url: '/api/pi/threads/t1/subagents/task-1',
+      method: 'GET',
+    })
+  })
+
+  it('cancels and answers a subagent task on scoped routes', async () => {
+    const { fn, calls } = fakeFetch(() => new Response(null, { status: 204 }))
+    const client = createHarnessHttpClient({ fetchImpl: fn })
+
+    await client.cancelSubagentTask('t1', 'task-1')
+    await client.respondSubagentTask('t1', 'task-1', { requestId: 'r1', dismissed: true })
+
+    expect(calls.map((call) => [call.method, call.url, call.body])).toEqual([
+      ['POST', '/api/pi/threads/t1/subagents/task-1/cancel', undefined],
+      [
+        'POST',
+        '/api/pi/threads/t1/subagents/task-1/respond',
+        { response: { requestId: 'r1', dismissed: true } },
+      ],
+    ])
+  })
+
+  it('rejects malformed subagent task views', async () => {
+    const malformed: unknown[] = [
+      null,
+      { ...subagentView, task: { ...subagentTask, status: 'unknown' } },
+      { ...subagentView, task: { ...subagentTask, usage: { input: 1 } } },
+      { ...subagentView, snapshot: { metadata: {}, messages: [] } },
+      { ...subagentView, requests: [{ id: 'r1', kind: 'confirm', title: '继续？' }] },
+    ]
+    for (const value of malformed) {
+      const { fn } = fakeFetch(() => json(value))
+      await expect(
+        createHarnessHttpClient({ fetchImpl: fn }).getSubagentTask('t1', 'task-1'),
+      ).rejects.toThrow('Invalid Pi HTTP response while fetching a subagent task')
+    }
   })
 
   it('sends the caller window id only for message sends', async () => {

@@ -6,11 +6,13 @@
  * 同一请求出现两个答案入口。错误默认展开，运行中显示 shimmer 状态。
  */
 
+import type { HarnessSubagentDetails, HarnessSubagentTask } from '@huan/protocol'
 import type { HarnessThinkingViewPart, HarnessToolViewPart } from '@huan/react'
 import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { Loader2Icon, WrenchIcon } from 'lucide-react'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
+import { SubagentTaskCard } from '@/components/subagent-task-card'
 import {
   CodeBlock,
   CodeBlockActions,
@@ -30,7 +32,7 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace'
-import { useChatStore } from '@/state/app-context'
+import { useChatStore, useHarnessApp, useSubagentStore } from '@/state/app-context'
 import { partOpenOf } from '@/state/chat-store'
 import { MessageImage } from './message-image'
 
@@ -52,6 +54,84 @@ const safeJson = (value: unknown): string => {
   } catch {
     return String(value)
   }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const subagentTaskStatuses: readonly HarnessSubagentTask['status'][] = [
+  'waiting',
+  'running',
+  'completed',
+  'failed',
+  'cancelled',
+]
+
+const finiteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+/** 只接受页面会读取的字段；任何未知形状都回退到通用 JSON 展示。 */
+const subagentTaskOf = (value: unknown): HarnessSubagentTask | undefined => {
+  if (!isRecord(value)) return undefined
+  const { taskId, parentThreadId, agent, task, status, model, output, error, usage } = value
+  if (
+    typeof taskId !== 'string' ||
+    taskId.length === 0 ||
+    typeof parentThreadId !== 'string' ||
+    parentThreadId.length === 0 ||
+    typeof agent !== 'string' ||
+    typeof task !== 'string' ||
+    typeof status !== 'string' ||
+    !subagentTaskStatuses.includes(status as HarnessSubagentTask['status']) ||
+    !isRecord(usage) ||
+    !finiteNumber(usage.input) ||
+    !finiteNumber(usage.output) ||
+    !finiteNumber(usage.cacheRead) ||
+    !finiteNumber(usage.cacheWrite) ||
+    !finiteNumber(usage.cost) ||
+    (model !== undefined && typeof model !== 'string') ||
+    (output !== undefined && typeof output !== 'string') ||
+    (error !== undefined && typeof error !== 'string')
+  ) {
+    return undefined
+  }
+  return {
+    taskId,
+    parentThreadId,
+    agent,
+    task,
+    status: status as HarnessSubagentTask['status'],
+    ...(model === undefined ? {} : { model }),
+    ...(output === undefined ? {} : { output }),
+    ...(error === undefined ? {} : { error }),
+    ...(typeof value.pendingRequestCount === 'number'
+      ? { pendingRequestCount: value.pendingRequestCount }
+      : {}),
+    usage: {
+      input: usage.input,
+      output: usage.output,
+      cacheRead: usage.cacheRead,
+      cacheWrite: usage.cacheWrite,
+      cost: usage.cost,
+    },
+  }
+}
+
+/** 识别内置 SDK 子任务 details；未知或损坏的 details 仍显示通用 JSON。 */
+const subagentDetailsOf = (value: unknown): HarnessSubagentDetails | undefined => {
+  if (!isRecord(value) || value.kind !== 'huan-subagent' || !Array.isArray(value.tasks)) {
+    return undefined
+  }
+  if (value.mode !== 'single' && value.mode !== 'parallel' && value.mode !== 'chain') {
+    return undefined
+  }
+  const tasks: HarnessSubagentTask[] = []
+  for (const item of value.tasks) {
+    const task = subagentTaskOf(item)
+    if (!task) return undefined
+    tasks.push(task)
+  }
+  return { kind: 'huan-subagent', mode: value.mode, tasks }
 }
 
 function ToolImages({ part }: { part: HarnessToolViewPart }) {
@@ -124,6 +204,35 @@ function NestedCallsSummary({ part }: { part: HarnessToolViewPart }) {
   )
 }
 
+function SubagentToolBody({
+  part,
+  details,
+}: {
+  part: HarnessToolViewPart
+  details: HarnessSubagentDetails
+}) {
+  const openTask = useSubagentStore((state) => state.openTask)
+  const { browser } = useHarnessApp()
+  return (
+    <div data-slot="huan-subagent-tool" className="flex min-w-0 flex-col gap-1.5">
+      {details.tasks.length === 0 ? (
+        <p className="text-muted-foreground whitespace-pre-wrap text-xs">
+          {part.output?.trim() || <Trans>正在准备子任务…</Trans>}
+        </p>
+      ) : (
+        details.tasks.map((task) => (
+          <SubagentTaskCard
+            key={task.taskId}
+            task={task}
+            onOpen={() => void openTask(task.parentThreadId, task.taskId)}
+            onCancel={() => browser.client.cancelSubagentTask(task.parentThreadId, task.taskId)}
+          />
+        ))
+      )}
+    </div>
+  )
+}
+
 function ToolNodeView({
   node,
   threadId,
@@ -145,19 +254,26 @@ function ToolNodeView({
       [threadId, part.toolCallId],
     ),
   )
+  const subagent = useMemo(
+    () => (part.toolName === 'subagent' ? subagentDetailsOf(part.details) : undefined),
+    [part.toolName, part.details],
+  )
+  const childPending = subagent?.tasks.some((task) => (task.pendingRequestCount ?? 0) > 0) ?? false
+  const awaitingReply = pending || childPending
   const defaultOpen = part.status === 'error'
   const open = useChatStore((state) => partOpenOf(state, key, defaultOpen))
   const setOpen = useChatStore((state) => state.setPartOpen)
   const argumentsText = Object.keys(part.arguments).length > 0 ? safeJson(part.arguments) : ''
   const hasDetails = argumentsText.length > 0 || part.details !== undefined
   const hasBody =
+    subagent !== undefined ||
     hasDetails ||
     part.output !== undefined ||
     (part.outputImages?.length ?? 0) > 0 ||
     (part.nestedCalls?.calls.length ?? 0) > 0 ||
     node.children.length > 0
   const summary = argumentSummary(part)
-  const status = pending ? 'pending' : part.status
+  const status = awaitingReply ? 'pending' : part.status
   const title = pending
     ? `等待交互：${part.toolName}`
     : part.status === 'error'
@@ -165,7 +281,7 @@ function ToolNodeView({
       : part.status === 'running'
         ? `运行 ${part.toolName}`
         : `已运行 ${part.toolName}`
-  const statusText = pending
+  const statusText = awaitingReply
     ? '等待交互'
     : part.isPreliminary
       ? '输出中'
@@ -190,7 +306,7 @@ function ToolNodeView({
       data-parent-tool-call-id={part.parentToolCallId}
     >
       <TraceIcon>
-        {part.status === 'running' && !pending ? (
+        {part.status === 'running' && !awaitingReply ? (
           <Loader2Icon className="animate-spin" />
         ) : (
           <WrenchIcon />
@@ -213,7 +329,7 @@ function ToolNodeView({
         <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
         <TraceCollapsibleContent className="text-foreground">
           <div className="flex min-w-0 flex-col gap-2">
-            {part.isPreliminary ? (
+            {subagent === undefined && part.isPreliminary ? (
               <p className="text-muted-foreground text-xs">
                 <Trans>工具仍在运行，以下为部分输出。</Trans>
               </p>
@@ -223,73 +339,82 @@ function ToolNodeView({
                 <Trans>等待你的答复</Trans>
               </p>
             ) : null}
-            {part.status === 'error' && !part.output ? (
-              <p className="text-destructive text-xs">
-                <Trans>工具执行失败，未返回可读输出。</Trans>
-              </p>
-            ) : null}
-            {argumentsText ? (
-              <CodeBlock size="sm">
-                <CodeBlockHeader>
-                  <CodeBlockTitle>
-                    <Trans>参数</Trans>
-                  </CodeBlockTitle>
-                  <CodeBlockActions>
-                    <CodeBlockCopyButton value={argumentsText} />
-                  </CodeBlockActions>
-                </CodeBlockHeader>
-                <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
-                  <CodeBlockContent
-                    wrap
-                    className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-                    style={{ maskImage: 'none' }}
+            {subagent !== undefined ? (
+              <SubagentToolBody part={part} details={subagent} />
+            ) : (
+              <>
+                {part.status === 'error' && !part.output ? (
+                  <p className="text-destructive text-xs">
+                    <Trans>工具执行失败，未返回可读输出。</Trans>
+                  </p>
+                ) : null}
+                {argumentsText ? (
+                  <CodeBlock size="sm">
+                    <CodeBlockHeader>
+                      <CodeBlockTitle>
+                        <Trans>参数</Trans>
+                      </CodeBlockTitle>
+                      <CodeBlockActions>
+                        <CodeBlockCopyButton value={argumentsText} />
+                      </CodeBlockActions>
+                    </CodeBlockHeader>
+                    <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
+                      <CodeBlockContent
+                        wrap
+                        className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                        style={{ maskImage: 'none' }}
+                      >
+                        {argumentsText}
+                      </CodeBlockContent>
+                    </ScrollArea>
+                  </CodeBlock>
+                ) : null}
+                {part.output !== undefined ? (
+                  <CodeBlock
+                    size="sm"
+                    variant={part.status === 'error' ? 'destructive' : 'default'}
                   >
-                    {argumentsText}
-                  </CodeBlockContent>
-                </ScrollArea>
-              </CodeBlock>
-            ) : null}
-            {part.output !== undefined ? (
-              <CodeBlock size="sm" variant={part.status === 'error' ? 'destructive' : 'default'}>
-                <CodeBlockHeader>
-                  <CodeBlockTitle>
-                    <Trans>输出</Trans>
-                  </CodeBlockTitle>
-                  <CodeBlockActions>
-                    <CodeBlockCopyButton value={part.output} />
-                  </CodeBlockActions>
-                </CodeBlockHeader>
-                <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-64">
-                  <CodeBlockContent
-                    wrap
-                    className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-                    style={{ maskImage: 'none' }}
-                  >
-                    {part.output}
-                  </CodeBlockContent>
-                </ScrollArea>
-              </CodeBlock>
-            ) : null}
-            <ToolImages part={part} />
-            <NestedCallsSummary part={part} />
-            {part.details !== undefined ? (
-              <details className="text-xs">
-                <summary className="text-muted-foreground cursor-pointer">
-                  <Trans>工具详情</Trans>
-                </summary>
-                <CodeBlock size="sm" className="mt-1">
-                  <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
-                    <CodeBlockContent
-                      wrap
-                      className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-                      style={{ maskImage: 'none' }}
-                    >
-                      {safeJson(part.details)}
-                    </CodeBlockContent>
-                  </ScrollArea>
-                </CodeBlock>
-              </details>
-            ) : null}
+                    <CodeBlockHeader>
+                      <CodeBlockTitle>
+                        <Trans>输出</Trans>
+                      </CodeBlockTitle>
+                      <CodeBlockActions>
+                        <CodeBlockCopyButton value={part.output} />
+                      </CodeBlockActions>
+                    </CodeBlockHeader>
+                    <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-64">
+                      <CodeBlockContent
+                        wrap
+                        className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                        style={{ maskImage: 'none' }}
+                      >
+                        {part.output}
+                      </CodeBlockContent>
+                    </ScrollArea>
+                  </CodeBlock>
+                ) : null}
+                <ToolImages part={part} />
+                <NestedCallsSummary part={part} />
+                {part.details !== undefined ? (
+                  <details className="text-xs">
+                    <summary className="text-muted-foreground cursor-pointer">
+                      <Trans>工具详情</Trans>
+                    </summary>
+                    <CodeBlock size="sm" className="mt-1">
+                      <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
+                        <CodeBlockContent
+                          wrap
+                          className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                          style={{ maskImage: 'none' }}
+                        >
+                          {safeJson(part.details)}
+                        </CodeBlockContent>
+                      </ScrollArea>
+                    </CodeBlock>
+                  </details>
+                ) : null}
+              </>
+            )}
             {node.children.length > 0 ? (
               <div
                 data-slot="huan-nested-tools"

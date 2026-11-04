@@ -87,7 +87,7 @@ export interface HarnessToolViewPart extends HarnessMessageViewPartBase {
   output?: string
   /** 输出中的图片，按实际内容呈现。 */
   outputImages?: readonly HarnessImageViewPart[]
-  /** 工具特定元数据。 */
+  /** 工具特定元数据；运行中来自实时 partialResult，结束后以最终结果为准。 */
   details?: unknown
   /** 历史记录中的子调用有界摘要；不承诺完整子结果。 */
   nestedCalls?: HarnessNestedToolCalls
@@ -193,6 +193,17 @@ const readToolResultContent = (value: unknown): readonly HarnessToolResultConten
   )
 }
 
+/**
+ * 读取流式部分结果的 details。
+ *
+ * partialResult 来自 SDK 的未知值，只在校验为普通记录对象后读取自有字段；
+ * 不按工具名猜测结构，未知形状仍交给通用 JSON 回退。
+ */
+const readToolResultDetails = (value: unknown): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  return (value as { details?: unknown }).details
+}
+
 type ProjectedToolResult = {
   toolCallId: string
   toolName: string
@@ -274,6 +285,7 @@ const toolViewOfExecution = (
     readToolResultContent(execution.partialResult),
     sourceEntryId,
   )
+  const details = readToolResultDetails(execution.partialResult)
   return {
     type: 'tool',
     toolCallId: execution.toolCallId,
@@ -282,6 +294,7 @@ const toolViewOfExecution = (
     status: execution.status,
     ...(result.output !== undefined ? { output: result.output } : {}),
     ...(result.images !== undefined ? { outputImages: result.images } : {}),
+    ...(details !== undefined ? { details } : {}),
     ...(execution.status === 'running' && result.output !== undefined
       ? { isPreliminary: true }
       : {}),
@@ -300,6 +313,8 @@ const toolViewOfCall = (
   const paired = toolResults.get(call.id)
   const live = input.toolExecutions[call.id]
   const output = paired ?? projectToolResultContent(readToolResultContent(live?.partialResult))
+  // 已有最终结果时整体采用其 details，避免残留运行期任务状态。
+  const details = paired ? paired.details : readToolResultDetails(live?.partialResult)
   const status: HarnessToolViewPart['status'] =
     paired !== undefined ? (paired.isError ? 'error' : 'complete') : (live?.status ?? 'running')
   return {
@@ -310,7 +325,7 @@ const toolViewOfCall = (
     status,
     ...(output.output !== undefined ? { output: output.output } : {}),
     ...(output.images !== undefined ? { outputImages: output.images } : {}),
-    ...(paired?.details !== undefined ? { details: paired.details } : {}),
+    ...(details !== undefined ? { details } : {}),
     ...(paired?.nestedCalls ? { nestedCalls: paired.nestedCalls } : {}),
     ...(paired === undefined && live?.status === 'running' && output.output !== undefined
       ? { isPreliminary: true }

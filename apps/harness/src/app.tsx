@@ -18,6 +18,7 @@ import { SessionDialogs } from '@/components/session-dialogs'
 import { ForkThreadDialog } from '@/components/session-fork-dialog'
 import { SessionTreeDialog } from '@/components/session-tree-dialog'
 import { ContextDialogs, SettingsButton, SettingsDialog } from '@/components/settings-dialog'
+import { SubagentTaskDialog } from '@/components/subagent-task-dialog'
 import { Button } from '@/components/ui/button'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { TrustDecisionDialog } from '@/components/workspace-manager'
@@ -200,6 +201,7 @@ function AppShell() {
       </div>
       <SessionDialogs />
       <SessionTreeDialog />
+      <SubagentTaskDialog />
       <RuntimeOperationsDialog />
       <ForkThreadDialog />
       <ImportThreadDialog />

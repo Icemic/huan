@@ -18,6 +18,7 @@ import type { RuntimeFeatureState } from './runtime-store'
 import type { SessionsFeatureState } from './sessions-store'
 import type { SettingsFeatureState } from './settings-store'
 import type { SettingsUiState } from './settings-ui-store'
+import type { SubagentFeatureState } from './subagent-store'
 import type { ThemeStoreState } from './theme-store'
 import type { WorkspaceFeatureState } from './workspace-store'
 
@@ -52,6 +53,10 @@ export const useSessionsStore = <T,>(selector: (state: SessionsFeatureState) => 
 /** 订阅聊天展示 feature 状态。 */
 export const useChatStore = <T,>(selector: (state: ChatFeatureState) => T): T =>
   useStore(useHarnessApp().chatStore, selector)
+
+/** 订阅子任务查看面板状态。 */
+export const useSubagentStore = <T,>(selector: (state: SubagentFeatureState) => T): T =>
+  useStore(useHarnessApp().subagentStore, selector)
 
 /** 订阅 composer feature 状态。 */
 export const useComposerStore = <T,>(selector: (state: ComposerFeatureState) => T): T =>

@@ -35,6 +35,11 @@ import {
   prepareProjectTrust,
 } from '../project-trust.js'
 import { bindResourceLoaderTrust } from '../resource-reload.js'
+import {
+  createSubagentToolExtension,
+  type SubagentProjectConfirmation,
+  type SubagentTaskRunner,
+} from '../subagent-tool.js'
 import { pathKey, type WorkspaceSnapshot } from '../workspace-path.js'
 import type { WorkspaceStoreWorkspace } from '../workspace-store.js'
 import { createWorkspaceToolsExtension } from '../workspace-tools.js'
@@ -46,6 +51,10 @@ import {
   ProjectTrustRequiredError,
   ThreadStructureBusyError,
 } from './shared.js'
+import type { SubagentPrepareOptions } from './subagent-sessions.js'
+
+/** 内置 SDK 子agent 扩展的资源名；其他扩展的同名工具均被视为外部旧实现。 */
+const BUILTIN_SUBAGENT_PATH = 'builtin:subagent'
 
 /** 装配依赖：只包含实际使用的路径、共享模型与读能力。 */
 export type ProjectAssemblyDeps = {
@@ -71,6 +80,8 @@ export type ProjectAssemblyDeps = {
   refreshCatalogOnStart: boolean
   listScopeInfos: () => Promise<SessionCatalogInfo[]>
   workspaceSnapshotOf: (workspaceId: string) => WorkspaceSnapshot | null
+  /** 子任务执行层；由组合根代理注入，装配层不持有子会话服务。 */
+  subagents: SubagentTaskRunner
 }
 
 /** 解析真实路径；不存在时保留绝对路径（与 SDK 口径一致）。 */
@@ -273,13 +284,21 @@ export class ProjectAssembly {
     runtime.pendingVirtualModelRegistrations = []
   }
 
-  /** 经统一信任入口准备一份会话装配。 */
-  async prepare(cwd: string, override?: boolean, disposed = false): Promise<PreparedProject> {
+  /** 经统一信任入口准备一份会话装配；子会话选项只影响本次准备的 loader。 */
+  async prepare(
+    cwd: string,
+    override?: boolean,
+    disposed = false,
+    options?: SubagentPrepareOptions,
+  ): Promise<PreparedProject> {
     if (disposed) throw new Error('Harness host is disposed')
     const guard: { record?: import('./shared.js').ThreadRecord } = {}
     const workspaceBinding: PreparedProject['workspaceBinding'] = {
       loadedInstructionPaths: [],
     }
+    const subagentSession = options?.subagent === true
+    const appendSystemPrompt = options?.appendSystemPrompt ?? []
+    const mcpOverrides = options?.mcpOverrides
     // binding 先于信任装配创建：工厂在此轮 loader.reload 中就会注册事件。
     // 初始尚未取得 trust 时闭包必须返回 false，避免把“未知”当作已信任。
     let trustState: import('../project-trust.js').ProjectTrustState | undefined
@@ -289,6 +308,11 @@ export class ProjectAssembly {
         trustState?.status === 'trusted' &&
         // 装配后、session_start 前新出现的资源不能沿用 no-resources 授权。
         (trustState.source !== 'no-resources' || !hasTrustRequiringProjectResources(cwd)),
+      // 同 cwd 的子会话临时继承父会话的启停/exposure 选择；仅在内存中合并，
+      // 不写回 mcp.json。文件条目与扩展动态注册的同名服务器都应用这份选择。
+      ...(mcpOverrides && Object.keys(mcpOverrides).length > 0
+        ? { serverOverrides: mcpOverrides }
+        : {}),
       // OAuth 与日志按宿主共享；连接层只接受公开工厂/接收器。
       createAuthProvider: this.deps.mcpOAuth.createAuthProvider,
       onLog: (server, params) => {
@@ -304,6 +328,16 @@ export class ProjectAssembly {
         trustStore: this.deps.trustStore,
         resourceLoaderOptions: {
           ...toResourceLoaderOptions(this.deps.resourceLoaderOptions),
+          // SDK 的 appendSystemPrompt 选项会替换自动发现的 APPEND_SYSTEM 文件；
+          // 用 override 在既有追加内容之后补定义正文，保留父项目原有追加提示。
+          ...(appendSystemPrompt.length > 0
+            ? {
+                appendSystemPromptOverride: (base: string[]) => [...base, ...appendSystemPrompt],
+              }
+            : {}),
+          // 外部同名 subagent 工具由下方 extensionsOverride 从加载结果中移除；
+          // 这里的内置扩展保留给直接工具调用，子会话则由 isSubagentSession 拒绝嵌套。
+          extensionsOverride: (base) => this.removeExternalSubagentTools(base, cwd),
           extensionFactories: [
             createInputGuardExtension(() => guard.record),
             // 工作区扩展按会话实例装配。loader 若先用于查询，绑定槽为空；
@@ -316,13 +350,22 @@ export class ProjectAssembly {
               getLoadedInstructionPaths: () => workspaceBinding.loadedInstructionPaths,
               onWorkspaceApplied: (workspace) => workspaceBinding.onApplied?.(workspace),
             }),
+            // SDK 子agent 固定为内置实现：定义来源、项目确认与子任务执行均经
+            // 注入的 runner；子会话 parent 由 guard.record 在发布后提供。
+            createSubagentToolExtension({
+              agentDir: this.deps.agentDir,
+              getParent: () => guard.record,
+              isSubagentSession: () => subagentSession,
+              runner: this.deps.subagents,
+              confirmProject: (input) => this.confirmSubagentProject(input),
+            }),
             // codemode / tool_search / mcp 按 CLI 的 named builtin + replaceable
             // 约定装配；MCP 只注入 huan 的无界面集成工厂，不注入官方实现。
             ...createBuiltinExtensionFactories(mcp.extension),
           ],
         },
         // 项目信任扩展可以获得真实 RPC UI；请求在 record 发布前也可发现/应答。
-        projectTrustContext: this.projectTrustContextOf(cwd),
+        projectTrustContext: options?.projectTrustContext ?? this.projectTrustContextOf(cwd),
       })
       // 本轮 loader 的权威状态对象会在 reload 时被就地更新；session_start 的
       // getProjectTrusted 每次读取它，因此 no-resources 之后新增受保护资源
@@ -377,6 +420,78 @@ export class ProjectAssembly {
       // 消费，立即关闭，避免工厂已注册的晚启动路径留下连接。
       await this.closeBinding(mcp)
       throw error
+    }
+  }
+
+  /**
+   * 项目来源定义运行前的确认。
+   *
+   * 父会话已有可信项目结论时不再重复询问；no-resources 结论不能覆盖后来发现
+   * 的项目定义。这里只负责用户确认，目标 cwd 的项目信任仍由服务层 prepare
+   * 独立检查，confirmProjectAgents=false 不能绕过该检查。
+   */
+  private async confirmSubagentProject(input: SubagentProjectConfirmation): Promise<boolean> {
+    const parent = input.parent
+    const trust = parent.trustBinding?.state?.()
+    if (trust?.status === 'trusted' && trust.source !== 'no-resources') return true
+    const agents = input.agents.map((agent) => `${agent.name}（${agent.source}）`).join('、')
+    const source = input.projectDir ?? input.targetCwds.join('、')
+    return parent.uiBridge.ui.confirm(
+      '运行项目子agent？',
+      `子agent：${agents}\n项目来源：${source}`,
+      { signal: input.signal },
+    )
+  }
+
+  /**
+   * D5：外部扩展的 subagent 工具固定由内置 SDK 实现替代。
+   *
+   * 只摘除非 `builtin:subagent` 扩展 tools Map 中的同名条目，扩展本身、其他工具、
+   * 命令与事件处理器保持原样；SDK 在 override 之前已经生成了同名工具冲突诊断，
+   * 这里仅过滤本次替代产生的 subagent 冲突，其他原始错误继续保留。
+   */
+  private removeExternalSubagentTools(
+    base: LoadExtensionsResult,
+    cwd: string,
+  ): LoadExtensionsResult {
+    const replacedPaths = new Set<string>()
+    const extensions = base.extensions.map((extension) => {
+      if (extension.path === BUILTIN_SUBAGENT_PATH || !extension.tools.has('subagent')) {
+        return extension
+      }
+      replacedPaths.add(extension.path)
+      const tools = new Map(extension.tools)
+      tools.delete('subagent')
+      return { ...extension, tools }
+    })
+    if (replacedPaths.size === 0) return base
+
+    for (const path of replacedPaths) {
+      const message =
+        `检测到外部 subagent 工具（${path}）；已改用内置 SDK 版 subagent，` +
+        '保留该扩展的其他工具与事件。'
+      this.deps.diagnose(`扩展装配（${cwd}）：${message}`)
+      this.deps.addSafeDiagnostic('assembly-warning')
+    }
+
+    const errors = base.errors.filter(
+      (error) =>
+        !(
+          error.error.startsWith('Tool "subagent" conflicts with ') &&
+          (error.path === BUILTIN_SUBAGENT_PATH || replacedPaths.has(error.path))
+        ),
+    )
+    return {
+      ...base,
+      extensions,
+      errors,
+      warnings: [
+        ...(base.warnings ?? []),
+        ...[...replacedPaths].map((path) => ({
+          path,
+          warning: '此扩展的 subagent 工具已由 huan 内置 SDK 实现替代；其他注册保持。',
+        })),
+      ],
     }
   }
 

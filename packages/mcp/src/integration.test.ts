@@ -144,6 +144,7 @@ interface OpenHarnessOptions {
   extraExtensions?: InlineExtension[]
   startupWaitMs?: number
   onLog?: McpIntegrationOptions['onLog']
+  serverOverrides?: McpIntegrationOptions['serverOverrides']
 }
 
 async function openHarness(options: OpenHarnessOptions): Promise<Harness> {
@@ -172,6 +173,7 @@ async function openHarness(options: OpenHarnessOptions): Promise<Harness> {
       startupWaitMs: options.startupWaitMs,
       env: {},
       ...(options.onLog ? { onLog: options.onLog } : {}),
+      ...(options.serverOverrides ? { serverOverrides: options.serverOverrides } : {}),
       createTransport: (context) => {
         transports.push({ name: context.entry.name, scope: context.entry.scope })
         const server = memories.get(context.entry.name)
@@ -708,6 +710,103 @@ describe('真实 SDK：动态注册与配置优先级', () => {
         ?.snapshot()
         .servers.find((server) => server.name === 'initial')?.scope,
     ).toBe('extension')
+  }, 20_000)
+
+  it('加载期扩展注册的同名服务器也应用启停与暴露覆写', async () => {
+    const initial: InlineExtension = {
+      name: 'huan-test-mcp-initial-override',
+      hidden: true,
+      factory: (pi) => {
+        pi.registerMcpServer('initial', {
+          command: 'fixture',
+          enabled: true,
+          exposure: 'direct',
+        })
+      },
+    }
+    const harness = await openHarness({
+      memories: { initial: {} },
+      extraExtensions: [initial],
+      serverOverrides: {
+        initial: { enabled: false, exposure: 'hidden', toolExposure: { echo: 'hidden' } },
+      },
+    })
+    await waitFor(
+      () =>
+        harness.integration
+          .getManager()
+          ?.snapshot()
+          .servers.some((server) => server.name === 'initial') === true,
+    )
+    const manager = harness.integration.getManager()
+    if (!manager) throw new Error('missing manager')
+    await manager.start()
+    expect(manager.getServerEntry('initial')).toMatchObject({
+      scope: 'extension',
+      config: {
+        command: 'fixture',
+        enabled: false,
+        exposure: 'hidden',
+        toolExposure: { echo: 'hidden' },
+      },
+    })
+    expect(manager.snapshot().servers.find((server) => server.name === 'initial')).toMatchObject({
+      enabled: false,
+      exposure: 'hidden',
+      state: 'disabled',
+    })
+    // disabled 槽位不建立连接，也不注册该服务器的工具。
+    expect(harness.transports).toEqual([])
+    expect(harness.session.getToolDefinition('mcp__initial__echo')).toBeUndefined()
+  }, 20_000)
+
+  it('mcp_servers_change 后动态注册服务器仍持续应用覆写', async () => {
+    const harness = await openHarness({
+      memories: { runtime: {}, other: {} },
+      serverOverrides: {
+        runtime: { enabled: false, exposure: 'hidden', toolExposure: { echo: 'hidden' } },
+      },
+    })
+    await waitFor(() => harness.integration.getManager() !== undefined)
+    const pi = harness.probe.pi
+    if (!pi) throw new Error('missing ExtensionAPI')
+    pi.registerMcpServer('runtime', { command: 'fixture', exposure: 'direct' })
+    await waitFor(
+      () =>
+        harness.integration
+          .getManager()
+          ?.snapshot()
+          .servers.some((server) => server.name === 'runtime') === true,
+    )
+    const manager = harness.integration.getManager()
+    if (!manager) throw new Error('missing manager')
+    expect(manager.getServerEntry('runtime')).toMatchObject({
+      scope: 'extension',
+      config: {
+        command: 'fixture',
+        exposure: 'hidden',
+        enabled: false,
+        toolExposure: { echo: 'hidden' },
+      },
+    })
+    expect(harness.transports).toEqual([])
+
+    // 再注册一个不受覆写影响的服务器：新的 mcp_servers_change 之后覆写仍有效。
+    pi.registerMcpServer('other', { command: 'fixture', exposure: 'direct' })
+    await waitFor(() => harness.transports.some((entry) => entry.name === 'other'))
+    expect(manager.getServerEntry('runtime')).toMatchObject({
+      config: {
+        exposure: 'hidden',
+        enabled: false,
+        toolExposure: { echo: 'hidden' },
+      },
+    })
+    expect(manager.snapshot().servers.find((server) => server.name === 'runtime')).toMatchObject({
+      enabled: false,
+      exposure: 'hidden',
+      state: 'disabled',
+    })
+    expect(harness.transports.filter((entry) => entry.name === 'runtime')).toEqual([])
   }, 20_000)
 
   it('运行时注册/移除服务器，配置同名 namespace 优先', async () => {

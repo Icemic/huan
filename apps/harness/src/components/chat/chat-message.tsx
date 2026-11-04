@@ -133,10 +133,12 @@ function UserMessage({
   view,
   threadId,
   title,
+  readOnly,
 }: {
   view: HarnessMessageView
   threadId: string | undefined
   title: string | undefined
+  readOnly: boolean
 }) {
   const images = userImages(view.parts)
   const text = textOfMessage(view)
@@ -161,7 +163,7 @@ function UserMessage({
             <BubbleContent className="whitespace-pre-wrap">{text}</BubbleContent>
           </Bubble>
         ) : null}
-        <MessageActions view={view} threadId={threadId} title={title} />
+        {readOnly ? null : <MessageActions view={view} threadId={threadId} title={title} />}
       </MessageContent>
     </Message>
   )
@@ -171,10 +173,12 @@ function AssistantMessage({
   view,
   threadId,
   title,
+  readOnly,
 }: {
   view: HarnessMessageView
   threadId: string | undefined
   title: string | undefined
+  readOnly: boolean
 }) {
   const emptyRunning = view.status.type === 'running' && view.parts.length === 0
   return (
@@ -189,7 +193,7 @@ function AssistantMessage({
           <AssistantMessageParts view={view} threadId={threadId} />
         )}
         <MessageStatus view={view} />
-        <MessageActions view={view} threadId={threadId} title={title} />
+        {readOnly ? null : <MessageActions view={view} threadId={threadId} title={title} />}
       </MessageContent>
     </Message>
   )
@@ -200,10 +204,13 @@ export const ChatMessage = memo(function ChatMessage({
   view,
   threadId,
   title,
+  readOnly = false,
 }: {
   view: HarnessMessageView
   threadId: string | undefined
   title: string | undefined
+  /** 只读子会话：保留正文/Thinking/工具，但不提供复制、下载、树定位或分叉动作。 */
+  readOnly?: boolean
 }) {
   const shared = {
     'data-message-id': view.id,
@@ -213,9 +220,9 @@ export const ChatMessage = memo(function ChatMessage({
   return (
     <div {...shared} className="min-w-0">
       {view.role === 'user' ? (
-        <UserMessage view={view} threadId={threadId} title={title} />
+        <UserMessage view={view} threadId={threadId} title={title} readOnly={readOnly} />
       ) : (
-        <AssistantMessage view={view} threadId={threadId} title={title} />
+        <AssistantMessage view={view} threadId={threadId} title={title} readOnly={readOnly} />
       )}
     </div>
   )

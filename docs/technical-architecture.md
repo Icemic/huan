@@ -1,7 +1,7 @@
 # 幻（huan）— 技术架构文档
 
 **最后更新**：2026-11-02
-**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 17。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
+**状态**：持续维护文档，随技术变更同步更新。当前实现：浏览器业务状态为 Zustand，Node 服务由 `host/` 模块组合，assistant-ui 运行依赖已移除，协议为 18。R9 的逐项证据见[最终核对记录](iteration/2026-11/2026-11-02-refactor-architecture-remediation-final.md)；整体阻塞与合并决定见[主路线图 §2.5](roadmap.md#25-整体架构整改阻塞子路线图)。
 **决策依据**：D-01～D-26（见 `docs/tmp/pi_harness_shared_architecture_draft.md` §14）；上游核对见该草案 §16
 
 ---
@@ -28,11 +28,13 @@
 | Lint/Format | Biome（已定，迭代①） | 单工具覆盖 lint + format |
 | 许可证 | AGPL-3.0 | 仓库根 `LICENSE` |
 
-**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 17；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
+**Pi GUI 能力规范**：以 [pi-gui-capabilities.md](pi-gui-capabilities.md) 为能力与验收依据，SDK 接口存在不等于 GUI 已可用；协议、Node 服务与界面共同承接原生行为。当前基准为 Pi SDK 1.4.0，协议版本为 18；HostInfo 提供 `protocolVersion`，浏览器同版比较，不匹配时停止业务初始化。
 
 **UI依赖边界（2026-11-03）**：基础组件由shadcn官方CLI安装Base UI版本，`components/ui`默认保留生成文件，小范围修正须在修改处附近注释原因与差异；当前仅Tabs补传orientation。业务组合在外层，ScrollArea通过children与布局属性组合，不在上游文件插入滚动结构。全局导入`shadcn/tailwind.css`提供状态变体、`tw-animate-css`提供进出动效，120/180ms时长在CSS变量统一维护并尊重减少动态效果；业务Dialog保持受控Root到退出完成，关闭立即失效异步读取。主题tokens继续由应用维护。模型选择组合官方Combobox，独立思考强度菜单使用官方DropdownMenuRadioGroup；无自写通用Menu/模型选择器。ReUI尚未采用，Shiki由官方CodeBlock安装带入但当前未启用高亮。应用不直接依赖`radix-ui`/`cmdk`，不保留assistant-ui运行时。主题仅保存在浏览器localStorage。来源与版本见[应用许可说明](../apps/harness/THIRD-PARTY-NOTICES.md)，本次实施记录见[UI调整§5.12](iteration/2026-11/2026-11-03-feat-ui-adjustments.md#512-基础组件来源审计与官方安装整改)。
 
 **运行形态（首期）**：Node服务进程（运行 Pi SDK）+ 浏览器 UI（HTTP/SSE 传输）。桌面壳与进程持有方式暂不锁定（D-12）；协议层按可替换传输设计。
+
+**Pi CLI边界（2026-11-04）**：独立GUI通过内嵌SDK承接运行能力，不要求外部Pi CLI。当前主会话、认证、配置、工具与内置扩展已走SDK路径。huan内置subagent通过独立SDK会话执行，公开loader结果仅摘除外部同名工具，保留其他注册及来源诊断，详见[SDK子agent迭代](iteration/2026-11/2026-11-04-feat-sdk-subagents.md)。子任务独立持有SessionManager、loader、扩展runtime及MCP绑定，消息与运行事件不进入父会话；父工具汇总任务状态及usage，完整记录保存在`<agentDir>/huan/subagents/<parentId>/<taskId>/`，通过三个任务接口按需只读查询、取消与应答，排除普通会话扫描。共享用户资源不保证依赖CLI入口或终端组件的扩展自动适配。Shell、npm/git资源解析及MCP stdio服务器属于各自功能依赖。
 
 ---
 
@@ -166,7 +168,7 @@ codemode/tool-search 通过公开工厂按 named builtin/replaceable 装配，�
   - 命令通过类型化方法与 HTTP 请求/响应对应，无统一命令 `requestId`；Host UI 响应中的 `requestId` 只关联交互请求。
   - 会话事件信封为 `threadId + seq`，工具事件按需携带 `toolCallId/parentToolCallId`；无统一 `sessionId/runId` 事件信封。
   - 重连与首次订阅采用同一机制：订阅入口先交付带 `seq` 的权威快照，再在同一连接上接续实时事件。`seq` 可用于发现序号遗漏，但不依赖事件重放。
-  - 协议常量为 17；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
+  - 协议常量为 18；HostInfo 提供 `protocolVersion`，浏览器启动时同版比较，不匹配时停止业务初始化。没有协议版本范围协商、每请求版本身份头或旧版兼容层；未知事件/字段保持宽容。
   - Host UI 为四种交互及安全投影；版本化应用自定义 `kind` 尚未实现。
 - 传输可替换：首期 HTTP/SSE；Electron 主进程共置、Tauri sidecar 或未来本地 IPC 都实现同一 `HarnessClient` 接口。
 

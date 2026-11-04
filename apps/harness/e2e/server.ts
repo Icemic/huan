@@ -282,6 +282,20 @@ await writeFile(
 `,
 )
 
+// 子agent 验收定义：只暴露子工具确认探针，模型与 Thinking 继承父会话。
+// 只写定义文件，不注册新工具，避免影响资源清单/工具计数用例。
+await mkdir(join(env.agentDir, 'agents'), { recursive: true })
+await writeFile(
+  join(env.agentDir, 'agents', 'e2e-worker.md'),
+  `---
+name: e2e-worker
+description: E2E 子任务探针
+tools: e2e-child-ask
+---
+执行父会话委派的 E2E 子任务探针。
+`,
+)
+
 await mkdir(join(env.workspace, 'docs'), { recursive: true })
 await mkdir(join(env.workspace, 'src'), { recursive: true })
 await writeFile(join(env.workspace, 'docs', '指南 文件.md'), '# 指南\n')

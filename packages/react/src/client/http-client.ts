@@ -66,6 +66,9 @@
  *   POST   /threads/:id/unarchive   → 204
  *   DELETE /threads/:id             → 204（线程本就不存在时同样）
  *   POST   /threads/:id/host-ui     → 204                        (body: { response })
+ *   GET    /threads/:id/subagents/:taskId         → HarnessSubagentTaskView
+ *   POST   /threads/:id/subagents/:taskId/cancel  → 204
+ *   POST   /threads/:id/subagents/:taskId/respond → 204          (body: { response })
  *   GET    /threads/:id/events      → HarnessClientEvent 的 SSE（?snapshot=false 跳过首帧快照）
  *   GET    /provider-auth           → HarnessProviderAuthSnapshot（客户端订阅用轮询）
  *   POST   /provider-auth/login     → HarnessProviderAuthStartResult  (body: { providerId, method })
@@ -136,6 +139,8 @@ import type {
   HarnessSettingsSaveResult,
   HarnessSettingsSnapshot,
   HarnessSettingsTargetInput,
+  HarnessSubagentTask,
+  HarnessSubagentTaskView,
   HarnessThinkingLevel,
   HarnessThreadForkInput,
   HarnessThreadForkResult,
@@ -157,6 +162,7 @@ import type {
 
 import {
   isHostInteractionSnapshot,
+  isHostUiRequest,
   isMcpAuthCancelResult,
   isMcpAuthRespondResult,
   isMcpAuthSnapshot,
@@ -303,6 +309,45 @@ const parseThreadSnapshotResponse = (
     )
   }
   return value
+}
+
+/** 子任务摘要守卫：只接受页面会读取的受控字段。 */
+const isSubagentTask = (value: unknown): value is HarnessSubagentTask =>
+  isRecord(value) &&
+  typeof value.taskId === 'string' &&
+  typeof value.parentThreadId === 'string' &&
+  typeof value.agent === 'string' &&
+  typeof value.task === 'string' &&
+  (value.status === 'waiting' ||
+    value.status === 'running' ||
+    value.status === 'completed' ||
+    value.status === 'failed' ||
+    value.status === 'cancelled') &&
+  (value.model === undefined || typeof value.model === 'string') &&
+  (value.output === undefined || typeof value.output === 'string') &&
+  (value.error === undefined || typeof value.error === 'string') &&
+  isRecord(value.usage) &&
+  typeof value.usage.input === 'number' &&
+  typeof value.usage.output === 'number' &&
+  typeof value.usage.cacheRead === 'number' &&
+  typeof value.usage.cacheWrite === 'number' &&
+  typeof value.usage.cost === 'number'
+
+/** 子任务只读视图守卫：摘要 + 可选子快照 + 待答 Host UI 请求。 */
+const parseSubagentTaskResponse = (value: unknown): HarnessSubagentTaskView => {
+  if (
+    !isRecord(value) ||
+    !isSubagentTask(value.task) ||
+    (value.snapshot !== undefined && !isThreadSnapshot(value.snapshot)) ||
+    !Array.isArray(value.requests) ||
+    !value.requests.every(isHostUiRequest)
+  ) {
+    throw invalidResponse(
+      'fetching a subagent task',
+      'expected a task summary, an optional child snapshot and valid pending host UI requests.',
+    )
+  }
+  return value as HarnessSubagentTaskView
 }
 
 const parseClearQueueResponse = (value: unknown): { steering: string[]; followUp: string[] } => {
@@ -746,6 +791,9 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
 
   const base = trimTrailingSlash(baseUrl)
   const threadUrl = (threadId: string) => `${base}/threads/${encodeURIComponent(threadId)}`
+  /** 子任务路由挂在父会话路径下；服务端按父 ID 与任务摘要校验归属。 */
+  const subagentTaskUrl = (parentThreadId: string, taskId: string) =>
+    `${threadUrl(parentThreadId)}/subagents/${encodeURIComponent(taskId)}`
 
   const jsonHeaders = { 'content-type': 'application/json', ...headers }
 
@@ -1270,6 +1318,24 @@ export const createHarnessHttpClient = (options: HarnessHttpClientOptions = {}):
         )
       }
       return value
+    },
+
+    getSubagentTask: async (parentThreadId, taskId) =>
+      parseSubagentTaskResponse(
+        await readJson(
+          await send(subagentTaskUrl(parentThreadId, taskId), 'GET'),
+          'fetching a subagent task',
+        ),
+      ),
+
+    cancelSubagentTask: async (parentThreadId, taskId) => {
+      await assertOk(await send(`${subagentTaskUrl(parentThreadId, taskId)}/cancel`, 'POST'))
+    },
+
+    respondSubagentTask: async (parentThreadId, taskId, response) => {
+      await assertOk(
+        await send(`${subagentTaskUrl(parentThreadId, taskId)}/respond`, 'POST', { response }),
+      )
     },
 
     getThreadTree: async (threadId) => {

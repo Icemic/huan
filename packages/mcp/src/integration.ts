@@ -17,7 +17,13 @@ import type {
   McpExposure,
   RegisteredMcpServer,
 } from '@earendil-works/pi-coding-agent'
-import { type LoadedMcpConfig, loadMcpConfig, type McpServerEntry, mcpNamespace } from './config.js'
+import {
+  type LoadedMcpConfig,
+  loadMcpConfig,
+  type McpServerEntry,
+  type McpServerOverrides,
+  mcpNamespace,
+} from './config.js'
 import type { McpCommandRunner } from './config-values.js'
 import { type McpAuthProviderFactory, resolveMcpRequestTimeoutMs } from './connection.js'
 import type { McpServerLogSink } from './log.js'
@@ -61,6 +67,11 @@ export interface McpIntegrationOptions {
     cwd: string
     projectTrusted: boolean
   }) => LoadedMcpConfig | Promise<LoadedMcpConfig>
+  /**
+   * 按服务器名合并的启停/exposure 选择；在文件条目与扩展注册条目合并后应用，
+   * 因此动态注册的同名服务器同样生效。只在内存中覆盖，不写回磁盘。
+   */
+  serverOverrides?: Readonly<Record<string, McpServerOverrides>>
   /** direct 工具首轮等待上限；默认 10 秒。 */
   startupWaitMs?: number
   createTransport?: McpConnectionManagerOptions['createTransport']
@@ -276,6 +287,34 @@ function registeredEntries(
     })
   }
   return { entries, overridden }
+}
+
+/**
+ * 把父会话的启停/exposure 选择合并到合并后的条目。
+ *
+ * 只生成内存条目副本，不写回任何配置文件；文件条目与扩展注册条目都在这里
+ * 接收同一份选择，同名的文件条目仍由 `registeredEntries` 优先。
+ */
+function applyServerOverrides(
+  entries: McpServerEntry[],
+  overrides: Readonly<Record<string, McpServerOverrides>> | undefined,
+): McpServerEntry[] {
+  if (!overrides) return entries
+  return entries.map((entry) => {
+    const override = overrides[entry.name]
+    if (!override) return entry
+    return {
+      ...entry,
+      config: {
+        ...entry.config,
+        ...(override.enabled !== undefined ? { enabled: override.enabled } : {}),
+        ...(override.exposure !== undefined ? { exposure: override.exposure } : {}),
+        ...(override.toolExposure !== undefined
+          ? { toolExposure: { ...override.toolExposure } }
+          : {}),
+      },
+    }
+  })
 }
 
 function resourceServerList(run: ServerRun): McpResourceServer[] {
@@ -707,7 +746,10 @@ export function createMcpIntegration(options: McpIntegrationOptions): McpIntegra
       run.autoEnableCodemode = loaded.autoEnableCodemode ?? true
       const registered = registeredEntries(pi.getMcpServers(), loaded.servers)
       run.overridden = registered.overridden
-      const entries = [...loaded.servers, ...registered.entries]
+      const entries = applyServerOverrides(
+        [...loaded.servers, ...registered.entries],
+        options.serverOverrides,
+      )
       run.entries = new Map(entries.map((entry) => [entry.name, entry]))
 
       let manager: McpConnectionManager
@@ -746,7 +788,10 @@ export function createMcpIntegration(options: McpIntegrationOptions): McpIntegra
       const previousOverridden = run.overridden
       const previousEntries = run.entries
       run.overridden = registered.overridden
-      const entries = [...config.servers, ...registered.entries]
+      const entries = applyServerOverrides(
+        [...config.servers, ...registered.entries],
+        options.serverOverrides,
+      )
       // 先更新桥接条目，manager 同步发布时即可撤下移除项。
       run.entries = new Map(entries.map((entry) => [entry.name, entry]))
       try {

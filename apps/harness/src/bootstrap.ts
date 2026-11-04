@@ -19,6 +19,7 @@ import { createRuntimeFeatureStore, type RuntimeFeatureState } from './state/run
 import { createSessionsFeatureStore, type SessionsFeatureState } from './state/sessions-store'
 import { createSettingsFeatureStore, type SettingsFeatureState } from './state/settings-store'
 import { createSettingsUiStore, type SettingsUiState } from './state/settings-ui-store'
+import { createSubagentFeatureStore, type SubagentFeatureState } from './state/subagent-store'
 import { createThemeStore, type ThemeStoreState } from './state/theme-store'
 import { createWorkspaceFeatureStore, type WorkspaceFeatureState } from './state/workspace-store'
 
@@ -36,6 +37,7 @@ export interface HarnessApp {
   modelStore: StoreApi<ModelFeatureState>
   composerStore: StoreApi<ComposerFeatureState>
   chatStore: StoreApi<ChatFeatureState>
+  subagentStore: StoreApi<SubagentFeatureState>
   themeStore: StoreApi<ThemeStoreState>
   dispose(): void
 }
@@ -120,6 +122,7 @@ export const createHarnessApp = (): HarnessApp => {
   })
   const authStore = createAuthFeatureStore({ browser })
   const chatStore = createChatFeatureStore()
+  const subagentStore = createSubagentFeatureStore({ client })
   const hostStore = createHostFeatureStore({ browser })
   const mcpStore = createMcpFeatureStore({ browser, fallbackWorkspacePath })
   const runtimeStore = createRuntimeFeatureStore({ browser, fallbackWorkspacePath })
@@ -249,6 +252,7 @@ export const createHarnessApp = (): HarnessApp => {
     modelStore,
     composerStore,
     chatStore,
+    subagentStore,
     themeStore,
     dispose: () => {
       if (disposed) return
@@ -271,6 +275,11 @@ export const createHarnessApp = (): HarnessApp => {
       }
       try {
         composerStore.getState().dispose()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        subagentStore.getState().dispose()
       } catch (error) {
         errors.push(error)
       }

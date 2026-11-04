@@ -183,6 +183,116 @@ describe('message-view（独立展示投影）', () => {
     expect(completed[0]?.parts[0]).not.toHaveProperty('isPreliminary')
   })
 
+  it('实时工具 details 透传；最终结果缺省时清除实时 details', () => {
+    const call = {
+      type: 'toolCall' as const,
+      id: 'tc1',
+      name: 'subagent',
+      arguments: { agent: 'reviewer', task: '审查改动' },
+    }
+    const liveDetails = {
+      kind: 'huan-subagent',
+      mode: 'single',
+      tasks: [{ taskId: 'task-1', status: 'running' }],
+    }
+    const live = projectHarnessMessages(
+      input([assistant([call])], {
+        runStatus: 'running',
+        toolExecutions: {
+          tc1: execution('tc1', {
+            toolName: 'subagent',
+            args: { agent: 'reviewer', task: '审查改动' },
+            partialResult: {
+              content: [{ type: 'text', text: 'subagent: 1 running' }],
+              details: liveDetails,
+            },
+          }),
+        },
+      }),
+    )
+    expect(live[0]?.parts[0]).toMatchObject({
+      type: 'tool',
+      toolName: 'subagent',
+      status: 'running',
+      details: liveDetails,
+    })
+
+    // 最终 toolResult 缺省 details 时以最终结果为准，清除临时任务状态。
+    const completed = projectHarnessMessages(
+      input(
+        [
+          assistant([call]),
+          toolResult('tc1', [{ type: 'text', text: '完成' }], { toolName: 'subagent' }),
+        ],
+        {
+          toolExecutions: {
+            tc1: execution('tc1', {
+              toolName: 'subagent',
+              partialResult: {
+                content: [{ type: 'text', text: '完成' }],
+                details: liveDetails,
+              },
+              status: 'complete',
+            }),
+          },
+        },
+      ),
+    )
+    expect(completed[0]?.parts[0]).toMatchObject({
+      type: 'tool',
+      status: 'complete',
+      output: '完成',
+    })
+    expect(completed[0]?.parts[0]).not.toHaveProperty('details')
+  })
+
+  it('最终 details 覆盖实时值；非记录形状的 partialResult 不读取字段', () => {
+    const call = { type: 'toolCall' as const, id: 'tc1', name: 'subagent', arguments: {} }
+    const finalDetails = { kind: 'huan-subagent', mode: 'single', tasks: [] }
+    const views = projectHarnessMessages(
+      input(
+        [
+          assistant([call]),
+          toolResult('tc1', [{ type: 'text', text: 'done' }], {
+            toolName: 'subagent',
+            details: finalDetails,
+          }),
+        ],
+        {
+          toolExecutions: {
+            tc1: execution('tc1', {
+              toolName: 'subagent',
+              partialResult: { content: [], details: { stale: true } },
+              status: 'complete',
+            }),
+          },
+        },
+      ),
+    )
+    expect(views[0]?.parts[0]).toMatchObject({ details: finalDetails })
+
+    const primitive = projectHarnessMessages(
+      input([assistant([call])], {
+        toolExecutions: { tc1: execution('tc1', { toolName: 'subagent', partialResult: 'text' }) },
+      }),
+    )
+    expect(primitive[0]?.parts[0]).not.toHaveProperty('details')
+  })
+
+  it('其他工具的实时 details 同样进入展示模型', () => {
+    const views = projectHarnessMessages(
+      input([assistant([{ type: 'toolCall', id: 'tc1', name: 'custom', arguments: {} }])], {
+        toolExecutions: {
+          tc1: execution('tc1', {
+            toolName: 'custom',
+            partialResult: { content: [], details: { progress: 1 } },
+          }),
+        },
+      }),
+    )
+    expect(views[0]?.parts[0]).toMatchObject({ details: { progress: 1 } })
+  })
+
   it('工具错误结果与图片输出按内容呈现', () => {
     const views = projectHarnessMessages(
       input(
