@@ -42,7 +42,8 @@ async function scriptTurns(
 
 /** 展开已完成（非错误）的工具折叠行。 */
 async function expandTool(page: import('@playwright/test').Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: `已运行 ${name}` }).click()
+  const trigger = page.getByRole('button', { name: `已运行 ${name}` })
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click()
 }
 
 /** 图片节点存在不等于真实解码成功：必须等到浏览器得到非零自然尺寸。 */
@@ -177,7 +178,10 @@ test('嵌套工具：父子关系、进度与待答请求可发现可操作', as
 
   // 历史记录保留有界子调用摘要与父工具输出。
   await expandTool(page, 'e2e-nested')
-  const parentCard = page.locator('[data-slot="trace"]').filter({ hasText: 'e2e-nested' }).last()
+  const parentCard = page
+    .locator('[data-slot="huan-tool-part"]')
+    .filter({ has: page.locator('[data-tool-name="e2e-nested"]') })
+    .last()
   await expect(parentCard).toContainText('NESTED-PARENT-DONE')
   const summary = parentCard.locator('[data-slot="huan-nested-calls"]')
   await expect(summary).toContainText('子调用摘要')

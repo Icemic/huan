@@ -236,7 +236,7 @@ export function ChatView() {
     if (persistedStatus && persistedViewIndex >= views.length) items.push(persistedStatus)
     if (compactionViewIndex >= views.length) items.push(compactionStatus)
     body = (
-      <div data-slot="huan-chat-messages" className="flex flex-col gap-6">
+      <div data-slot="huan-chat-messages" className="@container/message flex flex-col gap-6">
         {items}
       </div>
     )

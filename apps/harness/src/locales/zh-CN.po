@@ -16,7 +16,7 @@ msgstr "（空）"
 msgid "{0} 个项目"
 msgstr "{0} 个项目"
 
-#: src/components/runtime-operations.tsx:191
+#: src/components/runtime-operations.tsx:190
 msgid "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 msgstr "`!` 纳入模型上下文，`!!` 仅保留历史；命令在固定起始目录直接执行，不提供沙箱， 外部副作用无法撤销。"
 
@@ -65,13 +65,13 @@ msgstr "Token"
 msgid "上下文"
 msgstr "上下文"
 
-#: src/components/runtime-operations.tsx:258
+#: src/components/runtime-operations.tsx:257
 msgid "上下文压缩"
 msgstr "上下文压缩"
 
-#: src/components/chat/compaction-status.tsx:93
-#: src/components/chat/compaction-status.tsx:107
-#: src/components/chat/data-part.tsx:157
+#: src/components/chat/compaction-status.tsx:99
+#: src/components/chat/compaction-status.tsx:113
+#: src/components/chat/data-part.tsx:90
 msgid "上下文已压缩"
 msgstr "上下文已压缩"
 
@@ -83,7 +83,7 @@ msgstr "上传文件"
 msgid "不会自动发送；可复制或恢复到输入框。"
 msgstr "不会自动发送；可复制或恢复到输入框。"
 
-#: src/components/chat/tool-part.tsx:168
+#: src/components/chat/tool-attachments.tsx:51
 msgid "不完整"
 msgstr "不完整"
 
@@ -91,8 +91,7 @@ msgstr "不完整"
 msgid "不摘要（只切换上下文）"
 msgstr "不摘要（只切换上下文）"
 
-#: src/components/chat/data-part.tsx:66
-#: src/components/runtime-operations.tsx:52
+#: src/components/runtime-operations.tsx:55
 msgid "不进入上下文"
 msgstr "不进入上下文"
 
@@ -272,11 +271,11 @@ msgstr "先修复 JSON 解析错误，常用项表单才可用。"
 msgid "先修复 JSON 解析错误，此页表单才可用。"
 msgstr "先修复 JSON 解析错误，此页表单才可用。"
 
-#: src/components/runtime-operations.tsx:310
+#: src/components/runtime-operations.tsx:309
 msgid "先建立或打开会话，才能压缩。"
 msgstr "先建立或打开会话，才能压缩。"
 
-#: src/components/runtime-operations.tsx:247
+#: src/components/runtime-operations.tsx:246
 msgid "先建立或打开会话，才能执行 Shell。"
 msgstr "先建立或打开会话，才能执行 Shell。"
 
@@ -311,7 +310,7 @@ msgid "共 {0} 条"
 msgstr "共 {0} 条"
 
 #: src/components/pi-mcp-panel.tsx:1653
-#: src/components/runtime-operations.tsx:328
+#: src/components/runtime-operations.tsx:327
 #: src/components/session-dialogs.tsx:302
 #: src/components/session-tree-dialog.tsx:751
 #: src/components/settings-resources-dialog.tsx:388
@@ -335,11 +334,23 @@ msgstr "关闭面板后登录继续；要终止请取消认证。"
 msgid "关闭面板后认证继续；要终止请点击取消认证"
 msgstr "关闭面板后认证继续；要终止请点击取消认证"
 
+#: src/components/chat/specialized-tool-parts.tsx:126
+msgid "其他参数"
+msgstr "其他参数"
+
+#: src/components/chat/specialized-tool-parts.tsx:129
+msgid "其他详情"
+msgstr "其他详情"
+
 #: src/components/session-dialogs.tsx:180
 #: src/components/workspace-sidebar.tsx:420
 #: src/components/workspace-sidebar.tsx:436
 msgid "最近活动"
 msgstr "最近活动"
+
+#: src/components/chat/tool-part.tsx:203
+msgid "写入"
+msgstr "写入"
 
 #: src/components/import-thread-dialog.tsx:296
 msgid "冲突"
@@ -358,7 +369,7 @@ msgstr "凭据保存在服务端用户空间的 auth.json；退出登录仅移�
 msgid "凭据说明"
 msgstr "凭据说明"
 
-#: src/components/chat/data-part.tsx:171
+#: src/components/chat/data-part.tsx:107
 #: src/components/session-tree-dialog.tsx:661
 msgid "分支摘要"
 msgstr "分支摘要"
@@ -434,7 +445,7 @@ msgstr "协议版本不匹配：宿主 {0}，页面 {HARNESS_PROTOCOL_VERSION}�
 msgid "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型。"
 
-#: src/components/runtime-operations.tsx:290
+#: src/components/runtime-operations.tsx:289
 msgid "压缩上下文"
 msgstr "压缩上下文"
 
@@ -443,7 +454,7 @@ msgid "压缩中…"
 msgstr "压缩中…"
 
 #. placeholder {0}: compactionReasonLabel(metadata?.compactionReason)
-#: src/components/runtime-operations.tsx:263
+#: src/components/runtime-operations.tsx:262
 msgid "压缩中（{0}）"
 msgstr "压缩中（{0}）"
 
@@ -452,7 +463,8 @@ msgid "压缩保留最近 tokens"
 msgstr "压缩保留最近 tokens"
 
 #. placeholder {0}: summary.tokensBefore
-#: src/components/chat/compaction-status.tsx:111
+#: src/components/chat/compaction-status.tsx:117
+#: src/components/chat/compaction-status.tsx:126
 msgid "压缩前约 {0} tokens"
 msgstr "压缩前约 {0} tokens"
 
@@ -464,15 +476,15 @@ msgstr "压缩后上下文未知，等待下一次响应"
 msgid "压缩后用量待更新"
 msgstr "压缩后用量待更新"
 
-#: src/components/chat/compaction-status.tsx:152
+#: src/components/chat/compaction-status.tsx:163
 msgid "压缩失败"
 msgstr "压缩失败"
 
-#: src/components/runtime-operations.tsx:272
+#: src/components/runtime-operations.tsx:271
 msgid "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
 msgstr "压缩失败或取消都会保留原始消息树；压缩可能产生模型费用。运行中请先停止再压缩。"
 
-#: src/components/chat/compaction-status.tsx:135
+#: src/components/chat/compaction-status.tsx:146
 msgid "压缩已取消"
 msgstr "压缩已取消"
 
@@ -480,7 +492,7 @@ msgstr "压缩已取消"
 msgid "压缩预留 tokens"
 msgstr "压缩预留 tokens"
 
-#: src/components/chat/tool-part.tsx:355
+#: src/components/chat/tool-part.tsx:458
 msgid "参数"
 msgstr "参数"
 
@@ -503,7 +515,7 @@ msgstr "取回全部"
 msgid "取消"
 msgstr "取消"
 
-#: src/components/runtime-operations.tsx:243
+#: src/components/runtime-operations.tsx:242
 msgid "取消 Shell"
 msgstr "取消 Shell"
 
@@ -511,8 +523,8 @@ msgstr "取消 Shell"
 msgid "取消任务"
 msgstr "取消任务"
 
-#: src/components/chat/compaction-status.tsx:74
-#: src/components/runtime-operations.tsx:298
+#: src/components/chat/compaction-status.tsx:75
+#: src/components/runtime-operations.tsx:297
 msgid "取消压缩"
 msgstr "取消压缩"
 
@@ -601,6 +613,10 @@ msgstr "启动默认模型未配置：{0}"
 msgid "启用"
 msgstr "启用"
 
+#: src/components/chat/content-block.tsx:212
+msgid "命令"
+msgstr "命令"
+
 #: src/components/chat/chat-view.tsx:281
 msgid "回到底部"
 msgstr "回到底部"
@@ -621,10 +637,6 @@ msgstr "复制失败，请手工选择信息复制。"
 msgid "复制诊断摘要"
 msgstr "复制诊断摘要"
 
-#: src/components/chat/data-part.tsx:106
-msgid "复制输出"
-msgstr "复制输出"
-
 #: src/components/settings-dialog.tsx:48
 #: src/components/settings-dialog.tsx:206
 msgid "外观"
@@ -634,7 +646,7 @@ msgstr "外观"
 msgid "多项目工作区"
 msgstr "多项目工作区"
 
-#: src/components/runtime-operations.tsx:62
+#: src/components/runtime-operations.tsx:65
 #: src/components/subagent-task-card.tsx:51
 msgid "失败"
 msgstr "失败"
@@ -655,7 +667,11 @@ msgstr "子会话暂无消息。"
 msgid "子会话正在启动，暂无消息。"
 msgstr "子会话正在启动，暂无消息。"
 
-#: src/components/chat/tool-part.tsx:165
+#: src/components/chat/tool-part.tsx:256
+msgid "子调用"
+msgstr "子调用"
+
+#: src/components/chat/tool-attachments.tsx:48
 msgid "子调用摘要"
 msgstr "子调用摘要"
 
@@ -672,20 +688,11 @@ msgstr "存储方式"
 msgid "完成"
 msgstr "完成"
 
-#: src/components/chat/tool-part.tsx:168
+#: src/components/chat/tool-attachments.tsx:51
 msgid "完整"
 msgstr "完整"
 
-#. placeholder {0}: result.fullOutputPath
-#: src/components/runtime-operations.tsx:98
-msgid "完整输出：{0}"
-msgstr "完整输出：{0}"
-
-#: src/components/chat/data-part.tsx:110
-msgid "完整输出：{fullOutputPath}"
-msgstr "完整输出：{fullOutputPath}"
-
-#: src/components/runtime-operations.tsx:75
+#: src/components/runtime-operations.tsx:78
 msgid "实时输出已截断"
 msgstr "实时输出已截断"
 
@@ -802,7 +809,7 @@ msgstr "工具与图片"
 msgid "工具与资源"
 msgstr "工具与资源"
 
-#: src/components/chat/tool-part.tsx:334
+#: src/components/chat/tool-part.tsx:446
 msgid "工具仍在运行，以下为部分输出。"
 msgstr "工具仍在运行，以下为部分输出。"
 
@@ -810,7 +817,7 @@ msgstr "工具仍在运行，以下为部分输出。"
 msgid "工具关联："
 msgstr "工具关联："
 
-#: src/components/chat/tool-part.tsx:348
+#: src/components/chat/tool-part.tsx:451
 msgid "工具执行失败，未返回可读输出。"
 msgstr "工具执行失败，未返回可读输出。"
 
@@ -823,7 +830,7 @@ msgstr "工具版本"
 msgid "工具结果 {0}"
 msgstr "工具结果 {0}"
 
-#: src/components/chat/tool-part.tsx:401
+#: src/components/chat/tool-part.tsx:504
 msgid "工具详情"
 msgstr "工具详情"
 
@@ -840,8 +847,7 @@ msgstr "已信任"
 msgid "已取回队列，但输入框已有新内容"
 msgstr "已取回队列，但输入框已有新内容"
 
-#: src/components/chat/data-part.tsx:69
-#: src/components/runtime-operations.tsx:66
+#: src/components/runtime-operations.tsx:69
 #: src/components/subagent-task-card.tsx:53
 msgid "已取消"
 msgstr "已取消"
@@ -978,7 +984,7 @@ msgid "当前状态"
 msgstr "当前状态"
 
 #. placeholder {0}: autoCompaction ? '开' : '关'
-#: src/components/runtime-operations.tsx:303
+#: src/components/runtime-operations.tsx:302
 msgid "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 msgstr "当前自动压缩：{0}。可在全局设置的“对话”页修改。"
 
@@ -990,16 +996,20 @@ msgstr "当前范围内没有可用模型。"
 msgid "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
 msgstr "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
 
+#: src/components/chat/specialized-tool-parts.tsx:303
+msgid "待应用"
+msgstr "待应用"
+
 #: src/components/pi-host-interactions.tsx:169
 #: src/components/pi-thread-host-ui.tsx:411
 msgid "忽略"
 msgstr "忽略"
 
-#: src/components/chat/tool-part.tsx:463
+#: src/components/chat/tool-part.tsx:572
 msgid "思考中"
 msgstr "思考中"
 
-#: src/components/chat/tool-part.tsx:463
+#: src/components/chat/tool-part.tsx:572
 msgid "思考完成"
 msgstr "思考完成"
 
@@ -1057,6 +1067,10 @@ msgstr "打开链接"
 msgid "打开验证页"
 msgstr "打开验证页"
 
+#: src/components/chat/tool-part.tsx:207
+msgid "执行"
+msgstr "执行"
+
 #: src/components/pi-mcp-panel.tsx:352
 msgid "扩展临时注册不写入配置文件。"
 msgstr "扩展临时注册不写入配置文件。"
@@ -1065,7 +1079,7 @@ msgstr "扩展临时注册不写入配置文件。"
 msgid "扩展标题："
 msgstr "扩展标题："
 
-#: src/components/chat/data-part.tsx:185
+#: src/components/chat/data-part.tsx:122
 msgid "扩展消息"
 msgstr "扩展消息"
 
@@ -1174,6 +1188,15 @@ msgstr "无"
 msgid "无法读取工作区与会话列表，请检查宿主连接后重试。"
 msgstr "无法读取工作区与会话列表，请检查宿主连接后重试。"
 
+#: src/components/chat/specialized-tool-parts.tsx:163
+#: src/components/chat/specialized-tool-parts.tsx:193
+#: src/components/chat/specialized-tool-parts.tsx:372
+#: src/components/chat/specialized-tool-parts.tsx:442
+#: src/components/chat/user-shell-message.tsx:118
+#: src/components/runtime-operations.tsx:94
+msgid "无输出"
+msgstr "无输出"
+
 #: src/components/pi-host-status.tsx:161
 msgid "显式共享的平铺目录"
 msgstr "显式共享的平铺目录"
@@ -1201,6 +1224,21 @@ msgstr "暂无统计"
 #: src/components/import-thread-dialog.tsx:221
 msgid "替代起始目录"
 msgstr "替代起始目录"
+
+#. placeholder {0}: input.segments.length
+#: src/components/chat/specialized-tool-parts.tsx:319
+msgid "替换内容 · {0} 处"
+msgstr "替换内容 · {0} 处"
+
+#. placeholder {0}: index + 1
+#: src/components/chat/specialized-tool-parts.tsx:327
+msgid "替换前 · {0}"
+msgstr "替换前 · {0}"
+
+#. placeholder {0}: index + 1
+#: src/components/chat/specialized-tool-parts.tsx:336
+msgid "替换后 · {0}"
+msgstr "替换后 · {0}"
 
 #: src/components/pi-thread-host-ui.tsx:279
 msgid "有待填入的内容。"
@@ -1377,7 +1415,7 @@ msgstr "模型认证"
 msgid "正在保存标签…"
 msgstr "正在保存标签…"
 
-#: src/components/chat/tool-part.tsx:220
+#: src/components/chat/tool-part.tsx:168
 msgid "正在准备子任务…"
 msgstr "正在准备子任务…"
 
@@ -1389,7 +1427,7 @@ msgstr "正在切换会话上下文…"
 msgid "正在加载会话…"
 msgstr "正在加载会话…"
 
-#: src/components/chat/compaction-status.tsx:56
+#: src/components/chat/compaction-status.tsx:57
 msgid "正在压缩上下文…"
 msgstr "正在压缩上下文…"
 
@@ -1409,7 +1447,7 @@ msgstr "正在检查起始项目与信任…"
 msgid "正在生成分支摘要（可能计费）…"
 msgstr "正在生成分支摘要（可能计费）…"
 
-#: src/components/chat/chat-message.tsx:190
+#: src/components/chat/chat-message.tsx:192
 msgid "正在等待模型输出…"
 msgstr "正在等待模型输出…"
 
@@ -1487,10 +1525,6 @@ msgstr "没有可用模型，请刷新目录。"
 msgid "没有可用模型。"
 msgstr "没有可用模型。"
 
-#: src/components/chat/data-part.tsx:91
-msgid "没有可读输出。"
-msgstr "没有可读输出。"
-
 #: src/components/theme-selector.tsx:12
 msgid "浅色"
 msgstr "浅色"
@@ -1540,7 +1574,7 @@ msgstr "用于新会话；当前会话的模型仍由输入区选择。"
 msgid "用户 {0}"
 msgstr "用户 {0}"
 
-#: src/components/runtime-operations.tsx:182
+#: src/components/runtime-operations.tsx:181
 msgid "用户 Shell"
 msgstr "用户 Shell"
 
@@ -1620,7 +1654,17 @@ msgstr "确认重新读取文件"
 msgid "稍后处理"
 msgstr "稍后处理"
 
-#: src/components/runtime-operations.tsx:267
+#: src/components/chat/specialized-tool-parts.tsx:184
+#: src/components/chat/specialized-tool-parts.tsx:332
+#: src/components/chat/specialized-tool-parts.tsx:341
+msgid "空内容"
+msgstr "空内容"
+
+#: src/components/chat/specialized-tool-parts.tsx:236
+msgid "空内容 · 0 行"
+msgstr "空内容 · 0 行"
+
+#: src/components/runtime-operations.tsx:266
 msgid "空闲"
 msgstr "空闲"
 
@@ -1640,7 +1684,7 @@ msgstr "等待"
 msgid "等待任务输出…"
 msgstr "等待任务输出…"
 
-#: src/components/chat/tool-part.tsx:339
+#: src/components/chat/tool-part.tsx:435
 #: src/components/subagent-task-card.tsx:128
 msgid "等待你的答复"
 msgstr "等待你的答复"
@@ -1684,7 +1728,7 @@ msgstr "累计统计覆盖整个会话文件（含已压缩历史与其他分支
 msgid "累计费用"
 msgstr "累计费用"
 
-#: src/components/runtime-operations.tsx:80
+#: src/components/runtime-operations.tsx:83
 msgid "结果已截断"
 msgstr "结果已截断"
 
@@ -1705,6 +1749,10 @@ msgstr "缓存读 {0}"
 #: src/components/composer-context-usage.tsx:227
 msgid "缓存读取"
 msgstr "缓存读取"
+
+#: src/components/chat/tool-part.tsx:205
+msgid "编辑"
+msgstr "编辑"
 
 #: src/components/pi-mcp-panel.tsx:1544
 msgid "编辑全局配置"
@@ -1804,6 +1852,10 @@ msgstr "详情"
 msgid "请在环境变量或 models.json 中配置凭据。"
 msgstr "请在环境变量或 models.json 中配置凭据。"
 
+#: src/components/chat/tool-part.tsx:201
+msgid "读取"
+msgstr "读取"
+
 #: src/components/session-dialogs.tsx:203
 msgid "读取会话详情失败，请检查宿主连接后重试。"
 msgstr "读取会话详情失败，请检查宿主连接后重试。"
@@ -1899,7 +1951,8 @@ msgstr "输入"
 msgid "输入 {0}"
 msgstr "输入 {0}"
 
-#: src/components/chat/tool-part.tsx:379
+#: src/components/chat/content-block.tsx:244
+#: src/components/chat/tool-part.tsx:482
 #: src/components/composer-context-usage.tsx:219
 msgid "输出"
 msgstr "输出"
@@ -1909,11 +1962,19 @@ msgstr "输出"
 msgid "输出 {0}"
 msgstr "输出 {0}"
 
-#: src/components/runtime-operations.tsx:234
+#: src/components/chat/content-block.tsx:244
+msgid "输出中"
+msgstr "输出中"
+
+#: src/components/chat/content-block.tsx:270
+msgid "输出已截断"
+msgstr "输出已截断"
+
+#: src/components/runtime-operations.tsx:233
 msgid "运行 Shell"
 msgstr "运行 Shell"
 
-#: src/components/runtime-operations.tsx:58
+#: src/components/runtime-operations.tsx:61
 #: src/components/subagent-task-card.tsx:47
 msgid "运行中"
 msgstr "运行中"
@@ -1922,7 +1983,7 @@ msgstr "运行中"
 msgid "运行中暂不可压缩"
 msgstr "运行中暂不可压缩"
 
-#: src/components/runtime-operations.tsx:158
+#: src/components/runtime-operations.tsx:157
 #: src/components/session-actions-menu.tsx:151
 #: src/components/session-actions-menu.tsx:184
 msgid "运行操作"
@@ -1953,17 +2014,13 @@ msgid "退出登录"
 msgstr "退出登录"
 
 #. placeholder {0}: result?.exitCode ?? '未知'
-#: src/components/runtime-operations.tsx:70
+#: src/components/runtime-operations.tsx:73
 msgid "退出码 {0}"
 msgstr "退出码 {0}"
 
-#: src/components/chat/data-part.tsx:71
-msgid "退出码 {exitCode}"
-msgstr "退出码 {exitCode}"
-
-#: src/components/chat/data-part.tsx:73
-msgid "退出码未知"
-msgstr "退出码未知"
+#: src/components/chat/user-shell-message.tsx:122
+msgid "退出码 0"
+msgstr "退出码 0"
 
 #: src/components/settings-dialog.tsx:216
 msgid "选择后立即生效，保存在此浏览器。"
@@ -2045,7 +2102,7 @@ msgstr "附件预览"
 msgid "隐藏指令/系统提示文本"
 msgstr "隐藏指令/系统提示文本"
 
-#: src/components/runtime-operations.tsx:318
+#: src/components/runtime-operations.tsx:317
 msgid "需要会话的操作在左侧新建会话后可用。"
 msgstr "需要会话的操作在左侧新建会话后可用。"
 

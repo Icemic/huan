@@ -103,7 +103,7 @@ test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, r
 
   const excludeCard = page.locator('[data-slot="huan-bash-message"]').last()
   await expect(excludeCard).toContainText(`echo excluded-${run}`)
-  await expect(excludeCard).toContainText('不进入上下文')
+  await expect(excludeCard.getByRole('img', { name: '不进入模型上下文' })).toBeVisible()
   await expect(excludeCard).toContainText('退出码 0')
 })
 
@@ -181,6 +181,9 @@ test('手动压缩成功与取消后恢复', async ({ page, request }) => {
   ).toContainText('上下文已压缩')
   await closePanel(page)
   await expect(page.locator('[data-slot="huan-compaction-status"]')).toHaveCount(1)
+  const compactedRow = page.locator('[data-slot="huan-compaction-status"][data-status="compacted"]')
+  await expect(compactedRow.locator('[data-slot="trace-line"]')).toHaveCSS('font-size', '14px')
+  await expect(compactedRow.locator('[data-slot="trace-icon"]').first()).toHaveCSS('width', '16px')
   await page.getByRole('button', { name: /上下文已压缩/ }).click()
   await expect(page.locator('[data-slot="huan-compaction-status"]')).toContainText(DEFAULT_REPLY)
 
@@ -195,9 +198,9 @@ test('手动压缩成功与取消后恢复', async ({ page, request }) => {
   await cancelDialog.getByRole('button', { name: '压缩上下文' }).click()
   await expect(cancelDialog.getByText(/压缩中（手动）/)).toBeVisible()
   await cancelDialog.getByRole('button', { name: '取消压缩' }).click()
-  await expect(
-    page.locator('[data-slot="huan-compaction-status"][data-status="cancelled"]'),
-  ).toContainText('压缩已取消')
+  const cancelledRow = page.locator('[data-slot="huan-compaction-status"][data-status="cancelled"]')
+  await expect(cancelledRow).toContainText('压缩已取消')
+  await expect(cancelledRow).toHaveCSS('font-size', '14px')
   await closePanel(page)
   await resetStream(request)
 

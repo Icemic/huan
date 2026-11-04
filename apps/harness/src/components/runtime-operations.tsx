@@ -12,6 +12,7 @@ import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
 import { BanIcon, CircleStopIcon, Loader2Icon, PlayIcon, XIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { CommandBlock, OutputBlock, ShellOutputInfo } from '@/components/chat/content-block'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -40,21 +41,23 @@ function StatusLine({ tone, children }: { tone: 'muted' | 'error'; children: Rea
   )
 }
 
-/** 一块有界输出（折叠较长内容，保留复制入口由浏览器选择完成）。 */
-function OutputBlock({ run }: { run: HarnessBashRun }) {
+/** 一块可复用的 Shell 运行内容：命令、输出与结果信息。 */
+function ShellRunContent({ run }: { run: HarnessBashRun }) {
   const result = run.result
+  const failure =
+    Boolean(result?.error) ||
+    (result?.exitCode !== undefined && !result.cancelled && result.exitCode !== 0)
   return (
-    <div data-slot="huan-shell-run" className="flex flex-col gap-1 rounded-md border p-2">
+    <div data-slot="huan-shell-run" className="flex flex-col gap-2 rounded-md border p-2">
       <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-foreground font-mono">{run.command}</span>
         {run.excludeFromContext && (
-          <span className="rounded bg-muted px-1 py-0.5">
+          <span className="bg-muted rounded px-1 py-0.5">
             <Trans>不进入上下文</Trans>
           </span>
         )}
         {run.status === 'running' ? (
           <span className="inline-flex items-center gap-1">
-            <Loader2Icon aria-hidden className="size-3 animate-spin" />
+            <Loader2Icon aria-hidden className="size-3.5 animate-spin" />
             <Trans>运行中</Trans>
           </span>
         ) : result?.error ? (
@@ -81,23 +84,19 @@ function OutputBlock({ run }: { run: HarnessBashRun }) {
           </span>
         )}
       </div>
-      {run.output && (
-        <ScrollArea
-          data-slot="huan-shell-output"
-          className="rounded bg-muted/60 *:data-[slot=scroll-area-viewport]:max-h-48"
-        >
-          <div className="p-2">
-            <pre className="font-mono text-xs whitespace-pre-wrap">{run.output}</pre>
-          </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-      )}
+      <CommandBlock command={run.command} />
+      {run.output.length > 0 || run.status !== 'running' ? (
+        <div data-slot="huan-shell-output">
+          <OutputBlock
+            output={run.output}
+            partial={run.status === 'running'}
+            destructive={failure}
+            emptyText={<Trans>无输出</Trans>}
+          />
+        </div>
+      ) : null}
       {result?.error && <StatusLine tone="error">{result.error}</StatusLine>}
-      {result?.fullOutputPath && (
-        <StatusLine tone="muted">
-          <Trans>完整输出：{result.fullOutputPath}</Trans>
-        </StatusLine>
-      )}
+      {result?.fullOutputPath && <ShellOutputInfo fullOutputPath={result.fullOutputPath} />}
     </div>
   )
 }
@@ -248,7 +247,7 @@ export function RuntimeOperationsDialog() {
                   </StatusLine>
                 )}
               </div>
-              {bash && <OutputBlock run={bash} />}
+              {bash && <ShellRunContent run={bash} />}
             </section>
 
             {/* ---- 上下文压缩 ---- */}

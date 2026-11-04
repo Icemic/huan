@@ -2,7 +2,8 @@
  * 单条消息：用户右侧 muted 气泡，助手开放正文，动作在消息底部。
  *
  * 消息内容来自纯投影；动作只调用会话树/fork 与剪贴板/下载，不复制消息
- * 到本地 store。来源 entryId 缺失时隐藏树定位与分叉，不猜测节点。
+ * 到本地 store。用户 Shell 数据消息在分派处交给右对齐的专用组合，不套用
+ * 助手消息动作。来源 entryId 缺失时隐藏树定位与分叉，不猜测节点。
  */
 
 import type { HarnessMessageView, HarnessMessageViewPart } from '@huan/react'
@@ -29,6 +30,7 @@ import {
   textOfMessage,
 } from './message-format'
 import { MessageImage } from './message-image'
+import { UserShellMessage, userShellDataPartOf } from './user-shell-message'
 
 const userImages = (parts: readonly HarnessMessageViewPart[]) =>
   parts.flatMap((part) => (part.type === 'image' ? [part] : []))
@@ -217,9 +219,12 @@ export const ChatMessage = memo(function ChatMessage({
     ...(view.sourceEntryId ? { 'data-source-entry-id': view.sourceEntryId } : {}),
     'data-status': view.status.type,
   }
+  const shell = userShellDataPartOf(view)
   return (
-    <div {...shared} className="min-w-0">
-      {view.role === 'user' ? (
+    <div {...shared} className="@container/message min-w-0">
+      {shell ? (
+        <UserShellMessage view={view} part={shell} threadId={threadId} />
+      ) : view.role === 'user' ? (
         <UserMessage view={view} threadId={threadId} title={title} readOnly={readOnly} />
       ) : (
         <AssistantMessage view={view} threadId={threadId} title={title} readOnly={readOnly} />

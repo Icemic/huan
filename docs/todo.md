@@ -38,6 +38,14 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
 
+### 消息流展示调整：第一轮（✅ 开发完成）
+
+记录：[消息流展示](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#7-第一轮实施记录)
+
+- read/write/edit/bash按文件、替换差异与命令专门展示，完整参数和结果可查。
+- 用户Shell右侧muted布局，压缩及相关摘要统一14px；subagent卡片保持。
+- 主agent亲验40项定向单测、18条Chromium、全仓类型及定向Biome通过；未全仓测试/build，截图未读图。
+
 ### 输入区上下文用量与直接压缩（✅ 开发完成）
 
 记录：[上下文用量](iteration/2026-11/2026-11-04-feat-composer-context-usage.md)

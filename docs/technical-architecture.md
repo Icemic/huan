@@ -242,6 +242,8 @@ apps/harness（页面、应用业务绑定与布局）
 
 当前分层只有应用内静态展示组件与公共 selector；没有 `@huan/react` 公共 Thread/Composer 组件，也没有 `rendererId + schemaVersion` 注册接口。消息、工具与 data 由 `apps/harness/src/components/chat/` 按当前消费者静态分发，未知 data 走可读回退。
 
+read/write/edit/bash由应用内专门展示组合读取原参数、输出及details；编辑优先SDK结果补丁，不读当前文件重建历史。未知字段与完整截断元数据保留可查。用户Shell只在应用分派处识别pi-bash-execution并改变对齐，协议角色、持久记录和纯投影保持；命令/输出内容块由消息和运行面板共用，折叠状态归chat store，未新增运行缓存或实时历史关联。详细样式见[消息流展示迭代](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md)。
+
 客户端消息、运行、队列与目录以 Node 服务为准；传输失败先恢复同步，业务请求保持单次派发。窗口选择、草稿由公共windowStore持有，面板由应用feature store持有；扩展命令通过自己的消息/通知/交互反馈业务结果，公共层不为任意副作用建立确认系统。
 
 ### 6.2 展示组合原则
