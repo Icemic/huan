@@ -44,6 +44,7 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 - read/write/edit/bash按文件、替换差异与命令专门展示，完整参数和结果可查。
 - 用户Shell右侧muted布局，压缩及相关摘要统一14px；subagent卡片保持。
+- 后续修正read零值/null、bash空命令/null超时及SDK支持的编辑参数形状；25项单测、3条Chromium与应用类型通过，见同迭代§7.1。
 - 主agent亲验40项定向单测、18条Chromium、全仓类型及定向Biome通过；未全仓测试/build，截图未读图。
 
 ### 输入区上下文用量与直接压缩（✅ 开发完成）

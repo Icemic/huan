@@ -294,3 +294,126 @@ test('用户 Shell 右对齐展示来源，命令/输出完整且不提供消息
   await page.evaluate(() => document.documentElement.classList.add('dark'))
   await page.screenshot({ path: test.info().outputPath('user-shell-dark.png'), fullPage: true })
 })
+
+test('导入历史保留零值、空值及 SDK 支持的工具参数形状', async ({ page, request }, testInfo) => {
+  const project = await createProject(request, `参数边界-${Date.now().toString(36)}`)
+  const workspaceName = `参数边界工作区-${Date.now().toString(36)}`
+  await createWorkspaceApi(request, workspaceName, [{ alias: 'p', path: project.path }])
+  const cases = [
+    { name: 'read', args: { path: 'zero.ts', offset: 0, limit: 200 }, output: 'ZERO-READ' },
+    { name: 'read', args: { path: 'null.ts', offset: null, limit: null }, output: 'NULL-READ' },
+    { name: 'read', args: { path: 'limit-zero.ts', limit: 0 }, output: '' },
+    { name: 'bash', args: { command: 'echo null', timeout: null }, output: 'NULL-TIMEOUT' },
+    { name: 'bash', args: { command: '' }, output: '' },
+    { name: 'write', args: { path: 'empty.ts', content: '' }, output: 'EMPTY-WRITE' },
+    {
+      name: 'edit',
+      args: { path: 'object.ts', edits: { oldText: 'before-object', newText: '' } },
+      output: 'OBJECT-EDIT',
+    },
+    {
+      name: 'edit',
+      args: { path: 'json.ts', edits: '[{"oldText":"before-json","newText":"after-json"}]' },
+      output: 'JSON-EDIT',
+    },
+    {
+      name: 'edit',
+      args: { path: 'legacy.ts', oldText: 'before-legacy', newText: '' },
+      output: 'LEGACY-EDIT',
+    },
+  ]
+  const timestamp = Date.now()
+  const entries: unknown[] = [
+    {
+      type: 'session',
+      version: 3,
+      id: `edges-${timestamp}`,
+      timestamp: new Date(timestamp).toISOString(),
+      cwd: project.path,
+    },
+  ]
+  let parentId: string | null = null
+  for (const [index, item] of cases.entries()) {
+    const callId = `call-${index}`
+    const assistantId = `assistant-${index}`
+    const resultId = `result-${index}`
+    entries.push(
+      {
+        type: 'message',
+        id: assistantId,
+        parentId,
+        timestamp: new Date(timestamp + index * 2 + 1).toISOString(),
+        message: {
+          role: 'assistant',
+          content: [{ type: 'toolCall', id: callId, name: item.name, arguments: item.args }],
+          api: 'openai-completions',
+          provider: 'huan-test',
+          model: 'test-model-a',
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: 'toolUse',
+          timestamp: timestamp + index * 2 + 1,
+        },
+      },
+      {
+        type: 'message',
+        id: resultId,
+        parentId: assistantId,
+        timestamp: new Date(timestamp + index * 2 + 2).toISOString(),
+        message: {
+          role: 'toolResult',
+          toolCallId: callId,
+          toolName: item.name,
+          content: [{ type: 'text', text: item.output }],
+          isError: false,
+          timestamp: timestamp + index * 2 + 2,
+        },
+      },
+    )
+    parentId = resultId
+  }
+  const sourcePath = testInfo.outputPath('tool-parameter-edges.jsonl')
+  await writeFile(sourcePath, `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`)
+  await openApp(page)
+  await page.getByRole('button', { name: '导入 JSONL', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '导入 JSONL 会话' })
+  await dialog.getByRole('combobox', { name: '目标工作区' }).click()
+  await page.getByRole('option', { name: workspaceName, exact: true }).click()
+  await dialog.getByLabel('服务端 JSONL 绝对路径').fill(sourcePath)
+  await dialog.getByRole('button', { name: '预览导入' }).click()
+  await expect(dialog.locator('[data-slot="huan-import-preview"]')).toBeVisible()
+  await dialog.getByRole('button', { name: '确认导入' }).click()
+  await expect(dialog.getByRole('status')).toContainText('会话已导入')
+  await dialog.getByRole('button', { name: '打开已导入会话' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  for (const [index, item] of cases.entries()) {
+    const card = page.locator('[data-slot="huan-tool-part"]').filter({
+      has: page.locator(`[data-tool-call-id="call-${index}"]`),
+    })
+    const trigger = card.locator('[data-slot="trace-collapsible-trigger"]').first()
+    await expect(trigger).not.toContainText('已运行')
+    await trigger.click()
+    if (item.output) await expect(card).toContainText(item.output)
+    if (index === 0) {
+      await expect(trigger).toContainText('1–200 行')
+      await expect(card).toContainText('起始行 1（offset: 0）')
+    }
+    if (index === 1 || index === 3) {
+      await card.getByText('其他参数', { exact: true }).click()
+      await expect(card).toContainText('null')
+    }
+    if (index === 2) {
+      await expect(trigger).toContainText('最多 0 行')
+      await expect(card).toContainText('空内容')
+    }
+    if (index === 4) await expect(card.locator('[data-slot="huan-command-block"]')).toBeVisible()
+    if (index >= 6) await expect(card.locator('[data-slot="huan-edit-before"]')).toBeVisible()
+  }
+})

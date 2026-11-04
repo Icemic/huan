@@ -39,14 +39,61 @@ describe('read 参数与范围', () => {
     expect(readRangeSummaryOf({ path: 'a.ts' })).toBeUndefined()
   })
 
+  it('offset 0 按首行展示，limit 0 不生成逆序范围', () => {
+    const atStart = readToolInputOf({ path: 'a.ts', offset: 0 })
+    const startWithLimit = readToolInputOf({ path: 'a.ts', offset: 0, limit: 5 })
+    const zeroLimit = readToolInputOf({ path: 'a.ts', offset: 0, limit: 0 })
+    const zeroLimitOnly = readToolInputOf({ path: 'a.ts', limit: 0 })
+    const zeroLimitLater = readToolInputOf({ path: 'a.ts', offset: 20, limit: 0 })
+    if (!atStart || !startWithLimit || !zeroLimit || !zeroLimitOnly || !zeroLimitLater) {
+      throw new Error('read 参数应有效')
+    }
+    expect(readRangeSummaryOf(atStart)).toBe('从第1行')
+    expect(readRangeDetailOf(atStart)).toBe('起始行 1（offset: 0）')
+    expect(readRangeSummaryOf(startWithLimit)).toBe('1–5 行')
+    expect(readRangeDetailOf(startWithLimit)).toBe('起始行 1（offset: 0） · 最多 5 行')
+    expect(readRangeSummaryOf(zeroLimit)).toBe('最多 0 行')
+    expect(readRangeDetailOf(zeroLimit)).toBe('起始行 1（offset: 0） · 最多 0 行')
+    expect(readRangeSummaryOf(zeroLimitOnly)).toBe('最多 0 行')
+    expect(readRangeDetailOf(zeroLimitOnly)).toBe('最多 0 行')
+    expect(readRangeSummaryOf(zeroLimitLater)).toBe('最多 0 行')
+    expect(readRangeDetailOf(zeroLimitLater)).toBe('起始行 20 · 最多 0 行')
+  })
+
   it('形状不符时整体回退，未知字段另存为其他参数', () => {
     expect(readToolInputOf({ path: '', offset: 1 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', offset: -1 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', offset: 1.5 })).toBeUndefined()
     expect(readToolInputOf({ path: 'a.ts', offset: '1' })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', limit: 0 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', limit: -1 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', limit: 1.5 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', limit: '0' })).toBeUndefined()
     expect(otherArgumentsOf({ path: 'a.ts', offset: 1, marker: true }, 'read')).toEqual({
       marker: true,
     })
     expect(otherArgumentsOf({ path: 'a.ts' }, 'read')).toBeUndefined()
+  })
+
+  it('接受非负整数，null 不进入模型但保留为其他参数', () => {
+    expect(readToolInputOf({ path: 'a.ts', offset: 0 })).toEqual({ path: 'a.ts', offset: 0 })
+    expect(readToolInputOf({ path: 'a.ts', offset: 0, limit: 0 })).toEqual({
+      path: 'a.ts',
+      offset: 0,
+      limit: 0,
+    })
+    expect(readToolInputOf({ path: 'a.ts', offset: null, limit: null })).toEqual({
+      path: 'a.ts',
+    })
+    expect(readToolInputOf({ path: 'a.ts', offset: undefined, limit: 2 })).toEqual({
+      path: 'a.ts',
+      limit: 2,
+    })
+    expect(
+      otherArgumentsOf({ path: 'a.ts', offset: null, limit: null, marker: true }, 'read'),
+    ).toEqual({ offset: null, limit: null, marker: true })
+    expect(otherArgumentsOf({ path: 'a.ts', offset: null, limit: 3 }, 'read')).toEqual({
+      offset: null,
+    })
   })
 })
 
@@ -66,6 +113,9 @@ describe('write 行数与 edit 段数', () => {
       content: '',
     })
     expect(writeToolInputOf({ path: 'a.ts' })).toBeUndefined()
+    expect(writeToolInputOf({ path: 'a.ts', content: null })).toBeUndefined()
+    expect(writeToolInputOf({ path: null, content: '' })).toBeUndefined()
+    expect(writeToolInputOf({ content: '' })).toBeUndefined()
   })
 
   it('edit 优先 edits[]，兼容历史单段形状', () => {
@@ -82,6 +132,103 @@ describe('write 行数与 edit 段数', () => {
     ])
     expect(editToolInputOf({ path: 'a.ts', edits: [{ oldText: 'old' }] })).toBeUndefined()
     expect(editToolInputOf({ path: 'a.ts', edits: [] })).toBeUndefined()
+  })
+
+  it('识别单对象、JSON 对象/数组，并追加完整历史段', () => {
+    const single = editToolInputOf({ path: 'a.ts', edits: { oldText: 'a', newText: 'b' } })
+    const jsonSingle = editToolInputOf({
+      path: 'a.ts',
+      edits: '{"oldText":"a","newText":"b"}',
+    })
+    const jsonArray = editToolInputOf({
+      path: 'a.ts',
+      edits: '[{"oldText":"a","newText":"b"},{"oldText":"c","newText":"d"}]',
+    })
+    expect(single?.segments).toEqual([{ oldText: 'a', newText: 'b' }])
+    expect(jsonSingle?.segments).toEqual([{ oldText: 'a', newText: 'b' }])
+    expect(jsonArray?.segments).toEqual([
+      { oldText: 'a', newText: 'b' },
+      { oldText: 'c', newText: 'd' },
+    ])
+
+    const args = {
+      path: 'a.ts',
+      edits: [{ oldText: 'a', newText: 'b' }],
+      oldText: 'legacy-old',
+      newText: 'legacy-new',
+    }
+    const snapshot = structuredClone(args)
+    expect(editToolInputOf(args)?.segments).toEqual([
+      { oldText: 'a', newText: 'b' },
+      { oldText: 'legacy-old', newText: 'legacy-new' },
+    ])
+    expect(args).toEqual(snapshot)
+    expect(
+      editToolInputOf({ path: 'a.ts', edits: [], oldText: 'only', newText: 'legacy' })?.segments,
+    ).toEqual([{ oldText: 'only', newText: 'legacy' }])
+    expect(
+      editToolInputOf({ path: 'a.ts', edits: 'not json', oldText: 'only', newText: 'legacy' })
+        ?.segments,
+    ).toEqual([{ oldText: 'only', newText: 'legacy' }])
+    expect(
+      editToolInputOf({
+        path: 'a.ts',
+        edits: { oldText: 'a', newText: 'b' },
+        oldText: 'legacy-old',
+        newText: 'legacy-new',
+      })?.segments,
+    ).toEqual([
+      { oldText: 'a', newText: 'b' },
+      { oldText: 'legacy-old', newText: 'legacy-new' },
+    ])
+    expect(
+      editToolInputOf({
+        path: 'a.ts',
+        edits: '[{"oldText":"a","newText":"b"}]',
+        oldText: 'legacy-old',
+        newText: 'legacy-new',
+      })?.segments,
+    ).toEqual([
+      { oldText: 'a', newText: 'b' },
+      { oldText: 'legacy-old', newText: 'legacy-new' },
+    ])
+    expect(
+      editToolInputOf({
+        path: 'a.ts',
+        edits: { oldText: 'a' },
+        oldText: 'only',
+        newText: 'legacy',
+      })?.segments,
+    ).toEqual([{ oldText: 'only', newText: 'legacy' }])
+  })
+
+  it('畸形数组整体回退，无 legacy 的解析失败也回退', () => {
+    expect(
+      editToolInputOf({
+        path: 'a.ts',
+        edits: [{ oldText: 'a', newText: 'b' }, { oldText: 'c' }],
+      }),
+    ).toBeUndefined()
+    expect(editToolInputOf({ path: 'a.ts', edits: [null] })).toBeUndefined()
+    expect(editToolInputOf({ path: 'a.ts', edits: 'not json' })).toBeUndefined()
+    expect(editToolInputOf({ path: 'a.ts', edits: '{"oldText":"a"}' })).toBeUndefined()
+    expect(
+      editToolInputOf({
+        path: 'a.ts',
+        edits: [{ oldText: 'a', newText: 'b' }, null],
+        oldText: 'legacy',
+        newText: 'legacy-new',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('删除与空 old/new 仍是完整替换段', () => {
+    expect(
+      editToolInputOf({ path: 'a.ts', edits: [{ oldText: 'a', newText: '' }] })?.segments,
+    ).toEqual([{ oldText: 'a', newText: '' }])
+    expect(
+      editToolInputOf({ path: 'a.ts', edits: [{ oldText: '', newText: 'b' }] })?.segments,
+    ).toEqual([{ oldText: '', newText: 'b' }])
   })
 })
 
@@ -111,7 +258,20 @@ describe('命令摘要与 Shell 状态', () => {
     })
     expect(bashToolInputOf({ command: 'ls' })).toEqual({ command: 'ls' })
     expect(bashToolInputOf({ command: 'ls', timeout: 0 })).toBeUndefined()
+    expect(bashToolInputOf({ command: 'ls', timeout: -1 })).toBeUndefined()
+    expect(bashToolInputOf({ command: 'ls', timeout: Number.NaN })).toBeUndefined()
+    expect(bashToolInputOf({ command: 'ls', timeout: Number.POSITIVE_INFINITY })).toBeUndefined()
     expect(bashToolInputOf({ command: 'ls', timeout: '60' })).toBeUndefined()
+  })
+
+  it('bash 允许空命令，null timeout 不进入模型但保留原值', () => {
+    expect(bashToolInputOf({ command: '' })).toEqual({ command: '' })
+    expect(bashToolInputOf({ command: '', timeout: null })).toEqual({ command: '' })
+    expect(bashToolInputOf({ command: null })).toBeUndefined()
+    expect(otherArgumentsOf({ command: 'ls', timeout: null, marker: true }, 'bash')).toEqual({
+      timeout: null,
+      marker: true,
+    })
   })
 })
 
@@ -169,6 +329,24 @@ describe('工具详情映射', () => {
     expect(editDetailsOf({ patch: '   ', diff: '+1 b' }).diff).toBe('+1 b')
     expect(editDetailsOf({ patch: '   ' }).diff).toBeUndefined()
     expect(editDetailsOf({ diff: '+1 b' }).other).toBeUndefined()
+  })
+
+  it('edit details 的空值、空 patch 与非法首行仍可查', () => {
+    expect(editDetailsOf(undefined)).toEqual({})
+    expect(editDetailsOf(null)).toEqual({ other: null })
+    expect(editDetailsOf('bad')).toEqual({ other: 'bad' })
+    expect(editDetailsOf({ patch: '' })).toEqual({ other: { patch: '' } })
+    expect(editDetailsOf({ patch: '   ', firstChangedLine: 2, marker: true })).toEqual({
+      other: { patch: '   ', firstChangedLine: 2, marker: true },
+    })
+    expect(editDetailsOf({ diff: '+1 b', firstChangedLine: 0 })).toEqual({
+      diff: '+1 b',
+      other: { firstChangedLine: 0 },
+    })
+    expect(editDetailsOf({ diff: '+1 b', firstChangedLine: 3 })).toEqual({
+      diff: '+1 b',
+      firstChangedLine: 3,
+    })
   })
 
   it('失败时不将旧差异当结果展示，原始详情仍保留', () => {
@@ -237,8 +415,44 @@ describe('工具详情映射', () => {
     }
     expect(otherArgumentsOf(args, 'edit')).toEqual({
       oldText: 'unused',
-      edits: [{ index: 1, reason: 'keep' }],
+      edits: [{ index: 1, fields: { reason: 'keep' } }],
     })
+  })
+
+  it('edit 其他参数保留原始 edits 形状、段内字段与 legacy', () => {
+    const args = {
+      path: 'a.ts',
+      edits: [{ oldText: 'a', newText: 'b', index: 9, reason: 'keep' }],
+      oldText: 'legacy-old',
+      newText: 'legacy-new',
+      marker: true,
+    }
+    expect(otherArgumentsOf(args, 'edit')).toEqual({
+      marker: true,
+      oldText: 'legacy-old',
+      newText: 'legacy-new',
+      edits: [{ index: 1, fields: { index: 9, reason: 'keep' } }],
+    })
+    const jsonArgs = {
+      path: 'a.ts',
+      edits: '[{"oldText":"a","newText":"b"}]',
+      oldText: 'legacy',
+      newText: 'legacy-new',
+    }
+    expect(otherArgumentsOf(jsonArgs, 'edit')).toEqual({ edits: jsonArgs.edits })
+    const singleArgs = { path: 'a.ts', edits: { oldText: 'a', newText: 'b', reason: 'keep' } }
+    expect(otherArgumentsOf(singleArgs, 'edit')).toEqual({ edits: singleArgs.edits })
+    expect(otherArgumentsOf({ ...singleArgs, oldText: 'incomplete' }, 'edit')).toEqual({
+      edits: singleArgs.edits,
+      oldText: 'incomplete',
+    })
+    const badJsonArgs = {
+      path: 'a.ts',
+      edits: 'not json',
+      oldText: 'only',
+      newText: 'legacy',
+    }
+    expect(otherArgumentsOf(badJsonArgs, 'edit')).toEqual({ edits: badJsonArgs.edits })
   })
 
   it('首行超限与末行不完整给出可读原因', () => {

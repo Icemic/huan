@@ -160,7 +160,7 @@ patch的`---`/`+++`文件头按原文保留为中性12px行，不作增删代码
 
 完整请求保留在默认关闭的“替换内容 · N处”内。按请求顺序逐段排列：`替换前 · 1 [复制]`、oldText代码块、`替换后 · 1 [复制]`、newText代码块，然后第二段。每段单列，空字符串显示“空内容”，不把替换片段标为整文件diff。此处行号关闭。没有实际差异时直接默认展开这些片段；运行中也使用片段，块上方12px标签“待应用”。
 
-失败：先显示完整错误，再显示默认展开的请求片段；不展示旧partialResult的diff。成功执行结果仍在差异之后原样保留，采用write的短回执样式。历史单段oldText/newText形状与现有edits[]分别读取，其他形状回退通用展示。
+失败：先显示完整错误，再显示默认展开的请求片段；旧partialResult的diff保留在其他详情中。成功执行结果仍在差异之后原样保留，采用write的短回执样式。历史单段oldText/newText形状与现有edits[]分别读取，其他形状回退通用展示。
 
 ### 5.5 Agent bash
 
@@ -256,3 +256,13 @@ worker按本节实现，不选择其他标题文案、图标、布局、字号�
 浏览器期间修正了两类测试定位：新增工具标题中的文本由多个节点组成，改按可访问名称定位；嵌套工具完成后仍保持用户已展开的父项，旧测试不得再点击将其收起。一次中间运行出现Chromium页面及worker进程崩溃，该次结果未用作通过证据；修复定位与Tooltip后完整18条顺序执行通过，未启用retry或跳过断言。
 
 验证日志位于本机Temp：`huan-message-stream-unit-final.log`、`huan-message-stream-types-final.log`、`huan-message-stream-e2e-final-2.log`。明暗及390px截图由`message-stream.spec.ts`生成；最后两处信息保留修正后，40项定向单测、应用类型及2条消息流Chromium再验通过（日志`huan-message-stream-types-last.log`、`huan-message-stream-e2e-last.log`）。图片读取被环境禁用，未完成像素视觉审阅。未运行全仓单测或build。下一轮subagent结构与实时Shell消息流仍需单独讨论范围。
+
+### 7.1 工具参数边界修正
+
+用户报告`offset: 0`与`offset/limit: null`的历史read退回“已运行read”，并要求核对其他工具。展示解析器要求可选值通过校验才使用专门展示，误拒绝了历史空值和SDK可识别的参数形状。
+
+本次修正规则：read接受offset为0，标题按SDK从首行读取的语义显示，展开注明原始0；limit为0显示“最多0行”，不生成逆序范围。可选offset/limit/timeout为null时不生成范围或超时，原始null保留在其他参数。bash空命令保持可识别且可复制。edit读取SDK支持的数组、单个对象、JSON字符串和历史单段参数；识别后仍保留未直接展示的原始形状、段内字段及未采用参数。write空内容、edit空替换、结果空值和未知详情纳入回归核对。负数、小数行范围及错误字段类型继续使用完整通用回退。
+
+修改仅限展示解析及相关验证，保持执行与存储行为。主agent独立review后，将编辑段扩展字段放在`{ index, fields }`中，保留原字段自带的index；null仅影响展示元数据，不推断SDK或历史工具如何执行。
+
+主agent亲验25项定向单测、应用/服务端/e2e类型、3个改动代码文件Biome及3条Chromium通过。新增浏览器流程经GUI导入含9组原始参数的Pi JSONL，覆盖两种用户反馈read、零行限制、null超时、空命令、空写入、对象/JSON/历史单段编辑，逐项展开检查专门内容及原值入口。既有四工具与用户Shell流程同时通过。日志：本机Temp内`huan-tool-edges-unit.log`、`huan-tool-edges-types.log`、`huan-tool-edges-e2e.log`。未运行全仓测试/build，本次未涉及像素样式调整。

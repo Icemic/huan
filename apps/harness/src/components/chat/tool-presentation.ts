@@ -64,8 +64,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const nonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0
 
-const positiveInteger = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value > 0
+const nonNegativeInteger = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0
 
 const finiteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
@@ -83,16 +83,19 @@ const withoutKeys = (
   return hasKeys(rest) ? rest : undefined
 }
 
-/** 读取工具参数；offset/limit 只接受正整数，其他形状整体回退。 */
+/**
+ * 读取工具参数；offset/limit 接受非负整数，null 不生成范围元数据。
+ * 非整数或负数整体回退，原始 null 仍由“其他参数”保留。
+ */
 export const readToolInputOf = (args: Record<string, unknown>): ReadToolInput | undefined => {
   const { path, offset, limit } = args
   if (!nonEmptyString(path)) return undefined
-  if (offset !== undefined && !positiveInteger(offset)) return undefined
-  if (limit !== undefined && !positiveInteger(limit)) return undefined
+  if (offset !== undefined && offset !== null && !nonNegativeInteger(offset)) return undefined
+  if (limit !== undefined && limit !== null && !nonNegativeInteger(limit)) return undefined
   return {
     path,
-    ...(offset === undefined ? {} : { offset }),
-    ...(limit === undefined ? {} : { limit }),
+    ...(offset === undefined || offset === null ? {} : { offset }),
+    ...(limit === undefined || limit === null ? {} : { limit }),
   }
 }
 
@@ -103,52 +106,84 @@ export const writeToolInputOf = (args: Record<string, unknown>): WriteToolInput 
   return { path, content }
 }
 
+const editSegmentOf = (value: unknown): EditSegment | undefined => {
+  if (!isRecord(value) || typeof value.oldText !== 'string' || typeof value.newText !== 'string') {
+    return undefined
+  }
+  return { oldText: value.oldText, newText: value.newText }
+}
+
 /**
- * 编辑工具参数：优先 edits[]，兼容历史单段 oldText/newText。
+ * 编辑工具参数：对齐 SDK 的 prepareEditArguments。
  *
- * 只接受完整替换请求；任一段字段缺失或段数组为空时整体回退。
+ * edits 可以是数组、单个替换对象或 JSON 字符串；完整的历史 oldText/newText
+ * 会追加在有效 edits 之后。数组中出现畸形段时整体回退，不展示部分替换；
+ * JSON 无法解析时仅在存在完整历史段时使用历史段。这里不修改原参数。
  */
 export const editToolInputOf = (args: Record<string, unknown>): EditToolInput | undefined => {
   const { path, edits, oldText, newText } = args
   if (!nonEmptyString(path)) return undefined
+
+  let candidates: unknown[] | undefined
   if (Array.isArray(edits)) {
-    if (edits.length === 0) return undefined
-    const segments: EditSegment[] = []
-    for (const edit of edits) {
-      if (!isRecord(edit) || typeof edit.oldText !== 'string' || typeof edit.newText !== 'string') {
-        return undefined
-      }
-      segments.push({ oldText: edit.oldText, newText: edit.newText })
+    candidates = edits
+  } else if (typeof edits === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(edits)
+      if (Array.isArray(parsed)) candidates = parsed
+      else if (editSegmentOf(parsed) !== undefined) candidates = [parsed]
+    } catch {
+      // 无法解析的字符串交给历史段判断。
     }
-    return { path, segments }
+  } else if (editSegmentOf(edits) !== undefined) {
+    candidates = [edits]
   }
-  if (typeof oldText === 'string' && typeof newText === 'string') {
-    return { path, segments: [{ oldText, newText }] }
+
+  const legacy =
+    typeof oldText === 'string' && typeof newText === 'string' ? { oldText, newText } : undefined
+
+  if (candidates !== undefined) {
+    const segments: EditSegment[] = []
+    for (const candidate of candidates) {
+      const segment = editSegmentOf(candidate)
+      if (segment === undefined) return undefined
+      segments.push(segment)
+    }
+    if (legacy !== undefined) segments.push(legacy)
+    return segments.length > 0 ? { path, segments } : undefined
   }
-  return undefined
+  return legacy === undefined ? undefined : { path, segments: [legacy] }
 }
 
-/** 命令工具参数；timeout 只在显式且合法时保留。 */
+/** 命令工具参数；空命令仍是明确输入，null timeout 不生成超时元数据。 */
 export const bashToolInputOf = (args: Record<string, unknown>): BashToolInput | undefined => {
   const { command, timeout } = args
-  if (!nonEmptyString(command)) return undefined
-  if (timeout !== undefined && !(finiteNumber(timeout) && timeout > 0)) return undefined
-  return { command, ...(timeout === undefined ? {} : { timeout }) }
+  if (typeof command !== 'string') return undefined
+  if (timeout !== undefined && timeout !== null && !(finiteNumber(timeout) && timeout > 0)) {
+    return undefined
+  }
+  return { command, ...(timeout === undefined || timeout === null ? {} : { timeout }) }
 }
 
 /** 收起时展示的读取范围；只描述请求，不声称实际返回行数。 */
 export const readRangeSummaryOf = (input: ReadToolInput): string | undefined => {
   const { offset, limit } = input
-  if (offset !== undefined && limit !== undefined) return `${offset}–${offset + limit - 1} 行`
-  if (offset !== undefined) return `从第${offset}行`
-  if (limit !== undefined) return `前${limit}行`
+  if (offset !== undefined && limit !== undefined) {
+    if (limit === 0) return '最多 0 行'
+    const start = Math.max(1, offset)
+    return `${start}–${start + limit - 1} 行`
+  }
+  if (offset !== undefined) return `从第${Math.max(1, offset)}行`
+  if (limit !== undefined) return limit === 0 ? '最多 0 行' : `前${limit}行`
   return undefined
 }
 
-/** 展开后的精确请求范围。 */
+/** 展开后的精确请求范围；offset 为 0 时注明原始值。 */
 export const readRangeDetailOf = (input: ReadToolInput): string | undefined => {
   const parts: string[] = []
-  if (input.offset !== undefined) parts.push(`起始行 ${input.offset}`)
+  if (input.offset !== undefined) {
+    parts.push(input.offset === 0 ? '起始行 1（offset: 0）' : `起始行 ${input.offset}`)
+  }
   if (input.limit !== undefined) parts.push(`最多 ${input.limit} 行`)
   return parts.length > 0 ? parts.join(' · ') : undefined
 }
@@ -172,17 +207,32 @@ export const otherArgumentsOf = (
   tool: 'read' | 'write' | 'edit' | 'bash',
 ): unknown => {
   const known: Record<typeof tool, readonly string[]> = {
-    read: ['path', 'offset', 'limit'],
+    read: ['path'],
     write: ['path', 'content'],
-    edit: Array.isArray(args.edits) ? ['path', 'edits'] : ['path', 'oldText', 'newText'],
-    bash: ['command', 'timeout'],
+    edit: Array.isArray(args.edits)
+      ? ['path', 'edits']
+      : typeof args.oldText === 'string' && typeof args.newText === 'string'
+        ? ['path', 'oldText', 'newText']
+        : ['path'],
+    bash: ['command'],
+  }
+  // 只有实际进入展示模型的值才算已知；null/undefined 与非法值继续留在其他参数。
+  if (tool === 'read') {
+    const input = readToolInputOf(args)
+    if (input?.offset !== undefined) known.read = [...known.read, 'offset']
+    if (input?.limit !== undefined) known.read = [...known.read, 'limit']
+  }
+  if (tool === 'bash') {
+    const input = bashToolInputOf(args)
+    if (input?.timeout !== undefined) known.bash = [...known.bash, 'timeout']
   }
   const rest = withoutKeys(args, known[tool]) ?? {}
   if (tool === 'edit' && Array.isArray(args.edits)) {
     const extraSegments = args.edits.flatMap((edit, index) => {
       if (!isRecord(edit)) return []
       const extra = withoutKeys(edit, ['oldText', 'newText'])
-      return extra ? [{ index: index + 1, ...extra }] : []
+      // 序号与扩展字段分开保存，避免扩展字段自带 index 时丢失原值。
+      return extra ? [{ index: index + 1, fields: extra }] : []
     })
     if (extraSegments.length > 0) rest.edits = extraSegments
   }
