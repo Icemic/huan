@@ -441,6 +441,9 @@ describe('宿主级 SDK 子agent', () => {
           return toolCallResponse(
             'call_subagent_chain',
             {
+              agent: '',
+              task: '',
+              tasks: [],
               chain: [
                 { agent: 'review', task: `${taskOne} {previous}` },
                 { agent: 'review', task: `${taskTwo} {previous}` },
@@ -484,6 +487,18 @@ describe('宿主级 SDK 子agent', () => {
     expect(toolDetails.tasks.map((task) => task.output)).toEqual([childOneText, childTwoText])
     expect(toolDetails.tasks[1]?.task).toContain(childOneText)
     expect(toolEntry.message.content).toEqual([{ type: 'text', text: childTwoText }])
+
+    const parentRequests = fetchStub.requests.filter((request) =>
+      lastUserText(request.body).includes(parentMarker),
+    )
+    expect(parentRequests.length).toBeGreaterThan(0)
+    const firstParent = parentRequests[0]
+    if (!firstParent) throw new Error('缺少父模型请求')
+    const systemMessages = messagesOf(firstParent.body).filter(
+      (message) => message.role === 'system' || message.role === 'developer',
+    )
+    expect(JSON.stringify(systemMessages)).toContain('review: 宿主集成测试子agent')
+    expect(JSON.stringify(systemMessages)).not.toContain(bodyMarker)
 
     const childRequests = fetchStub.requests.filter((request) => {
       const lastUser = lastUserText(request.body)
@@ -564,6 +579,9 @@ export default function (pi) {
       return toolCallResponse(
         'call_subagent_parallel',
         {
+          agent: '',
+          task: '',
+          chain: [],
           tasks: Array.from({ length: 5 }, (_, index) => ({
             agent: 'review',
             task: `${childMarker}_${index}`,

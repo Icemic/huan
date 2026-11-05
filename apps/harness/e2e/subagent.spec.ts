@@ -210,7 +210,10 @@ test('单个子任务：确认后完成，刷新父工具仍可打开冷记录',
 
   await scriptTurns(request, [
     {
-      tool: { name: 'subagent', args: { agent: 'e2e-worker', task: 'CHILD-TASK' } },
+      tool: {
+        name: 'subagent',
+        args: { agent: 'e2e-worker', task: 'CHILD-TASK', tasks: [], chain: [] },
+      },
       outputTokens: 10,
     },
     { tool: { name: 'e2e-child-ask', args: { note: 'single-note' } }, outputTokens: 20 },

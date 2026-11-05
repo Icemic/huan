@@ -101,6 +101,8 @@ apps/harness
 
 每个运行在 `before_agent_start` 取得已提交的工作区 revision 与成员快照，直到 agent_settled 结算保持稳定；变更在下一轮前应用。仅起始 cwd 装配项目代码与设置，其他成员的扩展/MCP不参与装配。工具、指令与事件状态按会话隔离，不修改进程 cwd。选择性复用 pi-workspaces 的根路径解析和工具委托，作为 huan 内嵌扩展装配；不加载整个插件，不使用其定义存储或自动激活，不要求用户安装。复用保留许可来源，禁止与用户插件重复注册同名工具。具体设计见[工作区迭代](iteration/2026-10/2026-10-31-feat-multi-project-workspaces.md)。当前实现已接入 `packages/core/src/workspace-store.ts`、协议工作区类型、服务端 CRUD/归属接口，以及应用 state 与两级侧栏；实施与验证记录见该迭代 §8，完成状态见 roadmap。
 
+**子agent调用规则**：沿用Pi的single（agent+task）、parallel（tasks）与chain（chain）三种参数形状，按非空有效内容选择；空数组和空字符串不构成模式。工具说明含调用示例，参数错误列出冲突字段。每轮before_agent_start只注入用户定义名称与职责，正文由子会话使用；项目定义仍按显式agentScope发现并审批。每次调用重新发现定义，不缓存。修复证据见[调用迭代](iteration/2026-11/2026-11-05-bugfix-subagent-invocation.md)。
+
 ### 3.2.2 会话管理与只读统计
 
 `getThreadDetails` 按需返回累计统计与活动分支上下文，累计覆盖全文件（含其他分支、已压缩历史和摘要计费）。热会话使用 SDK `getSessionStats`，冷会话通过公开 SessionManager 读取并按 SDK 统计规则聚合，与 SDK 对照测试；冷查询不装配项目资源或请求模型。详情与 token 事件分离，避免流式期间重复聚合。

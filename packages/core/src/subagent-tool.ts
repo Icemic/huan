@@ -148,35 +148,51 @@ const agentScopeSchema = Type.Union(
   },
 )
 
-/** subagent 工具参数；保留旧扩展的字段与 exactly-one-mode 语义。 */
-export const subagentToolParameters = Type.Object({
-  agent: Type.Optional(Type.String({ description: 'Agent name for single mode' })),
-  task: Type.Optional(Type.String({ description: 'Task for single mode' })),
-  tasks: Type.Optional(
-    Type.Array(subagentTaskItem, {
-      description: `Parallel tasks (max ${SUBAGENT_MAX_PARALLEL_TASKS}, max ${SUBAGENT_MAX_CONCURRENCY} running at once)`,
-    }),
-  ),
-  chain: Type.Optional(
-    Type.Array(subagentTaskItem, {
-      description:
-        'Sequential tasks; each task may contain {previous} to receive the previous step output',
-    }),
-  ),
-  agentScope: Type.Optional(agentScopeSchema),
-  confirmProjectAgents: Type.Optional(
-    Type.Boolean({
-      description: 'Ask before running project-local agents. Default: true.',
-      default: true,
-    }),
-  ),
-  cwd: Type.Optional(
-    Type.String({
-      description:
-        'Working directory for single mode (optional; relative to the parent session cwd)',
-    }),
-  ),
-})
+/** subagent 工具参数；三种模式互斥，空数组/空字符串只是占位。 */
+export const subagentToolParameters = Type.Object(
+  {
+    agent: Type.Optional(
+      Type.String({
+        description:
+          'Single mode: agent name. Must be non-empty together with task; omit for parallel/chain.',
+      }),
+    ),
+    task: Type.Optional(
+      Type.String({
+        description:
+          'Single mode: task text. Must be non-empty together with agent; omit for parallel/chain.',
+      }),
+    ),
+    tasks: Type.Optional(
+      Type.Array(subagentTaskItem, {
+        description: `Parallel mode (max ${SUBAGENT_MAX_PARALLEL_TASKS}, max ${SUBAGENT_MAX_CONCURRENCY} running at once). Omit for single/chain; an empty array is not a mode.`,
+      }),
+    ),
+    chain: Type.Optional(
+      Type.Array(subagentTaskItem, {
+        description:
+          'Chain mode; each task may contain {previous} to receive the previous step output. Omit for single/parallel; an empty array is not a mode.',
+      }),
+    ),
+    agentScope: Type.Optional(agentScopeSchema),
+    confirmProjectAgents: Type.Optional(
+      Type.Boolean({
+        description: 'Ask before running project-local agents. Default: true.',
+        default: true,
+      }),
+    ),
+    cwd: Type.Optional(
+      Type.String({
+        description:
+          'Working directory for single mode (optional; relative to the parent session cwd)',
+      }),
+    ),
+  },
+  {
+    description:
+      'The three modes are mutually exclusive. Provide exactly one mode: single (agent + task), parallel (tasks), or chain (chain). Omit the other mode fields; empty arrays and empty strings are placeholders, not modes. There is no "mode" field.',
+  },
+)
 
 /** 工具参数的静态类型。 */
 export type SubagentToolParams = Static<typeof subagentToolParameters>
@@ -210,14 +226,24 @@ export function createSubagentToolDefinition(
     label: 'Subagent',
     description: [
       'Delegate tasks to specialized subagents with isolated context.',
-      'Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).',
+      'The three modes are mutually exclusive: provide exactly one and omit the other mode fields; there is no "mode" field:',
+      'single {"agent":"<name>","task":"..."}',
+      'parallel {"tasks":[{"agent":"<name>","task":"..."},{"agent":"<name>","task":"..."}]}',
+      'chain {"chain":[{"agent":"<name>","task":"..."},{"agent":"<name>","task":"使用 {previous} ..."}]}',
+      'Empty arrays or empty strings are placeholders and do not select a mode.',
       `Parallel mode accepts at most ${SUBAGENT_MAX_PARALLEL_TASKS} tasks and runs at most ${SUBAGENT_MAX_CONCURRENCY} at once.`,
       'Agent definitions come from user or project Markdown files; project agents require approval.',
     ].join(' '),
     promptSnippet: 'Delegate work to a subagent with isolated context',
     promptGuidelines: [
-      'Use subagent for self-contained delegation; child agents cannot delegate again.',
+      'The three subagent modes are mutually exclusive: call with agent + task (single), tasks (parallel), or chain (chain). Do not combine modes or send a mode field.',
+      'Omit unused mode fields; empty arrays or empty strings are placeholders, not a mode.',
+      'single {"agent":"<name>","task":"..."}',
+      'parallel {"tasks":[{"agent":"<name>","task":"..."}]}',
+      'chain {"chain":[{"agent":"<name>","task":"..."},{"agent":"<name>","task":"使用 {previous} ..."}]}',
       'In chain mode, use {previous} in a task to insert the previous step output.',
+      'Use agent names from the available user-agent catalog; project agents require agentScope project/both.',
+      'Use subagent for self-contained delegation; child agents cannot delegate again.',
     ],
     parameters: subagentToolParameters,
 
@@ -326,6 +352,10 @@ export function createSubagentToolDefinition(
   }
 }
 
+/** 目录不可用时的简短提示，避免把读取错误带进主对话系统提示。 */
+const SUBAGENT_DIRECTORY_UNAVAILABLE =
+  '子agent目录当前不可用；普通对话不受影响，调用 subagent 时会报告具体错误。'
+
 /** 创建内置扩展；`builtin: true` 使资源名为 `builtin:subagent`。 */
 export function createSubagentToolExtension(host: SubagentToolHost): InlineExtension {
   return {
@@ -333,8 +363,42 @@ export function createSubagentToolExtension(host: SubagentToolHost): InlineExten
     builtin: true,
     factory: (pi: ExtensionAPI) => {
       pi.registerTool(createSubagentToolDefinition(host))
+
+      // 每轮从用户目录重新发现：只注入名称与职责，不注入正文，也不提前加载项目定义。
+      pi.on('before_agent_start', (event, ctx) => {
+        if (host.isSubagentSession?.()) return undefined
+
+        let section: string
+        try {
+          section = formatUserSubagentPrompt(
+            discoverSubagentAgents({
+              agentDir: host.agentDir,
+              cwd: ctx.cwd,
+              scope: 'user',
+            }),
+          )
+        } catch {
+          // 定义目录异常不能阻断主对话；具体错误仍由实际调用时的发现过程报告。
+          section = SUBAGENT_DIRECTORY_UNAVAILABLE
+        }
+        return { systemPrompt: `${event.systemPrompt}\n\n${section}` }
+      })
     },
   }
+}
+
+/** 只包含用户定义的名称与职责，供每轮系统提示使用。 */
+function formatUserSubagentPrompt(discovery: SubagentAgentDiscovery): string {
+  if (discovery.agents.length === 0) {
+    return `当前没有可用的用户子agent定义（目录：${discovery.userDir}）。`
+  }
+  return [
+    '可用子agent（用户定义）：',
+    ...discovery.agents.map(
+      (agent) => `- ${agent.name}: ${agent.description.replace(/\s+/g, ' ').trim()}`,
+    ),
+    '需要独立上下文时使用 subagent 工具；single（agent+task）、parallel（tasks）、chain（chain）互斥，只提供一种，空数组或空字符串不算模式，不要传 mode 字段。',
+  ].join('\n')
 }
 
 function normalizeScope(value: unknown): SubagentAgentScope | undefined {
@@ -343,13 +407,21 @@ function normalizeScope(value: unknown): SubagentAgentScope | undefined {
 }
 
 function modeHintOf(params: SubagentToolParams): SubagentMode {
-  if (params.chain !== undefined) return 'chain'
-  if (params.tasks !== undefined) return 'parallel'
-  return 'single'
+  // 与选择同口径：空占位不参与提示；没有有效模式时用 single 作为中性标签。
+  return effectiveModesOf(params)[0] ?? 'single'
+}
+
+/** 按有效内容判定模式；空数组与空字符串只是占位，不构成模式。 */
+function effectiveModesOf(params: SubagentToolParams): SubagentMode[] {
+  const modes: SubagentMode[] = []
+  if (isNonEmptyString(params.agent) && isNonEmptyString(params.task)) modes.push('single')
+  if (Array.isArray(params.tasks) && params.tasks.length > 0) modes.push('parallel')
+  if (Array.isArray(params.chain) && params.chain.length > 0) modes.push('chain')
+  return modes
 }
 
 /**
- * 校验 exactly-one-mode、任务数量与 agent 定义。
+ * 校验有效模式互斥、任务数量与 agent 定义。
  *
  * 这里不创建任务；项目确认失败或定义不存在时不会留下 waiting 摘要。
  */
@@ -359,41 +431,60 @@ function resolveInvocation(
   scope: SubagentAgentScope,
   parentCwd: string,
 ): InvocationResolution {
-  const hasSingle = params.agent !== undefined || params.task !== undefined
-  const hasParallel = params.tasks !== undefined
-  const hasChain = params.chain !== undefined
-  const modeCount = Number(hasSingle) + Number(hasParallel) + Number(hasChain)
+  const modes = effectiveModesOf(params)
   const mode = modeHintOf(params)
 
-  if (modeCount !== 1) {
+  if (modes.length > 1) {
     return {
       ok: false,
       mode,
-      error: `请只提供一种模式（single、parallel、chain）。可用子agent：${formatAvailableAgents(discovery, scope)}。`,
+      error: invalidModeError(
+        `检测到多个有效模式（${modes.join('、')}）。一次调用只能使用一种模式；空数组和空字符串只是占位，不算模式，也没有 mode 字段。`,
+        params,
+        discovery,
+        scope,
+      ),
     }
   }
 
+  if (modes.length === 0) {
+    const hasAgent = isNonEmptyString(params.agent)
+    const hasTask = isNonEmptyString(params.task)
+    if (hasAgent && !hasTask) {
+      return { ok: false, mode, error: missingSingleFieldError('task', params, discovery, scope) }
+    }
+    if (!hasAgent && hasTask) {
+      return { ok: false, mode, error: missingSingleFieldError('agent', params, discovery, scope) }
+    }
+    return {
+      ok: false,
+      mode,
+      error: invalidModeError(
+        '没有可执行的模式：single 需要非空的 agent 与 task，parallel 需要非空 tasks，chain 需要非空 chain。空数组和空字符串只是占位，不算模式，也没有 mode 字段。',
+        params,
+        discovery,
+        scope,
+      ),
+    }
+  }
+
+  const selected = modes[0]
   let specs: TaskSpec[]
-  if (hasSingle) {
-    if (!isNonEmptyString(params.agent) || !isNonEmptyString(params.task)) {
-      return {
-        ok: false,
-        mode,
-        error: `single 模式需要非空的 agent 与 task。可用子agent：${formatAvailableAgents(discovery, scope)}。`,
-      }
+  if (selected === 'single') {
+    const agent = params.agent
+    const task = params.task
+    if (!isNonEmptyString(agent) || !isNonEmptyString(task)) {
+      return { ok: false, mode, error: missingSingleFieldError('task', params, discovery, scope) }
     }
     specs = [
       {
-        agent: params.agent.trim(),
-        task: params.task,
+        agent: agent.trim(),
+        task,
         ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
       },
     ]
-  } else if (hasParallel) {
-    const tasks = params.tasks ?? []
-    if (tasks.length === 0) {
-      return { ok: false, mode, error: 'parallel 模式至少需要一个任务。' }
-    }
+  } else if (selected === 'parallel') {
+    const tasks = Array.isArray(params.tasks) ? params.tasks : []
     if (tasks.length > SUBAGENT_MAX_PARALLEL_TASKS) {
       return {
         ok: false,
@@ -405,10 +496,7 @@ function resolveInvocation(
     if (typeof validated === 'string') return { ok: false, mode, error: validated }
     specs = validated
   } else {
-    const chain = params.chain ?? []
-    if (chain.length === 0) {
-      return { ok: false, mode, error: 'chain 模式至少需要一个步骤。' }
-    }
+    const chain = Array.isArray(params.chain) ? params.chain : []
     const validated = validateTaskItems(chain)
     if (typeof validated === 'string') return { ok: false, mode, error: validated }
     specs = validated
@@ -433,6 +521,73 @@ function resolveInvocation(
   }
 
   return { ok: true, mode, tasks }
+}
+
+/** 冲突/全空错误共用的字段快照、三个正确示例与可用定义列表。 */
+function invalidModeError(
+  prefix: string,
+  params: SubagentToolParams,
+  discovery: SubagentAgentDiscovery,
+  scope: SubagentAgentScope,
+): string {
+  return [
+    prefix,
+    `收到字段：${describeModeFields(params)}。`,
+    '正确示例（只提供其中一种）：',
+    formatModeExamples(discovery),
+    `可用子agent：${formatAvailableAgents(discovery, scope)}。`,
+  ].join('\n')
+}
+
+/** 列出实际收到的模式字段；长文本截断，数组只给数量。 */
+function describeModeFields(params: SubagentToolParams): string {
+  const parts: string[] = []
+  if (params.agent !== undefined) parts.push(`agent=${quoteModeValue(params.agent)}`)
+  if (params.task !== undefined) parts.push(`task=${quoteModeValue(params.task)}`)
+  if (params.tasks !== undefined) {
+    parts.push(`tasks=${Array.isArray(params.tasks) ? `${params.tasks.length} 项` : '非法值'}`)
+  }
+  if (params.chain !== undefined) {
+    parts.push(`chain=${Array.isArray(params.chain) ? `${params.chain.length} 项` : '非法值'}`)
+  }
+  return parts.length === 0 ? '（未提供 agent、task、tasks 或 chain）' : parts.join('，')
+}
+
+function quoteModeValue(value: string): string {
+  return JSON.stringify(value.length > 60 ? `${value.slice(0, 60)}…` : value)
+}
+
+/** 示例使用发现的第一个可用 agent；没有定义时保留 <agent> 占位。 */
+function formatModeExamples(discovery: SubagentAgentDiscovery): string {
+  const agent = discovery.agents[0]?.name ?? '<agent>'
+  return [
+    `single: ${JSON.stringify({ agent, task: '审查当前改动' })}`,
+    `parallel: ${JSON.stringify({
+      tasks: [
+        { agent, task: '审查模块 A' },
+        { agent, task: '审查模块 B' },
+      ],
+    })}`,
+    `chain: ${JSON.stringify({
+      chain: [
+        { agent, task: '收集信息' },
+        { agent, task: '基于 {previous} 给出结论' },
+      ],
+    })}`,
+  ].join('\n')
+}
+
+function missingSingleFieldError(
+  missing: 'agent' | 'task',
+  params: SubagentToolParams,
+  discovery: SubagentAgentDiscovery,
+  scope: SubagentAgentScope,
+): string {
+  const received =
+    missing === 'task'
+      ? `agent=${quoteModeValue(params.agent ?? '')}`
+      : `task=${quoteModeValue(params.task ?? '')}`
+  return `single 模式缺少非空 ${missing}（收到 ${received}）。请补齐 agent 与 task，或改用 tasks/chain。可用子agent：${formatAvailableAgents(discovery, scope)}。`
 }
 
 function validateTaskItems(
