@@ -25,6 +25,12 @@ function Fixture() {
       >
         切换语言
       </button>
+      <button type="button" onClick={() => { setLanguage('json'); setValue('{"enabled": true, "count": 2}') }}>
+        JSON
+      </button>
+      <button type="button" onClick={() => { setLanguage('go'); setValue('package main\nfunc main() {}') }}>
+        Go
+      </button>
       <CodeBlock>
         <HighlightedCodeContent value={value} language={language} lineNumbers />
       </CodeBlock>

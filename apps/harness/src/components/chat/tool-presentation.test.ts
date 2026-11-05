@@ -60,17 +60,23 @@ describe('read 参数与范围', () => {
     expect(readRangeDetailOf(zeroLimitLater)).toBe('起始行 20 · 最多 0 行')
   })
 
-  it('形状不符时整体回退，未知字段另存为其他参数', () => {
+  it('path 不可读才整体回退，非法可选值仅留在其他参数', () => {
     expect(readToolInputOf({ path: '', offset: 1 })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', offset: -1 })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', offset: 1.5 })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', offset: '1' })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', limit: -1 })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', limit: 1.5 })).toBeUndefined()
-    expect(readToolInputOf({ path: 'a.ts', limit: '0' })).toBeUndefined()
+    expect(readToolInputOf({ offset: 1 })).toBeUndefined()
+    expect(readToolInputOf({ path: 'a.ts', offset: -1 })).toEqual({ path: 'a.ts' })
+    expect(readToolInputOf({ path: 'a.ts', offset: 1.5 })).toEqual({ path: 'a.ts' })
+    expect(readToolInputOf({ path: 'a.ts', offset: '1' })).toEqual({ path: 'a.ts' })
+    expect(readToolInputOf({ path: 'a.ts', limit: -1 })).toEqual({ path: 'a.ts' })
+    expect(readToolInputOf({ path: 'a.ts', limit: 1.5 })).toEqual({ path: 'a.ts' })
+    expect(readToolInputOf({ path: 'a.ts', limit: '0' })).toEqual({ path: 'a.ts' })
     expect(otherArgumentsOf({ path: 'a.ts', offset: 1, marker: true }, 'read')).toEqual({
       marker: true,
     })
+    expect(otherArgumentsOf({ path: 'a.ts', offset: -1, marker: true }, 'read')).toEqual({
+      offset: -1,
+      marker: true,
+    })
+    expect(otherArgumentsOf({ path: 'a.ts', limit: '0' }, 'read')).toEqual({ limit: '0' })
     expect(otherArgumentsOf({ path: 'a.ts' }, 'read')).toBeUndefined()
   })
 
@@ -251,32 +257,38 @@ describe('命令摘要与 Shell 状态', () => {
     expect(isShellFailureExit(1, true)).toBe(false)
   })
 
-  it('bash 参数保留显式 timeout，非法值回退', () => {
+  it('bash 参数保留合法 timeout，非法值不进入模型', () => {
     expect(bashToolInputOf({ command: 'ls', timeout: 60 })).toEqual({
       command: 'ls',
       timeout: 60,
     })
     expect(bashToolInputOf({ command: 'ls' })).toEqual({ command: 'ls' })
-    expect(bashToolInputOf({ command: 'ls', timeout: 0 })).toBeUndefined()
-    expect(bashToolInputOf({ command: 'ls', timeout: -1 })).toBeUndefined()
-    expect(bashToolInputOf({ command: 'ls', timeout: Number.NaN })).toBeUndefined()
-    expect(bashToolInputOf({ command: 'ls', timeout: Number.POSITIVE_INFINITY })).toBeUndefined()
-    expect(bashToolInputOf({ command: 'ls', timeout: '60' })).toBeUndefined()
+    expect(bashToolInputOf({ command: 'ls', timeout: 0 })).toEqual({ command: 'ls' })
+    expect(bashToolInputOf({ command: 'ls', timeout: -1 })).toEqual({ command: 'ls' })
+    expect(bashToolInputOf({ command: 'ls', timeout: Number.NaN })).toEqual({ command: 'ls' })
+    expect(bashToolInputOf({ command: 'ls', timeout: Number.POSITIVE_INFINITY })).toEqual({
+      command: 'ls',
+    })
+    expect(bashToolInputOf({ command: 'ls', timeout: '60' })).toEqual({ command: 'ls' })
+    expect(otherArgumentsOf({ command: 'ls', timeout: 0 }, 'bash')).toEqual({ timeout: 0 })
+    expect(otherArgumentsOf({ command: 'ls', timeout: '60' }, 'bash')).toEqual({ timeout: '60' })
   })
 
-  it('bash 允许空命令，null timeout 不进入模型但保留原值', () => {
+  it('bash 允许空命令，非法 timeout 不进入模型但保留原值', () => {
     expect(bashToolInputOf({ command: '' })).toEqual({ command: '' })
     expect(bashToolInputOf({ command: '', timeout: null })).toEqual({ command: '' })
     expect(bashToolInputOf({ command: null })).toBeUndefined()
+    expect(bashToolInputOf({ command: '', timeout: -1 })).toEqual({ command: '' })
     expect(otherArgumentsOf({ command: 'ls', timeout: null, marker: true }, 'bash')).toEqual({
       timeout: null,
       marker: true,
     })
+    expect(otherArgumentsOf({ command: '', timeout: -1 }, 'bash')).toEqual({ timeout: -1 })
   })
 })
 
 describe('diff 行分派', () => {
-  it('保留文件头与 hunk，增删行去掉前缀交给展示变体', () => {
+  it('保留文件头、hunk 与增删行原文', () => {
     const lines = diffLinesOf(
       [
         '--- a/src/greeting.ts',
@@ -294,8 +306,8 @@ describe('diff 行分派', () => {
       { kind: 'file', text: '+++ b/src/greeting.ts' },
       { kind: 'hunk', text: '@@ -1,3 +1,3 @@' },
       { kind: 'context', text: ' export function greeting(name: string) {' },
-      { kind: 'removed', text: '  return `你好，世界`' },
-      { kind: 'added', text: '  return `你好，世界。`' },
+      { kind: 'removed', text: '-  return `你好，世界`' },
+      { kind: 'added', text: '+  return `你好，世界。`' },
       { kind: 'context', text: ' }' },
     ])
   })

@@ -12,7 +12,6 @@ import type { ReactNode } from 'react'
 import {
   CodeBlock,
   CodeBlockActions,
-  CodeBlockContent,
   CodeBlockCopyButton,
   CodeBlockHeader,
   CodeBlockTitle,
@@ -26,6 +25,7 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace'
+import { HighlightedCodeContent } from './highlighted-code'
 
 const asText = (value: unknown): string => (typeof value === 'string' ? value : '')
 
@@ -138,9 +138,7 @@ function UnknownDataPart({ part }: { part: HarnessDataViewPart }) {
           </CodeBlockActions>
         </CodeBlockHeader>
         <ScrollArea className="min-w-0 data-has-overflow-x:pb-2.5 *:data-[slot=scroll-area-viewport]:max-h-64">
-          <CodeBlockContent className="overflow-visible" style={{ maskImage: 'none' }}>
-            {safeJson(part.data)}
-          </CodeBlockContent>
+          <HighlightedCodeContent value={safeJson(part.data)} language="json" />
           <ScrollBar orientation="horizontal" />
         </ScrollArea>
       </CodeBlock>

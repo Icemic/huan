@@ -1,16 +1,17 @@
 /**
  * 代码语法高亮的业务组合。
  *
- * 只有语言受支持且内容在显示上限内时才挂载调用官方 useHighlightedCode
- * 的子组件；其余情况沿用 CodeBlockContent 的纯文本渲染，不加载语法。
- * 高亮行用 memo 隔离父组件刷新，复制值仍由调用方保存原字符串。
+ * 直接挂载官方 useHighlightedCode，由 lib/highlighter.tsx 决定语言是否可用；
+ * 未知语言由 hook 回退为原文。高亮行用 memo 隔离父组件刷新，复制值仍由
+ * 调用方保存原字符串。diff 模式只给既有行套用增删/hunk 样式，不拆分或
+ * 重建行内容。
  */
 
 import { memo } from 'react'
 import { CodeBlockContent, CodeBlockLine } from '@/components/ui/code-block'
 import { useHighlightedCode } from '@/hooks/use-highlighted-code'
 import { cn } from '@/lib/utils'
-import { highlightLanguageOf, withinHighlightLimits } from './code-syntax'
+import { diffLinesOf } from './tool-presentation'
 
 interface HighlightedCodeContentProps {
   value: string
@@ -18,19 +19,23 @@ interface HighlightedCodeContentProps {
   lineNumbers?: boolean
   wrap?: boolean
   className?: string
+  /** 按统一 diff 解析行类型；行内容仍来自高亮结果，保留原始正负号。 */
+  diff?: boolean
 }
 
 const contentClassName = 'overflow-visible'
 
-/** 高亮行：memo 保证内容与语言不变时，父组件刷新不重复分词。 */
-const HighlightedLines = memo(function HighlightedLines({
+/** 代码正文；行号、滚动与空行保持上游 CodeBlock 行为。 */
+export const HighlightedCodeContent = memo(function HighlightedCodeContent({
   value,
   language,
-  lineNumbers,
-  wrap,
+  lineNumbers = false,
+  wrap = false,
   className,
-}: HighlightedCodeContentProps & { language: string }) {
-  const lines = useHighlightedCode(value, language)
+  diff = false,
+}: HighlightedCodeContentProps) {
+  const lines = useHighlightedCode(value, language ?? 'text')
+  const diffLines = diff ? diffLinesOf(value) : undefined
   return (
     <CodeBlockContent
       wrap={wrap}
@@ -39,44 +44,31 @@ const HighlightedLines = memo(function HighlightedLines({
       className={cn(contentClassName, className)}
       style={{ maskImage: 'none' }}
     >
-      {lines.map((line, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 高亮行没有稳定 ID，顺序即内容
-        <CodeBlockLine key={index}>{line}</CodeBlockLine>
-      ))}
+      {lines.map((line, index) => {
+        const kind = diffLines?.[index]?.kind
+        return (
+          <CodeBlockLine
+            // biome-ignore lint/suspicious/noArrayIndexKey: 高亮行没有稳定 ID，顺序即内容
+            key={index}
+            variant={
+              kind === 'added'
+                ? 'added'
+                : kind === 'removed'
+                  ? 'removed'
+                  : kind === 'hunk'
+                    ? 'highlighted'
+                    : 'default'
+            }
+            className={cn(
+              (kind === 'file' || kind === 'hunk') && 'text-xs text-muted-foreground',
+              // 正负号已在原始行内容里，取消行变体自带的前缀，避免重复。
+              (kind === 'added' || kind === 'removed') && 'after:content-none',
+            )}
+          >
+            {line}
+          </CodeBlockLine>
+        )
+      })}
     </CodeBlockContent>
-  )
-})
-
-/** 代码正文；不满足高亮条件时按原字符串渲染，行号与滚动保持上游行为。
- * 外层 memo 同样隔离父组件刷新，避免重复计算语言与上限。 */
-export const HighlightedCodeContent = memo(function HighlightedCodeContent({
-  value,
-  language,
-  lineNumbers = false,
-  wrap = false,
-  className,
-}: HighlightedCodeContentProps) {
-  const resolved = highlightLanguageOf(language)
-  if (!resolved || !withinHighlightLimits(value)) {
-    return (
-      <CodeBlockContent
-        wrap={wrap}
-        lineNumbers={lineNumbers}
-        startLine={1}
-        className={cn(contentClassName, className)}
-        style={{ maskImage: 'none' }}
-      >
-        {value}
-      </CodeBlockContent>
-    )
-  }
-  return (
-    <HighlightedLines
-      value={value}
-      language={resolved}
-      lineNumbers={lineNumbers}
-      wrap={wrap}
-      className={className}
-    />
   )
 })

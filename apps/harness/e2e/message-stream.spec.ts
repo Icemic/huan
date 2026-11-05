@@ -81,7 +81,11 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
   await writeCard.getByRole('button', { name: '复制写入内容' }).click()
   await expect.poll(() => normalizedClipboard(page)).toBe(content)
 
-  await writeFile(join(project.path, 'read-sample.ts'), 'line-1\nline-2\nline-3\n', 'utf8')
+  await writeFile(
+    join(project.path, 'read-sample.ts'),
+    'const one = 1\nconst two = 2\nconst three = 3\n',
+    'utf8',
+  )
 
   // read：标题只描述请求范围，展开显示精确起始行与最多行数。
   await scriptTurns(request, [
@@ -95,14 +99,19 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
   await readTrigger.click()
   const readCard = page.locator('[data-slot="huan-read-content"]').last()
   await expect(readCard).toContainText('起始行 1 · 最多 2 行')
-  await expect(readCard).toContainText('line-1')
-  await expect(readCard).toContainText('line-2')
-  await expect(readCard).not.toContainText('line-3')
-  // read 第一轮不做行号或语法高亮，内容保持纯文本。
-  await expect(readCard.locator('[data-slot="code-block-line"]')).toHaveCount(0)
+  await expect(readCard).toContainText('const one = 1')
+  await expect(readCard).toContainText('const two = 2')
+  await expect(readCard).not.toContainText('const three = 3')
+  await expect(readCard).toContainText('more lines in file. Use offset=3 to continue.')
+  await expect(
+    readCard
+      .locator('.huan-syntax-token')
+      .filter({ hasText: /^const$/ })
+      .first(),
+  ).toBeVisible()
   await readCard.hover()
   await readCard.getByRole('button', { name: '复制读取内容' }).click()
-  await expect.poll(() => normalizedClipboard(page)).toContain('line-1\nline-2')
+  await expect.poll(() => normalizedClipboard(page)).toContain('const one = 1\nconst two = 2\n\n[')
 
   // edit：成功后展示实际补丁，并保留默认收起的完整替换段。
   await scriptTurns(request, [
@@ -126,6 +135,11 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
   await expect(diffCard).toContainText('首处第2行')
   await expect(diffCard).toContainText('export const b = 2')
   await expect(diffCard).toContainText('export const b = 20')
+  await expect(diffCard.locator('.huan-syntax-token').first()).toBeVisible()
+  await expect(diffCard.locator('[data-variant="added"]').first()).toContainText('+')
+  await diffCard.hover()
+  await diffCard.getByRole('button', { name: '复制补丁' }).click()
+  await expect.poll(() => normalizedClipboard(page)).toContain('+export const b = 20')
   const editCard = page
     .locator('[data-slot="trace"]')
     .filter({ has: page.locator('[data-tool-name="edit"]') })
@@ -162,6 +176,9 @@ test('内置 read/write/edit/bash 使用专门内容并保留原文复制', asyn
     .filter({ has: page.locator('[data-tool-name="bash"]') })
     .last()
   await expect(bashCard.locator('[data-slot="huan-command-block"]')).toContainText('超时 60s')
+  await expect(
+    bashCard.locator('[data-slot="huan-command-block"] .huan-syntax-token').first(),
+  ).toBeVisible()
   await expect(bashCard.locator('[data-slot="huan-output-block"]')).toContainText(
     'export const b = 20',
   )

@@ -44,6 +44,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useChatStore, useHarnessApp, useSubagentStore } from '@/state/app-context'
 import { partOpenOf } from '@/state/chat-store'
+import { HighlightedCodeContent } from './highlighted-code'
 import {
   SpecializedToolBody,
   type SpecializedToolView,
@@ -462,13 +463,12 @@ function ToolNodeView({
                         </CodeBlockActions>
                       </CodeBlockHeader>
                       <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
-                        <CodeBlockContent
+                        <HighlightedCodeContent
+                          value={argumentsText}
+                          language="json"
                           wrap
-                          className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-                          style={{ maskImage: 'none' }}
-                        >
-                          {argumentsText}
-                        </CodeBlockContent>
+                          className="*:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                        />
                       </ScrollArea>
                     </CodeBlock>
                   ) : null}
@@ -505,13 +505,12 @@ function ToolNodeView({
                       </summary>
                       <CodeBlock size="sm" className="mt-1">
                         <ScrollArea className="min-w-0 *:data-[slot=scroll-area-viewport]:max-h-48">
-                          <CodeBlockContent
+                          <HighlightedCodeContent
+                            value={safeJson(part.details)}
+                            language="json"
                             wrap
-                            className="overflow-visible *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-                            style={{ maskImage: 'none' }}
-                          >
-                            {safeJson(part.details)}
-                          </CodeBlockContent>
+                            className="*:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+                          />
                         </ScrollArea>
                       </CodeBlock>
                     </details>

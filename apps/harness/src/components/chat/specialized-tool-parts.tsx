@@ -2,14 +2,13 @@
  * read / write / edit / bash 的专门展开内容。
  *
  * 标题由工具行统一生成；这里按固定顺序输出参数内容、执行结果、图片、
- * 子调用摘要与其他未知字段。标准字段不重复出现在 JSON 回退里，形状不符
- * 时调用方仍使用通用工具展示。
+ * 子调用摘要与其他未知字段。主要字段不可读时调用方仍使用通用工具展示；
+ * 可选元数据不可用只影响自身展示，原始值保留在其他参数。
  */
 
 import type { HarnessToolViewPart } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
-import { Fragment, useMemo } from 'react'
-import { CodeBlockContent, CodeBlockLine } from '@/components/ui/code-block'
+import { Fragment } from 'react'
 import { useChatStore } from '@/state/app-context'
 import { partOpenOf } from '@/state/chat-store'
 import { languageOfPath } from './code-syntax'
@@ -23,6 +22,7 @@ import {
   OutputBlock,
   ShellOutputInfo,
 } from './content-block'
+import { HighlightedCodeContent } from './highlighted-code'
 import { NestedCallsSummary, ToolImages } from './tool-attachments'
 import {
   type BashDetails,
@@ -30,7 +30,6 @@ import {
   bashDetailsOf,
   bashToolInputOf,
   commandSummaryOf,
-  diffLinesOf,
   type EditDetails,
   type EditToolInput,
   editDetailsOf,
@@ -44,7 +43,6 @@ import {
   readRangeSummaryOf,
   readToolInputOf,
   type WriteToolInput,
-  writeDetailsOf,
   writeToolInputOf,
 } from './tool-presentation'
 
@@ -145,6 +143,7 @@ function ReadToolBody({
   const output = part.output
   const error = part.status === 'error'
   const hasImages = (part.outputImages?.length ?? 0) > 0
+  const language = languageOfPath(input.path)
   const pathLine = (
     <div className="text-muted-foreground flex min-w-0 items-start gap-2 text-xs leading-[18px]">
       <span className="min-w-0 flex-1 break-all font-mono">
@@ -182,6 +181,7 @@ function ReadToolBody({
           <BlockScroll>
             <CodeText
               value={output}
+              language={language}
               emptyText={<Trans>空内容</Trans>}
               className={range ? 'pt-1' : undefined}
             />
@@ -253,43 +253,8 @@ function WriteToolBody({
       ) : null}
       <ToolImages part={part} />
       <NestedCallsSummary part={part} />
-      <OtherFields part={part} kind="write" otherDetails={writeDetailsOf(part.details)} />
+      <OtherFields part={part} kind="write" otherDetails={part.details} />
     </>
-  )
-}
-
-function EditDiff({ diff }: { diff: string }) {
-  const lines = useMemo(() => diffLinesOf(diff), [diff])
-  return (
-    <BlockScroll>
-      <CodeBlockContent
-        className="overflow-visible px-3 pt-2 pb-3 leading-[22px]"
-        style={{ maskImage: 'none' }}
-      >
-        {lines.map((line, index) => (
-          <CodeBlockLine
-            // biome-ignore lint/suspicious/noArrayIndexKey: diff 行没有稳定 ID，顺序就是内容
-            key={`${index}:${line.kind}`}
-            variant={
-              line.kind === 'added'
-                ? 'added'
-                : line.kind === 'removed'
-                  ? 'removed'
-                  : line.kind === 'hunk'
-                    ? 'highlighted'
-                    : 'default'
-            }
-            className={
-              line.kind === 'file' || line.kind === 'hunk'
-                ? 'text-xs text-muted-foreground'
-                : undefined
-            }
-          >
-            {line.text}
-          </CodeBlockLine>
-        ))}
-      </CodeBlockContent>
-    </BlockScroll>
   )
 }
 
@@ -410,7 +375,14 @@ function EditToolBody({
             </>
           }
         >
-          <EditDiff diff={details.diff} />
+          <BlockScroll>
+            <HighlightedCodeContent
+              value={details.diff}
+              language="diff"
+              diff
+              className="px-3 pt-2 pb-3 leading-[22px]"
+            />
+          </BlockScroll>
         </ContentBlockFrame>
       ) : null}
       {!error && output && output.length > 0 ? (

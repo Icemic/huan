@@ -20,7 +20,10 @@ export function useHighlightedCode(value: string, language: string) {
           setLoaded({ language, highlighter: next })
         }
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        // 本地修改：加载错误记录原始异常，替代上游静默 catch；仍保留原文显示。
+        console.error(`代码高亮加载失败：${language}`, error)
+      })
 
     return () => {
       cancelled = true

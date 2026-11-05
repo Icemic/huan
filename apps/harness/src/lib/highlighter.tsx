@@ -5,40 +5,10 @@ import {
   type HighlighterCore,
 } from "shiki/core"
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript"
+import { type BundledLanguage, bundledLanguages } from "shiki/langs"
 
-// Add the languages you need. Each one loads the first time it is used.
-const languages = {
-  bash: () => import('shiki/langs/shellscript.mjs'),
-  css: () => import('shiki/langs/css.mjs'),
-  diff: () => import('shiki/langs/diff.mjs'),
-  html: () => import('shiki/langs/html.mjs'),
-  javascript: () => import('shiki/langs/javascript.mjs'),
-  json: () => import('shiki/langs/json.mjs'),
-  jsx: () => import('shiki/langs/jsx.mjs'),
-  markdown: () => import('shiki/langs/markdown.mjs'),
-  python: () => import('shiki/langs/python.mjs'),
-  sql: () => import('shiki/langs/sql.mjs'),
-  tsx: () => import('shiki/langs/tsx.mjs'),
-  typescript: () => import('shiki/langs/typescript.mjs'),
-  yaml: () => import('shiki/langs/yaml.mjs'),
-  rust: () => import('shiki/langs/rust.mjs'),
-  toml: () => import('shiki/langs/toml.mjs'),
-  pwsh: () => import('shiki/langs/pwsh.mjs'),
-  ps1: () => import('shiki/langs/ps1.mjs'),
-  powershell: () => import('shiki/langs/powershell.mjs'),
-};
-
-const aliases: Record<string, keyof typeof languages> = {
-  js: "javascript",
-  md: "markdown",
-  py: "python",
-  sh: "bash",
-  shell: "bash",
-  shellscript: "bash",
-  ts: "typescript",
-  yml: "yaml",
-  zsh: "bash",
-}
+// 本地修改：使用 Shiki 自带的动态语言表及别名，删除重复白名单和未使用的
+// highlightCode 包装；token 同时携带四套配色，由应用主题 class 选择。
 
 let highlighter: Promise<HighlighterCore> | undefined
 
@@ -57,22 +27,15 @@ function getHighlighter() {
   return highlighter
 }
 
+// 解析 Shiki 自带语言及别名，纯文本和未知语言不加载分词器。
 function getLanguage(language: string) {
-  const name = language.toLowerCase()
+  const name = language.trim().toLowerCase()
 
-  if (name === "ansi") {
-    return name
-  }
-
-  if (name in languages) {
-    return name as keyof typeof languages
-  }
-
-  return aliases[name] ?? null
+  if (name === "ansi") return name
+  return Object.hasOwn(bundledLanguages, name) ? name as BundledLanguage : null
 }
 
-// Loads a language and returns a highlighter for it, or null for a language
-// that is not listed.
+// 本地修改：按需加载语言，保留原上游分行与语法状态接口。
 export async function loadHighlighter(language: string) {
   const lang = getLanguage(language)
 
@@ -83,7 +46,7 @@ export async function loadHighlighter(language: string) {
   const shiki = await getHighlighter()
 
   if (lang !== "ansi" && !shiki.getLoadedLanguages().includes(lang)) {
-    await shiki.loadLanguage(languages[lang])
+    await shiki.loadLanguage(bundledLanguages[lang])
   }
 
   return {
@@ -93,8 +56,16 @@ export async function loadHighlighter(language: string) {
       const tokenize = (text: string) =>
         shiki.codeToTokens(text, {
           lang,
-          themes: { light: "github-light", dark: "github-dark" },
+          themes: {
+            light: "github-light",
+            dark: "github-dark",
+            oneDark: "one-dark-pro",
+            solarized: "solarized-light",
+          },
           defaultColor: false,
+          // 本地修改：实测 JS 引擎单行 5,000/10,000 字符约需 0.9/3.6 秒；
+          // 仅让超长单行由 Shiki 保留文本，其余行继续高亮，避免整块退回。
+          tokenizeMaxLineLength: 2_000,
           grammarState: state,
         }).tokens
 
@@ -111,7 +82,7 @@ export async function loadHighlighter(language: string) {
             <span
               key={index}
               style={token.htmlStyle as React.CSSProperties}
-              className="text-(--shiki-light) dark:text-(--shiki-dark)"
+              className="huan-syntax-token"
             >
               {token.content}
             </span>
@@ -121,11 +92,4 @@ export async function loadHighlighter(language: string) {
       }
     },
   }
-}
-
-// Returns one React node per line, or null for a language that is not listed.
-export async function highlightCode(code: string, language: string) {
-  const highlighter = await loadHighlighter(language)
-
-  return highlighter ? highlighter.highlight(code).lines : null
 }

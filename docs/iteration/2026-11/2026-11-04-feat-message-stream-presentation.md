@@ -287,3 +287,39 @@ worker按本节实现，不选择其他标题文案、图标、布局、字号�
 浏览器覆盖TS别名、Python、流式追加、同组件非前缀内容替换与语言切换、CRLF和空行、write行号与末尾换行复制、编辑片段复制、未知语言及100,001字符回退，以及原Shell与历史参数流程。明暗通过应用设置切换并读取截图，代码、正文和输入区颜色可见，沿用原布局。首次流式用例未收到可见代码，调整为带引导文字及末尾换行的分段计划后验证；未据此宣称原计划的原因已定位。Windows剪贴板换行按既有测试方式将CRLF转换为LF后比较。首次直接切根class的截图含主题状态不一致，已由应用设置流程重新验证。所有用例无retry或跳过断言。
 
 日志位于本机Temp：`huan-syntax-unit.log`、`huan-syntax-types.log`、`huan-syntax-e2e-final.log`；主题设置流程另见`huan-syntax-e2e-theme.log`。截图由`code-highlighting.spec.ts`生成，已读取明暗结果。未运行全仓测试/build。加载失败继续沿用官方hook的纯文本回退，本轮未注入加载故障。
+
+
+## 9. 高亮与工具展示重构
+
+用户要求重新review并清理过度设计及过度防御，已授权实施。本节替代§8的高亮接入范围和规模回退规则。
+
+审查发现：业务与highlighter重复维护语言表；没有实测依据的字符/行数上限会使大内容整体失去高亮；双层组件重复渲染分支；read、实际diff、Shell命令和JSON缺少接入；已加载的One Dark与Solarized主题未用于代码；read/bash可选元数据非法会导致主要内容退回通用JSON。上述判断直接降低常用消息的可读性。
+
+实施设计：
+
+1. 语言能力由Shiki自带语言及别名表提供，只维护扩展名与语言名不一致的映射，并识别Dockerfile/Makefile。移除自建白名单、整块字符/行数上限和双层高亮组件；已知语言按需加载，未知语言按文本展示。保留流式增量及异步卸载清理，加载异常记录诊断。
+2. read按路径高亮整个输出，SDK提示原样保留；write与替换片段继续按路径高亮。实际diff直接使用diff语法，保留原文正负号及现有增删背景，不重建文件或实现双侧语法状态。
+3. Agent与用户Shell的命令用bash语法，任意终端输出按纯文本；已有JSON参数、详情和未知数据按json高亮。Markdown显式语言直接交给统一高亮路径。
+4. 代码token同时携带GitHub Light/Dark、One Dark Pro和Solarized Light颜色，用应用现有主题class切换，不新增主题状态或订阅。
+5. read/bash只以主要path/command是否可读决定专门展示；可选元数据可用则显示，不可用的原值保留其他参数。完整保留图片、嵌套、Host UI、原文复制与已有默认折叠；删除无实质转换的函数。
+
+验证使用read含提示、实际diff、命令、JSON、Markdown、四主题、超过旧上限的代码及流式替换检查。主agent独立review、亲自修复和验证；上游附带highlighter/hook的必要本地修改在代码附近与来源说明记录。保持ui目录、协议及执行行为，完成后本地提交，不push。
+
+### 9.1 实施与验证
+
+已完成统一高亮及工具展示调整。主agent独立review后进一步删除worker新增的别名索引，直接使用Shiki语言表；路径映射仅保留不同名后缀，其他扩展名直接传入。删除无实质转换的write详情函数、重复parser调用和旧规模判断，ui目录及依赖保持。
+
+实测发现JS正则引擎处理单行注释时，1,000/5,000/10,000字符分别约需83ms/875ms/3.6秒，100,001字符单行探针30秒未结束。采用Shiki原生`tokenizeMaxLineLength: 2_000`，只跳过超长单行的分词，仍显示完整行并高亮其他行。8,001行普通TS的Node分词约703ms；浏览器用8,001行TS加100,001字符注释验证总量超过旧字符和行数限制，8,002行显示和原文逐行比对通过。超长行的后续语法状态遵循Shiki行为，未实现额外补偿算法。
+
+主agent亲自验证：
+
+- 3文件30项定向单测通过；应用、server与e2e类型检查通过。
+- 6条Chromium通过：分段Markdown、四主题与长代码/复制、同组件文本/语言切换、SDK四工具、用户Shell及历史参数导入。包含read的SDK继续读取提示、实际统一patch及复制、Shell命令、JSON与Go语法。
+- 读取浅色/深色截图；One Dark/Solarized初次截图含退出动画，补充等待弹窗消失并重新生成、读取两张截图，主题与代码颜色正常。
+- 上游附带源码的本地差异已注明并同步来源说明。未运行全仓测试/build，未注入加载失败故障。
+
+worker另报应用26文件233项单测通过，该记录与主agent亲验范围分开。
+
+浏览器调试保留两项事实：初次补丁复制断言把SDK优先patch误写为带行号diff，已按实际patch纠正；长代码超过原5秒等待，截图证实已到达，调整为20秒并保留完整内容/行数/token断言。分段流另有偶发未进入消息区的失败：失败时服务端快照仅system/user，无assistant消息，原因仍未确定。将分段流与四主题/长代码拆为独立用例后，最终同次6条全部通过；此结果不表示该偶发现象已修复。未使用重试、刷新或过滤console错误。
+
+日志位于本机临时目录：`huan-highlight-refactor-unit-final.log`、`huan-highlight-refactor-types-final.log`、`huan-highlight-refactor-e2e-complete.log`。失败诊断见`huan-highlight-diagnostic-4.log`；早期失败记录保留。

@@ -1,9 +1,9 @@
 /**
  * 内置文件/命令工具的参数与结果形状解析。
  *
- * 只做纯转换：标准字段转成展示模型，未知字段保留给“其他参数/其他详情”
- * 回退；形状不符时返回 undefined，由调用方继续使用通用工具展示。这里不
- * 读取磁盘，也不根据工具名猜测缺失内容。
+ * 只做纯转换：主要字段可读即生成展示模型，未知或非法可选值留给“其他参数/
+ * 其他详情”回退；主要字段形状不符时返回 undefined，由调用方继续使用通用
+ * 工具展示。这里不读取磁盘，也不根据工具名猜测缺失内容。
  */
 
 export interface ReadToolInput {
@@ -70,6 +70,9 @@ const nonNegativeInteger = (value: unknown): value is number =>
 const finiteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
+/** timeout 只在正有限数时进入展示模型；其他值继续留在其他参数。 */
+const positiveFiniteNumber = (value: unknown): value is number => finiteNumber(value) && value > 0
+
 const hasKeys = (value: Record<string, unknown>): boolean => Object.keys(value).length > 0
 
 const withoutKeys = (
@@ -84,18 +87,16 @@ const withoutKeys = (
 }
 
 /**
- * 读取工具参数；offset/limit 接受非负整数，null 不生成范围元数据。
- * 非整数或负数整体回退，原始 null 仍由“其他参数”保留。
+ * 读取工具参数；主要 path 可读即专门展示，可选 offset/limit 仅在为非负整数时
+ * 进入展示模型，null 或错误值继续留在“其他参数”。
  */
 export const readToolInputOf = (args: Record<string, unknown>): ReadToolInput | undefined => {
   const { path, offset, limit } = args
   if (!nonEmptyString(path)) return undefined
-  if (offset !== undefined && offset !== null && !nonNegativeInteger(offset)) return undefined
-  if (limit !== undefined && limit !== null && !nonNegativeInteger(limit)) return undefined
   return {
     path,
-    ...(offset === undefined || offset === null ? {} : { offset }),
-    ...(limit === undefined || limit === null ? {} : { limit }),
+    ...(nonNegativeInteger(offset) ? { offset } : {}),
+    ...(nonNegativeInteger(limit) ? { limit } : {}),
   }
 }
 
@@ -155,14 +156,14 @@ export const editToolInputOf = (args: Record<string, unknown>): EditToolInput | 
   return legacy === undefined ? undefined : { path, segments: [legacy] }
 }
 
-/** 命令工具参数；空命令仍是明确输入，null timeout 不生成超时元数据。 */
+/** 命令工具参数；空命令仍是明确输入，可读即专门展示。 */
 export const bashToolInputOf = (args: Record<string, unknown>): BashToolInput | undefined => {
   const { command, timeout } = args
   if (typeof command !== 'string') return undefined
-  if (timeout !== undefined && timeout !== null && !(finiteNumber(timeout) && timeout > 0)) {
-    return undefined
+  return {
+    command,
+    ...(positiveFiniteNumber(timeout) ? { timeout } : {}),
   }
-  return { command, ...(timeout === undefined || timeout === null ? {} : { timeout }) }
 }
 
 /** 收起时展示的读取范围；只描述请求，不声称实际返回行数。 */
@@ -207,25 +208,20 @@ export const otherArgumentsOf = (
   tool: 'read' | 'write' | 'edit' | 'bash',
 ): unknown => {
   const known: Record<typeof tool, readonly string[]> = {
-    read: ['path'],
+    read: [
+      'path',
+      ...(nonNegativeInteger(args.offset) ? ['offset'] : []),
+      ...(nonNegativeInteger(args.limit) ? ['limit'] : []),
+    ],
     write: ['path', 'content'],
     edit: Array.isArray(args.edits)
       ? ['path', 'edits']
       : typeof args.oldText === 'string' && typeof args.newText === 'string'
         ? ['path', 'oldText', 'newText']
         : ['path'],
-    bash: ['command'],
+    bash: ['command', ...(positiveFiniteNumber(args.timeout) ? ['timeout'] : [])],
   }
-  // 只有实际进入展示模型的值才算已知；null/undefined 与非法值继续留在其他参数。
-  if (tool === 'read') {
-    const input = readToolInputOf(args)
-    if (input?.offset !== undefined) known.read = [...known.read, 'offset']
-    if (input?.limit !== undefined) known.read = [...known.read, 'limit']
-  }
-  if (tool === 'bash') {
-    const input = bashToolInputOf(args)
-    if (input?.timeout !== undefined) known.bash = [...known.bash, 'timeout']
-  }
+  // 只有实际进入展示模型的值才算已知；null 与非法值继续留在其他参数。
   const rest = withoutKeys(args, known[tool]) ?? {}
   if (tool === 'edit' && Array.isArray(args.edits)) {
     const extraSegments = args.edits.flatMap((edit, index) => {
@@ -289,10 +285,6 @@ export const readDetailsOf = (details: unknown): ReadDetails => {
   }
 }
 
-/** 写入结果没有标准详情；全部作为其他详情保留。 */
-export const writeDetailsOf = (details: unknown): unknown =>
-  details === undefined ? undefined : details
-
 /**
  * 编辑详情：成功时只展示一种差异，firstChangedLine 进块头。
  *
@@ -347,8 +339,8 @@ export const bashDetailsOf = (details: unknown): BashDetails => {
 }
 
 /**
- * 解析统一 diff：文件头与 hunk 保留原文，增删行去掉前缀交给行变体展示。
- * 无法识别的行按上下文原样保留，不删除任何内容。
+ * 解析统一 diff：文件头、hunk 与增删行都保留原文。行类型只用于展示样式，
+ * 正负号不在这里删除，避免与高亮后的原始行内容重复。
  */
 export const diffLinesOf = (diff: string): DiffLine[] => {
   const lines = diff.split('\n')
@@ -357,8 +349,8 @@ export const diffLinesOf = (diff: string): DiffLine[] => {
   return lines.map((text) => {
     if (text.startsWith('+++ ') || text.startsWith('--- ')) return { kind: 'file', text }
     if (text.startsWith('@@')) return { kind: 'hunk', text }
-    if (text.startsWith('+')) return { kind: 'added', text: text.slice(1) }
-    if (text.startsWith('-')) return { kind: 'removed', text: text.slice(1) }
+    if (text.startsWith('+')) return { kind: 'added', text }
+    if (text.startsWith('-')) return { kind: 'removed', text }
     return { kind: 'context', text }
   })
 }

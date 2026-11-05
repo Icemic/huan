@@ -40,10 +40,10 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 ### 消息代码语法高亮（✅ 开发完成）
 
-记录：[消息流展示§8](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#8-代码语法高亮)
+记录：[消息流展示§9](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#9-高亮与工具展示重构)
 
-- Markdown显式语言、write内容及编辑替换片段启用Shiki；按主题切换颜色，未知语言及大内容保留纯文本。
-- 主agent亲验12项单测、5条Chromium、应用/服务端/e2e类型及定向Biome通过，已读取明暗截图；未运行全仓测试/build。
+- Markdown、read/write、编辑片段与实际diff、Shell命令及JSON统一使用Shiki与四主题配色；删除重复语言表及整块规模回退。按实测仅跳过超长单行分词，完整内容与复制保留。
+- 主agent亲验30项单测、6条Chromium、应用/server/e2e类型通过，四主题截图已读取。分段流偶发无assistant消息的原因仍未确定，最终同次6条通过；未运行全仓测试/build。首批12项/5条证据保留在§8。
 
 ### 消息流展示调整：第一轮（✅ 开发完成）
 

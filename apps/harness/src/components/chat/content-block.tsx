@@ -14,7 +14,6 @@ import { TooltipIconButton } from '@/components/tooltip-icon-button'
 import {
   CodeBlock,
   CodeBlockActions,
-  CodeBlockContent,
   CodeBlockHeader,
   CodeBlockTitle,
 } from '@/components/ui/code-block'
@@ -219,7 +218,7 @@ export function CommandBlock({
       actions={<CopyIconButton value={command} label="复制命令" />}
     >
       <BlockScroll>
-        <CodeText value={command} wrap />
+        <CodeText value={command} language="bash" wrap />
       </BlockScroll>
     </ContentBlockFrame>
   )
@@ -290,13 +289,12 @@ export function JsonDetails({ label, value }: { label: ReactNode; value: unknown
       <summary className="text-muted-foreground cursor-pointer">{label}</summary>
       <CodeBlock size="sm" className="mt-1 rounded">
         <BlockScroll>
-          <CodeBlockContent
+          <HighlightedCodeContent
+            value={text}
+            language="json"
             wrap
-            className="overflow-visible pt-2 pb-3 *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
-            style={{ maskImage: 'none' }}
-          >
-            {text}
-          </CodeBlockContent>
+            className="pt-2 pb-3 *:data-[slot=code-block-code]:grid-cols-[minmax(0,1fr)]"
+          />
         </BlockScroll>
       </CodeBlock>
     </details>

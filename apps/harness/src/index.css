@@ -52,6 +52,20 @@
   }
 }
 
+/* Shiki 在同一 token 上提供各主题颜色，直接跟随应用主题，无需重新分词。 */
+.huan-syntax-token {
+  color: var(--shiki-light);
+}
+.dark .huan-syntax-token {
+  color: var(--shiki-dark);
+}
+.one-dark .huan-syntax-token {
+  color: var(--shiki-oneDark);
+}
+.solarized-light .huan-syntax-token {
+  color: var(--shiki-solarized);
+}
+
 /* 通用界面 tokens 参考末语工坊（shadcn base-nova / Base UI，MIT）。 */
 :root {
   --radius: 0.25rem;
