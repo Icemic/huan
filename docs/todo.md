@@ -38,6 +38,8 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 按时间倒序。每项只记**已完成的事实**与链接；完整设计见对应迭代文档。
 
+官方transformer高亮已修正：文件diff按两侧代码语法展示，彩色括号与ANSI前景/背景/装饰已接通；34项单测、6条Chromium及应用类型通过，见[消息流§10](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#10-官方transformer文件差异语法与ansi)。Shell执行颜色保留正在实施。
+
 ### 消息代码语法高亮（✅ 开发完成）
 
 记录：[消息流展示§9](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#9-高亮与工具展示重构)

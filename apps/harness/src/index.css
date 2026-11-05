@@ -55,15 +55,31 @@
 /* Shiki 在同一 token 上提供各主题颜色，直接跟随应用主题，无需重新分词。 */
 .huan-syntax-token {
   color: var(--shiki-light);
+  background-color: var(--shiki-light-bg);
+  font-style: var(--shiki-light-font-style);
+  font-weight: var(--shiki-light-font-weight);
+  text-decoration: var(--shiki-light-text-decoration);
 }
 .dark .huan-syntax-token {
   color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
 }
 .one-dark .huan-syntax-token {
   color: var(--shiki-oneDark);
+  background-color: var(--shiki-oneDark-bg);
+  font-style: var(--shiki-oneDark-font-style);
+  font-weight: var(--shiki-oneDark-font-weight);
+  text-decoration: var(--shiki-oneDark-text-decoration);
 }
 .solarized-light .huan-syntax-token {
   color: var(--shiki-solarized);
+  background-color: var(--shiki-solarized-bg);
+  font-style: var(--shiki-solarized-font-style);
+  font-weight: var(--shiki-solarized-font-weight);
+  text-decoration: var(--shiki-solarized-text-decoration);
 }
 
 /* 通用界面 tokens 参考末语工坊（shadcn base-nova / Base UI，MIT）。 */

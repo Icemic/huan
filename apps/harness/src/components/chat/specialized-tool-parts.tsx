@@ -378,7 +378,7 @@ function EditToolBody({
           <BlockScroll>
             <HighlightedCodeContent
               value={details.diff}
-              language="diff"
+              language={languageOfPath(input.path)}
               diff
               className="px-3 pt-2 pb-3 leading-[22px]"
             />

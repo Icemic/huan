@@ -20,6 +20,7 @@ import {
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { HighlightedCodeContent } from './highlighted-code'
+import { shellPlainText } from './tool-presentation'
 
 const safeJson = (value: unknown): string => {
   try {
@@ -246,10 +247,15 @@ export function OutputBlock({
       destructive={destructive}
       meta={exitMeta}
       dataSlot={dataSlot}
-      actions={<CopyIconButton value={output} label="复制输出" />}
+      actions={<CopyIconButton value={shellPlainText(output)} label="复制输出" />}
     >
       <BlockScroll>
-        <CodeText value={output} emptyText={emptyText} className="text-foreground" />
+        <CodeText
+          value={output}
+          emptyText={emptyText}
+          language="ansi"
+          className="text-foreground"
+        />
       </BlockScroll>
     </ContentBlockFrame>
   )

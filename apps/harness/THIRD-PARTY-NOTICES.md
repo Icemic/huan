@@ -48,7 +48,7 @@ SOFTWARE.
 | empty、field、input、input-group、item、label、message、popover、radio-group、scroll-area | 同上 |
 | select、separator、skeleton、switch、tabs、textarea、tooltip、trace、combobox、dropdown-menu、button-group | 同上 |
 
-registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装`src/hooks/use-highlighted-code.ts`、`src/lib/highlighter.tsx`及Shiki依赖；业务层通过`chat/highlighted-code.tsx`组合两者，为Markdown、read/write、编辑片段与diff、Shell命令及JSON启用高亮。附带highlighter本地修改：改用Shiki自带语言/别名动态加载，token输出四主题变量并由应用CSS选择，按实测使用Shiki单行2,000字符限制，删除未使用的highlightCode包装。附带hook本地修改：加载失败记录原始异常，保留上游增量分词与原文显示。差异均在修改处附近注明。两份附带源码仍在Biome配置按明确路径排除，保留上游格式；ui目录源码保持。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
+registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装高亮hook、highlighter及Shiki依赖；经用户授权重构后，删除旧增量hook，`src/lib/highlighter.tsx`为唯一业务高亮入口，采用`codeToHast()`、官方彩色括号transformer及HAST到React转换。普通代码按完整内容匹配括号，ANSI按整段解析并保留前景、背景及文字装饰；diff的两侧代码交给文件语言高亮，补丁结构由业务适配。四主题及单行2,000字符限制继续保留。此文件已注明与CLI内容的差异，纳入项目检查；ui目录保持安装结果。新增`@shikijs/colorized-brackets@4.5.0`（Shiki项目，MIT）、`hast-util-to-jsx-runtime@2.3.7`（syntax-tree项目，MIT）与`strip-ansi@7.2.0`（sindresorhus项目，MIT），许可随包分发。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
 
 原自写`menu.tsx`、`model-selector.tsx`与`model-selection.ts`已删除。模型/Thinking在`pi-model-selector.tsx`组合官方Combobox与独立思考强度DropdownMenuRadioGroup；TooltipIconButton移至业务组件目录。ScrollArea在调用处组合Select、DropdownMenu、Combobox、CodeBlock和AttachmentGroup，不在上游文件内插入滚动结构。设置弹层业务布局继续参考官方sidebar-13示例；ReUI尚未采用。
 

@@ -31,9 +31,16 @@ function Fixture() {
       <button type="button" onClick={() => { setLanguage('go'); setValue('package main\nfunc main() {}') }}>
         Go
       </button>
+      <button type="button" onClick={() => { setLanguage('ts'); setValue('function run() {\n  return [Math.max(1, 2)]\n}') }}>括号</button>
+      <button type="button" onClick={() => { setLanguage('ansi'); setValue('\u001b[31mred\nstill red\u001b[0m\n\u001b[1;4;48;2;12;34;56mstyled\u001b[0m') }}>ANSI</button>
       <CodeBlock>
         <HighlightedCodeContent value={value} language={language} lineNumbers />
       </CodeBlock>
+      <section data-testid="patch">
+        <CodeBlock>
+          <HighlightedCodeContent language="ts" diff value={'--- a.ts\n+++ a.ts\n@@ -1,3 +1,3 @@\n const text = "hello"\n-/* before\n+const added = "after"\n console.log(text)'} />
+        </CodeBlock>
+      </section>
     </main>
   )
 }

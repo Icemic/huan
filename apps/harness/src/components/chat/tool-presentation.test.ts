@@ -3,7 +3,6 @@ import {
   bashDetailsOf,
   bashToolInputOf,
   commandSummaryOf,
-  diffLinesOf,
   editDetailsOf,
   editToolInputOf,
   isShellFailureExit,
@@ -15,6 +14,7 @@ import {
   readRangeSummaryOf,
   readToolInputOf,
   shellExitLabelOf,
+  shellPlainText,
   truncationTextOf,
   writeToolInputOf,
 } from './tool-presentation'
@@ -287,36 +287,20 @@ describe('命令摘要与 Shell 状态', () => {
   })
 })
 
-describe('diff 行分派', () => {
-  it('保留文件头、hunk 与增删行原文', () => {
-    const lines = diffLinesOf(
-      [
-        '--- a/src/greeting.ts',
-        '+++ b/src/greeting.ts',
-        '@@ -1,3 +1,3 @@',
-        ' export function greeting(name: string) {',
-        '-  return `你好，世界`',
-        '+  return `你好，世界。`',
-        ' }',
-        '',
-      ].join('\n'),
-    )
-    expect(lines).toEqual([
-      { kind: 'file', text: '--- a/src/greeting.ts' },
-      { kind: 'file', text: '+++ b/src/greeting.ts' },
-      { kind: 'hunk', text: '@@ -1,3 +1,3 @@' },
-      { kind: 'context', text: ' export function greeting(name: string) {' },
-      { kind: 'removed', text: '-  return `你好，世界`' },
-      { kind: 'added', text: '+  return `你好，世界。`' },
-      { kind: 'context', text: ' }' },
-    ])
+describe('终端复制文本', () => {
+  it('剥除前景、背景、字体与光标控制序列', () => {
+    expect(shellPlainText('\u001b[31m红\u001b[0m \u001b[1;48;2;1;2;3m背景\u001b[0m')).toBe('红 背景')
+    expect(shellPlainText('\u001b[2K\u001b[1Gprogress')).toBe('progress')
   })
 
-  it('无法识别的行按上下文原样保留，不删除内容', () => {
-    expect(diffLinesOf('\\ No newline at end of file\nplain')).toEqual([
-      { kind: 'context', text: '\\ No newline at end of file' },
-      { kind: 'context', text: 'plain' },
-    ])
+  it('剥除 OSC 超链接但保留显示文本与换行', () => {
+    expect(
+      shellPlainText('a\u001b]8;;https://example.com\u0007链接\u001b]8;;\u0007b\n\t结束'),
+    ).toBe('a链接b\n\t结束')
+  })
+
+  it('普通文本、命令与不完整控制序列原样保留', () => {
+    expect(shellPlainText('echo [31m\npath\\file')).toBe('echo [31m\npath\\file')
   })
 })
 

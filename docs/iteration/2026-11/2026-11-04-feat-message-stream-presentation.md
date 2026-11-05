@@ -323,3 +323,27 @@ worker另报应用26文件233项单测通过，该记录与主agent亲验范围�
 浏览器调试保留两项事实：初次补丁复制断言把SDK优先patch误写为带行号diff，已按实际patch纠正；长代码超过原5秒等待，截图证实已到达，调整为20秒并保留完整内容/行数/token断言。分段流另有偶发未进入消息区的失败：失败时服务端快照仅system/user，无assistant消息，原因仍未确定。将分段流与四主题/长代码拆为独立用例后，最终同次6条全部通过；此结果不表示该偶发现象已修复。未使用重试、刷新或过滤console错误。
 
 日志位于本机临时目录：`huan-highlight-refactor-unit-final.log`、`huan-highlight-refactor-types-final.log`、`huan-highlight-refactor-e2e-complete.log`。失败诊断见`huan-highlight-diagnostic-4.log`；早期失败记录保留。
+
+
+## 10. 官方transformer、文件差异语法与ANSI
+
+用户已确认实施。依据Shiki 4.5.0官方[transformers文档](https://shiki.style/guide/transformers)、[notation diff](https://shiki.style/packages/transformers#transformernotationdiff)、[彩色括号](https://shiki.style/packages/colorized-brackets)及[ANSI](https://shiki.style/languages#ansi)核对：`codeToTokens()`不执行transformer；`diff`语法只表达补丁；notation diff接收代码注释标记，不能直接消费SDK统一patch。Pi 1.4.0的bash工具保留ANSI，用户Shell的`executeBash()`则在回调和记录前剥除ANSI。两者stdout/stderr均为pipe，未强制颜色。
+
+### 10.1 高亮阶段
+
+使用现有`lib/highlighter.tsx`调用`codeToHast()`，通过`hast-util-to-jsx-runtime`生成React内容；采用官方`@shikijs/colorized-brackets@4.5.0`，支持四主题。语言继续按需加载。暂停review后由主agent亲自重构：保留现有highlighter为唯一业务入口，删除旧增量hook及中断实施新增的重复高亮模块；修改位置和来源说明注明差异，ui目录保持。完整代码参与括号匹配，替代仅保存已完成行的增量状态，内容变化时重新高亮，memo隔离其他刷新。保留实测单行2,000字符分词限制。
+
+统一patch按hunk解析，只把代码部分交给原文件语言。每个hunk分修改前后两份代码，分别包含上下文及删除/新增行，独立高亮后映回原补丁顺序。文件头/hunk说明原样展示，增删前缀保留，复制始终原patch；缺少hunk之前的文件上下文按代码片段处理。SDK带行号diff同样保留行号，识别其展示前缀后高亮。未知语言保留文本，增删背景继续使用CodeBlock行变体。此适配负责补丁结构，代码分词和彩色括号使用官方能力，不把notation transformer当成统一patch解析器。
+
+ANSI输出使用Shiki的完整内容解析，颜色跨行保留；CSS同时接收前景、背景与字体装饰。代码与JSON的复制继续原文；终端复制使用`strip-ansi`得到可读文本。验证须检查行内关键字、字符串不同颜色与多行注释、嵌套括号同层配色，不能只检查token存在。完成定向检查与文档后本地提交。
+
+### 10.2 Shell阶段
+
+bash工具通过公开spawnHook设置默认颜色环境：缺少NO_COLOR且未设置FORCE_COLOR时使用FORCE_COLOR=1，保留显式环境选择；TERM/COLORTERM缺省提供xterm-256color/truecolor。手工Shell复用公开`createLocalBashOperations`或扩展返回的operations，使用同样默认环境，保留流式UTF-8与ANSI原文。沿用Shell配置的路径和commandPrefix，支持AbortSignal、取消进程、非零退出码、截断及完整输出文件；完成调用公开`recordBashResult`，由SDK保留运行中延迟记录和excludeFromContext语义。新增的执行取消句柄由已有UserBashRun持有，停止、删除、退出均清理，不扩展协议或复制执行状态。扩展直接返回result时仍按原逻辑使用。
+
+仅捕获新执行本身产生的颜色，历史已去色结果保持原样。颜色环境无法强迫所有CLI输出颜色；本轮覆盖支持FORCE_COLOR的工具及显式ANSI。保持管道执行，不建设交互终端。主agent亲自验证输出前景/背景/装饰、跨行及分块、两个执行入口、历史重开、复制、取消、并发与退出清理，完成后第二次本地提交，不push。
+
+
+### 10.3 高亮阶段验证记录
+
+主agent亲自接手并完成review修正：删除重复高亮模块与旧hook，移除手写ANSI清理正则，统一使用strip-ansi。34项定向单测、应用/server/e2e类型与6条Chromium通过。浏览器检查diff新增行的const与字符串颜色不同、括号跨行同层同色且不同层不同色、ANSI跨行颜色延续、RGB背景、粗体与下划线。保留六条原有流程及长代码原文验证，读取`transformers-ansi.png`截图。未运行全仓测试/build。日志为本机临时目录`huan-transformer-unit.log`、`huan-transformer-types.log`、`huan-transformer-e2e.log`。

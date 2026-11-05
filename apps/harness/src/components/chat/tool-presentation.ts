@@ -6,6 +6,8 @@
  * 工具展示。这里不读取磁盘，也不根据工具名猜测缺失内容。
  */
 
+import stripAnsi from 'strip-ansi'
+
 export interface ReadToolInput {
   path: string
   offset?: number
@@ -49,13 +51,6 @@ export interface BashDetails {
 export interface ReadDetails {
   truncation?: string
   other?: unknown
-}
-
-export type DiffLineKind = 'file' | 'hunk' | 'added' | 'removed' | 'context'
-
-export interface DiffLine {
-  kind: DiffLineKind
-  text: string
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -338,22 +333,8 @@ export const bashDetailsOf = (details: unknown): BashDetails => {
   }
 }
 
-/**
- * 解析统一 diff：文件头、hunk 与增删行都保留原文。行类型只用于展示样式，
- * 正负号不在这里删除，避免与高亮后的原始行内容重复。
- */
-export const diffLinesOf = (diff: string): DiffLine[] => {
-  const lines = diff.split('\n')
-  if (diff.includes('\0')) return lines.map((text) => ({ kind: 'context', text }))
-  if (lines.at(-1) === '') lines.pop()
-  return lines.map((text) => {
-    if (text.startsWith('+++ ') || text.startsWith('--- ')) return { kind: 'file', text }
-    if (text.startsWith('@@')) return { kind: 'hunk', text }
-    if (text.startsWith('+')) return { kind: 'added', text }
-    if (text.startsWith('-')) return { kind: 'removed', text }
-    return { kind: 'context', text }
-  })
-}
+/** 复制终端可读文本，ANSI解析使用维护中的标准实现。 */
+export const shellPlainText = stripAnsi
 
 /** 用户 Shell 标题里的退出结果；取消优先于未知退出码。 */
 export const shellExitLabelOf = (exitCode: number | undefined, cancelled: boolean): string => {
