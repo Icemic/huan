@@ -27,6 +27,11 @@ import type { HostUiBridge } from '../host-ui.js'
 import { createHostUiBridge } from '../host-ui.js'
 import { mapQueuedMessages, normalizeTitle, projectSessionRecord } from '../metadata.js'
 import { getModelReadiness } from '../model-catalog.js'
+import {
+  latestRunMetricsFromBranch,
+  persistRunMetrics,
+  type RunMetricsFinalStatus,
+} from '../run-metrics.js'
 import { sessionTreeRevision } from '../session-tree.js'
 import type { WorkspaceStore } from '../workspace-store.js'
 import { jsonSafeEventBody, jsonSafeSnapshot } from './json-safe.js'
@@ -327,6 +332,11 @@ export class SessionEvents {
       sessionFilePath: session.sessionFile,
     })
     const treeOperation = this.treeOperationView(record)
+    const activeRunMetrics = record.runMetrics.current()
+    const runMetrics =
+      activeRunMetrics?.status === 'running'
+        ? activeRunMetrics
+        : latestRunMetricsFromBranch(record.sessionManager)
     return {
       id: record.threadId,
       status: this.deps.coordinator.runStatus(record),
@@ -366,6 +376,7 @@ export class SessionEvents {
           }
         : { config: { thinkingLevel: session.thinkingLevel } }),
       ...(usage ? { contextUsage: usage } : {}),
+      ...(runMetrics ? { runMetrics } : {}),
       ...(this.deps.workspaceStore.sessionArchived(this.deps.storeId, record.threadId)
         ? { archived: true }
         : {}),
@@ -641,6 +652,22 @@ export class SessionEvents {
 
   /** 会话事件入口：活动工具、压缩、运行归属、协议映射与结算快照。 */
   onSessionEvent(record: ThreadRecord, event: SessionEvent): void {
+    const runBeforeSettle = event.type === 'agent_settled' ? record.currentRun : undefined
+    if (event.type === 'agent_start') {
+      // 新一轮重置统计；agent_end 之后的自动重试仍属于同一轮。
+      const runMetrics = record.runMetrics.begin()
+      this.emit(record, { type: 'run_metrics', runMetrics })
+      record.runMetrics.publish((metrics) =>
+        this.emit(record, { type: 'run_metrics', runMetrics: metrics }),
+      )
+    }
+    if (event.type === 'message_update') {
+      record.runMetrics.observeDelta(event.assistantMessageEvent)
+      record.runMetrics.observePartial(event.message)
+    }
+    if (event.type === 'message_end') {
+      record.runMetrics.observeMessage(event.message)
+    }
     if (event.type === 'turn_start') record.turnIndex += 1
     // 压缩运行态：开始建立操作标识，结束更新同一标识的结局；成功关联 Pi entry。
     if (event.type === 'compaction_start') {
@@ -716,6 +743,21 @@ export class SessionEvents {
     }
 
     const settledError = this.deps.coordinator.handleRunEvent(record, event)
+    if (event.type === 'agent_settled') {
+      // 只在本轮真正结算时冻结耗时；取消/失败保留已报告用量。
+      const status: RunMetricsFinalStatus =
+        runBeforeSettle?.cancelled || event.aborted
+          ? 'cancelled'
+          : runBeforeSettle?.pendingError !== undefined
+            ? 'failed'
+            : 'completed'
+      const runMetrics = record.runMetrics.settle(status)
+      if (runMetrics) {
+        // 独立统计文件关联当前节点，不改变Pi压缩边界。
+        persistRunMetrics(record.sessionManager, runMetrics)
+        this.emit(record, { type: 'run_metrics', runMetrics })
+      }
+    }
     // 结算后不存在活动工具；防止取消路径缺少 tool_execution_end 时残留。
     if (event.type === 'agent_settled') record.activeTools.clear()
 

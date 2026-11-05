@@ -1,4 +1,5 @@
 /** SDK 子任务的持久摘要与按需只读查看契约。 */
+import type { HarnessRunMetrics } from './runtime.js'
 import type {
   HarnessHostUiRequest,
   HarnessHostUiResponse,
@@ -26,6 +27,8 @@ export type HarnessSubagentTask = {
   error?: string
   /** 子任务正在等待的用户答复数，便于父工具直接提示。 */
   pendingRequestCount?: number
+  /** 子任务最近一轮完整运行统计；尚未运行或未知时缺失。 */
+  runMetrics?: HarnessRunMetrics
   usage: HarnessSubagentUsage
 }
 

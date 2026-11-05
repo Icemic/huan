@@ -319,12 +319,21 @@ describe('用户 Shell（! / !!）', () => {
     const end = await waitBashEvent(collector, command)
     const expected = '\u001b[31m红色\n下一行\u001b[0m\n'
     expect(end.run.output).toBe(expected)
-    expect(collector.events.filter((event) => event.type === 'bash_output').map((event) => event.type === 'bash_output' ? event.delta : '').join('')).toBe(expected)
+    expect(
+      collector.events
+        .filter((event) => event.type === 'bash_output')
+        .map((event) => (event.type === 'bash_output' ? event.delta : ''))
+        .join(''),
+    ).toBe(expected)
     const snapshot = await host.getThread(threadId)
-    expect(snapshot.messages.find((message) => message.role === 'bashExecution')).toMatchObject({output:expected})
+    expect(snapshot.messages.find((message) => message.role === 'bashExecution')).toMatchObject({
+      output: expected,
+    })
     collector.unsubscribe()
     await restartHost()
-    expect((await host.getThread(threadId)).messages.find((message) => message.role === 'bashExecution')).toMatchObject({output:expected})
+    expect(
+      (await host.getThread(threadId)).messages.find((message) => message.role === 'bashExecution'),
+    ).toMatchObject({ output: expected })
   })
 
   it('! 实时输出、退出码与历史消息，且输出进入模型上下文', async () => {
@@ -1172,5 +1181,32 @@ describe('模型目录、范围与 Thinking', () => {
     await expect(host.refreshModels({ workspacePath: 'relative/path' })).rejects.toThrow(
       '需要指定会话或绝对起始目录',
     )
+  })
+})
+
+describe('本轮运行统计', () => {
+  it('完成后独立保存统计，重启冷读保持同一结果', async () => {
+    const threadId = await createTurn('统计提问', '统计回答')
+    const live = await host.getThread(threadId)
+    const runMetrics = live.metadata.runMetrics
+    expect(runMetrics).toMatchObject({ status: 'completed' })
+    expect(runMetrics?.outputTokens).toBeGreaterThanOrEqual(0)
+    expect(runMetrics?.durationMs).toBeGreaterThan(0)
+    expect(runMetrics?.firstResponseMs).toBeGreaterThanOrEqual(0)
+
+    await restartHost()
+    const cold = await host.getThread(threadId)
+    expect(cold.metadata.runMetrics).toEqual(runMetrics)
+  })
+
+  it('新的完整运行替换上一轮统计', async () => {
+    const threadId = await createTurn('第一轮提问', '第一轮回答')
+    const first = (await host.getThread(threadId)).metadata.runMetrics
+    await addTurn(threadId, '第二轮提问', '第二轮回答')
+    const second = (await host.getThread(threadId)).metadata.runMetrics
+    expect(second).toMatchObject({ status: 'completed' })
+    expect(second?.outputTokens).toBeGreaterThanOrEqual(0)
+    expect(second?.durationMs).toBeGreaterThan(0)
+    expect(second).not.toEqual(first)
   })
 })

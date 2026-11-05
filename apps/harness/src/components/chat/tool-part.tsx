@@ -9,6 +9,7 @@
  */
 
 import type { HarnessSubagentDetails, HarnessSubagentTask } from '@huan/protocol'
+import { isRunMetrics } from '@huan/protocol'
 import type { HarnessThinkingViewPart, HarnessToolViewPart } from '@huan/react'
 import { useServiceStore } from '@huan/react'
 import { Trans } from '@lingui/react/macro'
@@ -92,7 +93,8 @@ const finiteNumber = (value: unknown): value is number =>
 /** 只接受页面会读取的字段；任何未知形状都回退到通用 JSON 展示。 */
 const subagentTaskOf = (value: unknown): HarnessSubagentTask | undefined => {
   if (!isRecord(value)) return undefined
-  const { taskId, parentThreadId, agent, task, status, model, output, error, usage } = value
+  const { taskId, parentThreadId, agent, task, status, model, output, error, usage, runMetrics } =
+    value
   if (
     typeof taskId !== 'string' ||
     taskId.length === 0 ||
@@ -110,7 +112,8 @@ const subagentTaskOf = (value: unknown): HarnessSubagentTask | undefined => {
     !finiteNumber(usage.cost) ||
     (model !== undefined && typeof model !== 'string') ||
     (output !== undefined && typeof output !== 'string') ||
-    (error !== undefined && typeof error !== 'string')
+    (error !== undefined && typeof error !== 'string') ||
+    (runMetrics !== undefined && !isRunMetrics(runMetrics))
   ) {
     return undefined
   }
@@ -126,6 +129,7 @@ const subagentTaskOf = (value: unknown): HarnessSubagentTask | undefined => {
     ...(typeof value.pendingRequestCount === 'number'
       ? { pendingRequestCount: value.pendingRequestCount }
       : {}),
+    ...(runMetrics === undefined ? {} : { runMetrics: { ...runMetrics } }),
     usage: {
       input: usage.input,
       output: usage.output,

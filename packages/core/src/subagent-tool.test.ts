@@ -118,8 +118,9 @@ function completed(
   summary: HarnessSubagentTask,
   output: string,
   usage: HarnessSubagentUsage = zeroUsage(),
+  runMetrics?: HarnessSubagentTask['runMetrics'],
 ): HarnessSubagentTask {
-  return { ...summary, status: 'completed', output, usage }
+  return { ...summary, status: 'completed', output, usage, ...(runMetrics ? { runMetrics } : {}) }
 }
 
 function failed(
@@ -199,9 +200,15 @@ describe('subagent 工具', () => {
       cacheWrite: 1,
       cost: 0.004,
     }
+    const runMetrics = {
+      status: 'completed' as const,
+      outputTokens: 7,
+      durationMs: 1400,
+      firstResponseMs: 220,
+    }
     const fake = fakeRunner((input) => {
       input.onProgress?.({ ...input.summary, status: 'running' })
-      return completed(input.summary, 'single output', usage)
+      return completed(input.summary, 'single output', usage, runMetrics)
     })
     const { host } = makeHost(fake.runner)
 
@@ -222,6 +229,7 @@ describe('subagent 工具', () => {
         status: 'completed',
         model: undefined,
         output: 'single output',
+        runMetrics,
         usage,
       },
     ])

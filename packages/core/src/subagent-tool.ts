@@ -790,6 +790,7 @@ function presentTask(task: HarnessSubagentTask, includeOutput: boolean): Harness
     ...(output === undefined ? {} : { output }),
     ...(task.error === undefined ? {} : { error: task.error }),
     ...(task.pendingRequestCount ? { pendingRequestCount: task.pendingRequestCount } : {}),
+    ...(task.runMetrics ? { runMetrics: { ...task.runMetrics } } : {}),
     usage: task.usage,
   }
 }

@@ -206,6 +206,15 @@ const knownEventBodies = {
     type: 'context_usage',
     contextUsage: { tokens: 10, contextWindow: 100, percent: 10 },
   },
+  run_metrics: {
+    type: 'run_metrics',
+    runMetrics: {
+      status: 'completed',
+      outputTokens: 20,
+      durationMs: 2000,
+      firstResponseMs: 300,
+    },
+  },
   extension_ui_request: {
     type: 'extension_ui_request',
     request: {
@@ -986,6 +995,15 @@ describe('openHarnessEventStream', () => {
         contextUsage: { tokens: 1, contextWindow: 'large', percent: 1 },
       },
       'event "context_usage" has an invalid payload',
+    ],
+    [
+      {
+        type: 'run_metrics',
+        threadId: 't1',
+        seq: 1,
+        runMetrics: { status: 'hacked', outputTokens: 1 },
+      },
+      'event "run_metrics" has an invalid payload',
     ],
     [
       {

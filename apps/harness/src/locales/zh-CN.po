@@ -61,7 +61,7 @@ msgstr "Solarized Light"
 msgid "Token"
 msgstr "Token"
 
-#: src/components/composer-context-usage.tsx:141
+#: src/components/composer-context-usage.tsx:143
 msgid "上下文"
 msgstr "上下文"
 
@@ -334,11 +334,11 @@ msgstr "关闭面板后登录继续；要终止请取消认证。"
 msgid "关闭面板后认证继续；要终止请点击取消认证"
 msgstr "关闭面板后认证继续；要终止请点击取消认证"
 
-#: src/components/chat/specialized-tool-parts.tsx:126
+#: src/components/chat/specialized-tool-parts.tsx:125
 msgid "其他参数"
 msgstr "其他参数"
 
-#: src/components/chat/specialized-tool-parts.tsx:129
+#: src/components/chat/specialized-tool-parts.tsx:128
 msgid "其他详情"
 msgstr "其他详情"
 
@@ -348,7 +348,7 @@ msgstr "其他详情"
 msgid "最近活动"
 msgstr "最近活动"
 
-#: src/components/chat/tool-part.tsx:203
+#: src/components/chat/tool-part.tsx:208
 msgid "写入"
 msgstr "写入"
 
@@ -449,7 +449,7 @@ msgstr "历史会话恢复时发生了模型回退，请核对会话当前模型
 msgid "压缩上下文"
 msgstr "压缩上下文"
 
-#: src/components/composer-context-usage.tsx:267
+#: src/components/composer-context-usage.tsx:326
 msgid "压缩中…"
 msgstr "压缩中…"
 
@@ -472,7 +472,7 @@ msgstr "压缩前约 {0} tokens"
 msgid "压缩后上下文未知，等待下一次响应"
 msgstr "压缩后上下文未知，等待下一次响应"
 
-#: src/components/composer-context-usage.tsx:177
+#: src/components/composer-context-usage.tsx:179
 msgid "压缩后用量待更新"
 msgstr "压缩后用量待更新"
 
@@ -492,7 +492,7 @@ msgstr "压缩已取消"
 msgid "压缩预留 tokens"
 msgstr "压缩预留 tokens"
 
-#: src/components/chat/tool-part.tsx:458
+#: src/components/chat/tool-part.tsx:463
 msgid "参数"
 msgstr "参数"
 
@@ -509,7 +509,7 @@ msgstr "取回全部"
 #: src/components/session-dialogs.tsx:448
 #: src/components/session-fork-dialog.tsx:101
 #: src/components/session-tree-dialog.tsx:724
-#: src/components/subagent-task-card.tsx:158
+#: src/components/subagent-task-card.tsx:167
 #: src/components/workspace-manager.tsx:498
 #: src/components/workspace-manager.tsx:616
 msgid "取消"
@@ -528,7 +528,7 @@ msgstr "取消任务"
 msgid "取消压缩"
 msgstr "取消压缩"
 
-#: src/components/subagent-task-card.tsx:186
+#: src/components/subagent-task-card.tsx:195
 msgid "取消失败："
 msgstr "取消失败："
 
@@ -613,7 +613,7 @@ msgstr "启动默认模型未配置：{0}"
 msgid "启用"
 msgstr "启用"
 
-#: src/components/chat/content-block.tsx:212
+#: src/components/chat/content-block.tsx:214
 msgid "命令"
 msgstr "命令"
 
@@ -646,8 +646,9 @@ msgstr "外观"
 msgid "多项目工作区"
 msgstr "多项目工作区"
 
+#: src/components/composer-context-usage.tsx:258
 #: src/components/runtime-operations.tsx:65
-#: src/components/subagent-task-card.tsx:51
+#: src/components/subagent-task-card.tsx:60
 msgid "失败"
 msgstr "失败"
 
@@ -667,7 +668,7 @@ msgstr "子会话暂无消息。"
 msgid "子会话正在启动，暂无消息。"
 msgstr "子会话正在启动，暂无消息。"
 
-#: src/components/chat/tool-part.tsx:256
+#: src/components/chat/tool-part.tsx:261
 msgid "子调用"
 msgstr "子调用"
 
@@ -684,7 +685,7 @@ msgstr "字段校验失败"
 msgid "存储方式"
 msgstr "存储方式"
 
-#: src/components/subagent-task-card.tsx:49
+#: src/components/subagent-task-card.tsx:58
 msgid "完成"
 msgstr "完成"
 
@@ -809,7 +810,7 @@ msgstr "工具与图片"
 msgid "工具与资源"
 msgstr "工具与资源"
 
-#: src/components/chat/tool-part.tsx:446
+#: src/components/chat/tool-part.tsx:451
 msgid "工具仍在运行，以下为部分输出。"
 msgstr "工具仍在运行，以下为部分输出。"
 
@@ -817,7 +818,7 @@ msgstr "工具仍在运行，以下为部分输出。"
 msgid "工具关联："
 msgstr "工具关联："
 
-#: src/components/chat/tool-part.tsx:451
+#: src/components/chat/tool-part.tsx:456
 msgid "工具执行失败，未返回可读输出。"
 msgstr "工具执行失败，未返回可读输出。"
 
@@ -830,7 +831,7 @@ msgstr "工具版本"
 msgid "工具结果 {0}"
 msgstr "工具结果 {0}"
 
-#: src/components/chat/tool-part.tsx:504
+#: src/components/chat/tool-part.tsx:508
 msgid "工具详情"
 msgstr "工具详情"
 
@@ -847,8 +848,9 @@ msgstr "已信任"
 msgid "已取回队列，但输入框已有新内容"
 msgstr "已取回队列，但输入框已有新内容"
 
+#: src/components/composer-context-usage.tsx:262
 #: src/components/runtime-operations.tsx:69
-#: src/components/subagent-task-card.tsx:53
+#: src/components/subagent-task-card.tsx:62
 msgid "已取消"
 msgstr "已取消"
 
@@ -885,6 +887,10 @@ msgstr "已有完全相同的会话"
 #: src/components/session-tree-dialog.tsx:432
 msgid "已标记"
 msgstr "已标记"
+
+#: src/components/composer-context-usage.tsx:293
+msgid "已用时间"
+msgstr "已用时间"
 
 #: src/components/pi-provider-auth.tsx:412
 msgid "已配置"
@@ -996,7 +1002,7 @@ msgstr "当前范围内没有可用模型。"
 msgid "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
 msgstr "当前输入草稿不会带到新会话；切换后编辑器将显示所选消息原文或清空。"
 
-#: src/components/chat/specialized-tool-parts.tsx:303
+#: src/components/chat/specialized-tool-parts.tsx:279
 msgid "待应用"
 msgstr "待应用"
 
@@ -1005,11 +1011,11 @@ msgstr "待应用"
 msgid "忽略"
 msgstr "忽略"
 
-#: src/components/chat/tool-part.tsx:572
+#: src/components/chat/tool-part.tsx:575
 msgid "思考中"
 msgstr "思考中"
 
-#: src/components/chat/tool-part.tsx:572
+#: src/components/chat/tool-part.tsx:575
 msgid "思考完成"
 msgstr "思考完成"
 
@@ -1067,7 +1073,7 @@ msgstr "打开链接"
 msgid "打开验证页"
 msgstr "打开验证页"
 
-#: src/components/chat/tool-part.tsx:207
+#: src/components/chat/tool-part.tsx:212
 msgid "执行"
 msgstr "执行"
 
@@ -1189,9 +1195,9 @@ msgid "无法读取工作区与会话列表，请检查宿主连接后重试。"
 msgstr "无法读取工作区与会话列表，请检查宿主连接后重试。"
 
 #: src/components/chat/specialized-tool-parts.tsx:163
-#: src/components/chat/specialized-tool-parts.tsx:193
-#: src/components/chat/specialized-tool-parts.tsx:372
-#: src/components/chat/specialized-tool-parts.tsx:442
+#: src/components/chat/specialized-tool-parts.tsx:196
+#: src/components/chat/specialized-tool-parts.tsx:356
+#: src/components/chat/specialized-tool-parts.tsx:433
 #: src/components/chat/user-shell-message.tsx:118
 #: src/components/runtime-operations.tsx:94
 msgid "无输出"
@@ -1213,30 +1219,34 @@ msgstr "显示指令/系统提示文本"
 msgid "暂无会话"
 msgstr "暂无会话"
 
-#: src/components/composer-context-usage.tsx:173
+#: src/components/composer-context-usage.tsx:175
 msgid "暂无用量"
 msgstr "暂无用量"
 
-#: src/components/composer-context-usage.tsx:244
+#: src/components/composer-context-usage.tsx:246
 msgid "暂无统计"
 msgstr "暂无统计"
+
+#: src/components/composer-context-usage.tsx:268
+msgid "暂无记录"
+msgstr "暂无记录"
 
 #: src/components/import-thread-dialog.tsx:221
 msgid "替代起始目录"
 msgstr "替代起始目录"
 
 #. placeholder {0}: input.segments.length
-#: src/components/chat/specialized-tool-parts.tsx:319
+#: src/components/chat/specialized-tool-parts.tsx:295
 msgid "替换内容 · {0} 处"
 msgstr "替换内容 · {0} 处"
 
 #. placeholder {0}: index + 1
-#: src/components/chat/specialized-tool-parts.tsx:327
+#: src/components/chat/specialized-tool-parts.tsx:303
 msgid "替换前 · {0}"
 msgstr "替换前 · {0}"
 
 #. placeholder {0}: index + 1
-#: src/components/chat/specialized-tool-parts.tsx:336
+#: src/components/chat/specialized-tool-parts.tsx:316
 msgid "替换后 · {0}"
 msgstr "替换后 · {0}"
 
@@ -1325,7 +1335,7 @@ msgstr "未配置"
 msgid "本会话临时"
 msgstr "本会话临时"
 
-#: src/components/composer-context-usage.tsx:184
+#: src/components/composer-context-usage.tsx:186
 msgid "本会话累计"
 msgstr "本会话累计"
 
@@ -1336,6 +1346,14 @@ msgstr "本次允许"
 #: src/components/workspace-manager.tsx:168
 msgid "本次拒绝"
 msgstr "本次拒绝"
+
+#: src/components/composer-context-usage.tsx:254
+msgid "本轮"
+msgstr "本轮"
+
+#: src/components/composer-context-usage.tsx:284
+msgid "本轮平均速度"
+msgstr "本轮平均速度"
 
 #: src/components/import-thread-dialog.tsx:282
 msgid "条目 / 版本"
@@ -1349,7 +1367,7 @@ msgstr "来源："
 msgid "来源按顶层键："
 msgstr "来源按顶层键："
 
-#: src/components/subagent-task-card.tsx:148
+#: src/components/subagent-task-card.tsx:157
 msgid "查看"
 msgstr "查看"
 
@@ -1415,7 +1433,7 @@ msgstr "模型认证"
 msgid "正在保存标签…"
 msgstr "正在保存标签…"
 
-#: src/components/chat/tool-part.tsx:168
+#: src/components/chat/tool-part.tsx:173
 msgid "正在准备子任务…"
 msgstr "正在准备子任务…"
 
@@ -1654,13 +1672,13 @@ msgstr "确认重新读取文件"
 msgid "稍后处理"
 msgstr "稍后处理"
 
-#: src/components/chat/specialized-tool-parts.tsx:184
-#: src/components/chat/specialized-tool-parts.tsx:332
-#: src/components/chat/specialized-tool-parts.tsx:341
+#: src/components/chat/specialized-tool-parts.tsx:185
+#: src/components/chat/specialized-tool-parts.tsx:311
+#: src/components/chat/specialized-tool-parts.tsx:324
 msgid "空内容"
 msgstr "空内容"
 
-#: src/components/chat/specialized-tool-parts.tsx:236
+#: src/components/chat/specialized-tool-parts.tsx:245
 msgid "空内容 · 0 行"
 msgstr "空内容 · 0 行"
 
@@ -1672,20 +1690,20 @@ msgstr "空闲"
 msgid "窗口"
 msgstr "窗口"
 
-#: src/components/composer-context-usage.tsx:267
+#: src/components/composer-context-usage.tsx:326
 msgid "立即压缩上下文"
 msgstr "立即压缩上下文"
 
-#: src/components/subagent-task-card.tsx:45
+#: src/components/subagent-task-card.tsx:54
 msgid "等待"
 msgstr "等待"
 
-#: src/components/subagent-task-card.tsx:181
+#: src/components/subagent-task-card.tsx:190
 msgid "等待任务输出…"
 msgstr "等待任务输出…"
 
-#: src/components/chat/tool-part.tsx:435
-#: src/components/subagent-task-card.tsx:128
+#: src/components/chat/tool-part.tsx:440
+#: src/components/subagent-task-card.tsx:137
 msgid "等待你的答复"
 msgstr "等待你的答复"
 
@@ -1698,6 +1716,10 @@ msgstr "等待子任务交互（{0}）"
 #: src/components/pi-thread-host-ui.tsx:160
 msgid "等待扩展交互（{0}）"
 msgstr "等待扩展交互（{0}）"
+
+#: src/components/composer-context-usage.tsx:288
+msgid "等待用量"
+msgstr "等待用量"
 
 #: src/components/workspace-manager.tsx:263
 msgid "管理工作区"
@@ -1737,7 +1759,7 @@ msgstr "结果已截断"
 msgid "缓存写 {0}"
 msgstr "缓存写 {0}"
 
-#: src/components/composer-context-usage.tsx:235
+#: src/components/composer-context-usage.tsx:237
 msgid "缓存命中率"
 msgstr "缓存命中率"
 
@@ -1746,11 +1768,11 @@ msgstr "缓存命中率"
 msgid "缓存读 {0}"
 msgstr "缓存读 {0}"
 
-#: src/components/composer-context-usage.tsx:227
+#: src/components/composer-context-usage.tsx:229
 msgid "缓存读取"
 msgstr "缓存读取"
 
-#: src/components/chat/tool-part.tsx:205
+#: src/components/chat/tool-part.tsx:210
 msgid "编辑"
 msgstr "编辑"
 
@@ -1852,7 +1874,7 @@ msgstr "详情"
 msgid "请在环境变量或 models.json 中配置凭据。"
 msgstr "请在环境变量或 models.json 中配置凭据。"
 
-#: src/components/chat/tool-part.tsx:201
+#: src/components/chat/tool-part.tsx:206
 msgid "读取"
 msgstr "读取"
 
@@ -1865,7 +1887,7 @@ msgid "读取子任务摘要与只读会话…"
 msgstr "读取子任务摘要与只读会话…"
 
 #. placeholder {0}: contextUsage.statsError
-#: src/components/composer-context-usage.tsx:193
+#: src/components/composer-context-usage.tsx:195
 msgid "读取累计统计失败：{0}"
 msgstr "读取累计统计失败：{0}"
 
@@ -1942,7 +1964,7 @@ msgstr "转向"
 msgid "轮询间隔 {0} 秒"
 msgstr "轮询间隔 {0} 秒"
 
-#: src/components/composer-context-usage.tsx:211
+#: src/components/composer-context-usage.tsx:213
 msgid "输入"
 msgstr "输入"
 
@@ -1951,9 +1973,10 @@ msgstr "输入"
 msgid "输入 {0}"
 msgstr "输入 {0}"
 
-#: src/components/chat/content-block.tsx:244
-#: src/components/chat/tool-part.tsx:482
-#: src/components/composer-context-usage.tsx:219
+#: src/components/chat/content-block.tsx:246
+#: src/components/chat/tool-part.tsx:486
+#: src/components/composer-context-usage.tsx:221
+#: src/components/composer-context-usage.tsx:274
 msgid "输出"
 msgstr "输出"
 
@@ -1962,11 +1985,11 @@ msgstr "输出"
 msgid "输出 {0}"
 msgstr "输出 {0}"
 
-#: src/components/chat/content-block.tsx:244
+#: src/components/chat/content-block.tsx:246
 msgid "输出中"
 msgstr "输出中"
 
-#: src/components/chat/content-block.tsx:270
+#: src/components/chat/content-block.tsx:277
 msgid "输出已截断"
 msgstr "输出已截断"
 
@@ -1975,11 +1998,11 @@ msgid "运行 Shell"
 msgstr "运行 Shell"
 
 #: src/components/runtime-operations.tsx:61
-#: src/components/subagent-task-card.tsx:47
+#: src/components/subagent-task-card.tsx:56
 msgid "运行中"
 msgstr "运行中"
 
-#: src/components/composer-context-usage.tsx:271
+#: src/components/composer-context-usage.tsx:330
 msgid "运行中暂不可压缩"
 msgstr "运行中暂不可压缩"
 
@@ -2077,7 +2100,7 @@ msgstr "重置改动"
 
 #: src/app.tsx:104
 #: src/components/chat/chat-view.tsx:209
-#: src/components/composer-context-usage.tsx:203
+#: src/components/composer-context-usage.tsx:205
 #: src/components/subagent-task-dialog.tsx:352
 msgid "重试"
 msgstr "重试"
@@ -2180,6 +2203,10 @@ msgstr "项目配置"
 #: src/components/import-thread-dialog.tsx:405
 msgid "预览导入"
 msgstr "预览导入"
+
+#: src/components/composer-context-usage.tsx:298
+msgid "首响应"
+msgstr "首响应"
 
 #: src/components/settings-dialog.tsx:53
 #: src/components/settings-dialog.tsx:265

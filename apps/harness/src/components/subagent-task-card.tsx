@@ -12,6 +12,7 @@ import { BanIcon, CheckIcon, Clock3Icon, EyeIcon, Loader2Icon, XIcon } from 'luc
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { runMetricsFirstResponseText, runMetricsSummaryText } from '@/lib/run-metrics'
 
 const compactTokens = (value: number): string => {
   if (value < 1000) return String(value)
@@ -26,10 +27,12 @@ export const subagentUsageText = (task: HarnessSubagentTask): string => {
   const parts: string[] = []
   if (input + output > 0) parts.push(`↑${compactTokens(input)} ↓${compactTokens(output)} tokens`)
   if (task.usage.cost > 0) parts.push(`$${task.usage.cost.toFixed(4)}`)
+  const speed = runMetricsSummaryText(task.runMetrics)
+  if (speed) parts.push(speed)
   return parts.join(' · ')
 }
 
-/** 悬浮提示使用完整用量，卡片本身只显示紧凑摘要。 */
+/** 悬浮提示使用完整用量与首响应耗时，卡片本身只显示紧凑摘要。 */
 export const subagentUsageDetail = (task: HarnessSubagentTask): string =>
   [
     `输入 ${task.usage.input}`,
@@ -37,6 +40,12 @@ export const subagentUsageDetail = (task: HarnessSubagentTask): string =>
     `缓存读 ${task.usage.cacheRead}`,
     `缓存写 ${task.usage.cacheWrite}`,
     `费用 $${task.usage.cost.toFixed(4)}`,
+    ...(task.runMetrics
+      ? [
+          `本轮平均速度 ${runMetricsSummaryText(task.runMetrics)}`,
+          `首响应 ${runMetricsFirstResponseText(task.runMetrics)}`,
+        ]
+      : []),
   ].join(' · ')
 
 const statusLabel = (status: HarnessSubagentTaskStatus) => {

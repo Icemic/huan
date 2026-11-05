@@ -29,6 +29,7 @@ import {
   isContextUsage,
   isHostUiRequest,
   isReloadOperation,
+  isRunMetrics,
   isThreadHostUi,
   isThreadSnapshot,
 } from '@huan/protocol'
@@ -210,6 +211,8 @@ const isKnownEventPayload = (event: Record<string, unknown>): boolean => {
       return typeof event.level === 'string'
     case 'context_usage':
       return isContextUsage(event.contextUsage)
+    case 'run_metrics':
+      return isRunMetrics(event.runMetrics)
     case 'extension_ui_request':
       return isHostUiRequest(event.request)
     case 'reload_start':

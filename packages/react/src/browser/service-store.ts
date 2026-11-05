@@ -226,6 +226,7 @@ const RUNTIME_METADATA_FIELDS = [
   'runningRunId',
   'queuedMessages',
   'contextUsage',
+  'runMetrics',
   'treeOperation',
   'reload',
   'modelFallback',

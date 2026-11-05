@@ -75,6 +75,43 @@ describe('thread-state（元数据与运行数据分离的纯归约）', () => {
     expect(state.session.loadState).toBe('loaded')
   })
 
+  it('运行统计事件更新元数据，并以快照替换旧值', () => {
+    const started = apply(
+      createHarnessThreadReduction('t1'),
+      ev({ type: 'run_metrics', runMetrics: { status: 'running', outputTokens: 0 } }),
+      ev({
+        type: 'run_metrics',
+        runMetrics: { status: 'completed', outputTokens: 42, durationMs: 1000 },
+      }),
+    )
+    expect(started.metadata.runMetrics).toEqual({
+      status: 'completed',
+      outputTokens: 42,
+      durationMs: 1000,
+    })
+
+    const replaced = apply(
+      started,
+      ev({
+        type: 'snapshot',
+        snapshot: {
+          metadata: {
+            id: 't1',
+            status: 'idle',
+            runMetrics: { status: 'failed', outputTokens: 3, durationMs: 500, firstResponseMs: 80 },
+          },
+          messages: [],
+        },
+      }),
+    )
+    expect(replaced.metadata.runMetrics).toEqual({
+      status: 'failed',
+      outputTokens: 3,
+      durationMs: 500,
+      firstResponseMs: 80,
+    })
+  })
+
   it('快照携带扩展 UI 状态；缺失时清空', () => {
     const hostUi = {
       statuses: [{ key: 's', text: '值' }],

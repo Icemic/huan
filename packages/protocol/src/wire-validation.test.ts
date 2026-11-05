@@ -138,6 +138,31 @@ describe('R5 wire 形状守卫', () => {
     ).toBe(false)
   })
 
+  it('运行统计接受运行中/结算形状，并随元数据校验', async () => {
+    const { isRunMetrics, isThreadMetadata } = await import('./wire-validation.js')
+    expect(isRunMetrics({ status: 'running', outputTokens: 0 })).toBe(true)
+    expect(
+      isRunMetrics({
+        status: 'completed',
+        outputTokens: 120,
+        durationMs: 2000,
+        firstResponseMs: 300,
+      }),
+    ).toBe(true)
+    expect(isRunMetrics({ status: 'unknown', outputTokens: 1 })).toBe(false)
+    expect(isRunMetrics({ status: 'completed' })).toBe(false)
+    expect(
+      isThreadMetadata({
+        id: 't1',
+        status: 'idle',
+        runMetrics: { status: 'cancelled', outputTokens: 4, durationMs: 500 },
+      }),
+    ).toBe(true)
+    expect(isThreadMetadata({ id: 't1', status: 'idle', runMetrics: { status: 'running' } })).toBe(
+      false,
+    )
+  })
+
   it('历史工具结果保留有界 nestedCalls 摘要', async () => {
     const { isCompleteTranscriptMessage } = await import('./wire-validation.js')
     expect(

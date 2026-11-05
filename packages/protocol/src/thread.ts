@@ -11,7 +11,7 @@ import type {
   HarnessAssistantMessageDelta,
   HarnessImageContent,
 } from './messages.js'
-import type { HarnessBashRun, HarnessCompactionPhase } from './runtime.js'
+import type { HarnessBashRun, HarnessCompactionPhase, HarnessRunMetrics } from './runtime.js'
 import type { HarnessThreadTreeOperation } from './tree.js'
 
 /** 上下文用量。 */
@@ -145,6 +145,8 @@ export type HarnessThreadMetadata = {
     thinkingLevel?: HarnessThinkingLevel | string
   }
   contextUsage?: HarnessContextUsage
+  /** 当前或最近一次完整运行统计；没有记录时缺失。 */
+  runMetrics?: HarnessRunMetrics
   /** 会话 .jsonl 路径（结构化句柄）。 */
   sessionFile?: string
   /** 跨会话文件的分支血缘。 */
@@ -398,6 +400,8 @@ export type HarnessClientEventBody =
   | { type: 'session_info_changed'; name?: string }
   | { type: 'thinking_level_changed'; level: string }
   | { type: 'context_usage'; contextUsage: HarnessContextUsage }
+  /** 运行统计开始/结算；静默令牌流不触发本事件。 */
+  | { type: 'run_metrics'; runMetrics: HarnessRunMetrics }
   | { type: 'extension_ui_request'; request: HarnessHostUiRequest }
   /** 资源重载开始（另一窗口可据此显示“重载中”，不取消工作）。 */
   | { type: 'reload_start'; operation: HarnessReloadOperation }

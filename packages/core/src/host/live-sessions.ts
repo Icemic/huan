@@ -27,6 +27,7 @@ import {
   resolveDefaultModel,
   resolveModelScopePatterns,
 } from '../model-catalog.js'
+import { RunMetricsRecorder } from '../run-metrics.js'
 import { WorkspaceStateUnavailableError, type WorkspaceStore } from '../workspace-store.js'
 import type { SharedModelRuntime } from './model-service.js'
 import type { OperationCoordinator } from './operation-coordinator.js'
@@ -371,6 +372,7 @@ export class LiveSessions {
         mcp: prepared.mcp,
         inFlight: new Set(),
         currentRun: undefined,
+        runMetrics: new RunMetricsRecorder(),
         bash: undefined,
         lastCompaction: undefined,
         compactionReason: undefined,
@@ -544,6 +546,7 @@ export class LiveSessions {
     //    agent 级兜底订阅在 agent_start 时中止（见 record 字段注释）。
     await this.emitShutdown(record, 'quit')
     discardDeferredRuns(record.session, this.deps.diagnose)
+    record.runMetrics.dispose()
     record.session.dispose()
     record.unsubscribe()
     // 保留 agent 级兜底订阅：局部批次可能在收尾后才启动（见字段注释）。
@@ -592,6 +595,9 @@ export class LiveSessions {
     // 删除同样限于当前存储作用域（防止作用域外路径被作用到）。
     this.deps.catalog.assertSessionFileInScope(sessionFile, cwd)
     await unlink(sessionFile).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+    })
+    await unlink(`${sessionFile}.huan-metrics.json`).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
     })
     if (cwd) this.deps.catalog.invalidateCatalog(cwd)

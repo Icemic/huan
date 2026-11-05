@@ -10,6 +10,7 @@ export type ManualStreamPlan = {
 export type ScriptedTurn = {
   tool?: { name: string; args: Record<string, unknown> }
   text?: string
+  outputTokens?: number
 }
 
 /** 流状态：测试可查询完成数，确保断开/恢复断言不依赖固定睡眠。 */
@@ -120,6 +121,18 @@ function createScriptedResponse(turn: ScriptedTurn): Response {
     created: 0,
     model: 'huan-test',
   }
+  const usage =
+    turn.outputTokens === undefined
+      ? ''
+      : chunk({
+          ...base,
+          choices: [],
+          usage: {
+            prompt_tokens: 5,
+            completion_tokens: turn.outputTokens,
+            total_tokens: 5 + turn.outputTokens,
+          },
+        })
   if (turn.tool) {
     return new Response(
       chunk({
@@ -149,6 +162,7 @@ function createScriptedResponse(turn: ScriptedTurn): Response {
           ...base,
           choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
         }) +
+        usage +
         'data: [DONE]\n\n',
       { status: 200, headers: { 'content-type': 'text/event-stream' } },
     )
@@ -165,6 +179,7 @@ function createScriptedResponse(turn: ScriptedTurn): Response {
       ],
     }) +
       chunk({ ...base, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] }) +
+      usage +
       'data: [DONE]\n\n',
     { status: 200, headers: { 'content-type': 'text/event-stream' } },
   )

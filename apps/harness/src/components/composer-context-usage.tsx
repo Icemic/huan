@@ -19,6 +19,7 @@ import {
   formatContextPercent,
   formatContextTokenCount,
 } from '@/lib/context-usage'
+import { formatRunMetricsDuration, formatRunMetricsSpeed, runMetricsSpeed } from '@/lib/run-metrics'
 import { cn } from '@/lib/utils'
 import { useRuntimeStore } from '@/state/app-context'
 
@@ -98,6 +99,7 @@ export function ComposerContextUsage() {
   const tokensText = usage
     ? `${usage.tokens === null ? '—' : formatContextTokenCount(usage.tokens)} / ${formatContextTokenCount(usage.contextWindow)}`
     : '—'
+  const runMetrics = metadata?.runMetrics
 
   const stats = contextUsage.stats
   const hitRate = stats ? contextUsageCacheHitRate(stats.tokens) : undefined
@@ -244,6 +246,69 @@ export function ComposerContextUsage() {
               <Trans>暂无统计</Trans>
             </p>
           ) : null}
+        </div>
+
+        <div className="flex flex-col gap-1 border-t pt-2" data-slot="huan-context-usage-run">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-medium">
+              <Trans>本轮</Trans>
+            </h3>
+            {runMetrics?.status === 'failed' ? (
+              <span className="text-destructive text-[11px]">
+                <Trans>失败</Trans>
+              </span>
+            ) : runMetrics?.status === 'cancelled' ? (
+              <span className="text-muted-foreground text-[11px]">
+                <Trans>已取消</Trans>
+              </span>
+            ) : null}
+          </div>
+          {runMetrics === undefined ? (
+            <p className="text-muted-foreground text-xs">
+              <Trans>暂无记录</Trans>
+            </p>
+          ) : (
+            <dl className="flex flex-col gap-1.5 text-xs">
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-muted-foreground">
+                  <Trans>输出</Trans>
+                </dt>
+                <dd className="font-mono tabular-nums">
+                  {runMetrics.outputTokens > 0
+                    ? formatContextTokenCount(runMetrics.outputTokens)
+                    : '—'}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-muted-foreground">
+                  <Trans>本轮平均速度</Trans>
+                </dt>
+                <dd className="font-mono tabular-nums">
+                  {runMetrics.status === 'running' && runMetrics.outputTokens === 0 ? (
+                    <Trans>等待用量</Trans>
+                  ) : (
+                    formatRunMetricsSpeed(runMetricsSpeed(runMetrics))
+                  )}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-muted-foreground">
+                  <Trans>已用时间</Trans>
+                </dt>
+                <dd className="font-mono tabular-nums">
+                  {formatRunMetricsDuration(runMetrics.durationMs)}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-muted-foreground">
+                  <Trans>首响应</Trans>
+                </dt>
+                <dd className="font-mono tabular-nums">
+                  {formatRunMetricsDuration(runMetrics.firstResponseMs)}
+                </dd>
+              </div>
+            </dl>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5 border-t pt-2" data-slot="huan-context-usage-compact">

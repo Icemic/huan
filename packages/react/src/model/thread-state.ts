@@ -566,6 +566,15 @@ export const reduceHarnessThreadState = (
         stampSession(state.session, event.seq),
       )
 
+    case 'run_metrics':
+      return withSession(
+        withMetadata(state, {
+          ...state.metadata,
+          runMetrics: event.runMetrics,
+        }),
+        stampSession(state.session, event.seq),
+      )
+
     case 'reload_start':
       // 资源重载由宿主广播；快照是权威，这里先让元数据反映“重载中”。
       return withSession(

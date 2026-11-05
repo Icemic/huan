@@ -23,6 +23,7 @@ import type {
   HarnessReloadOperation,
   HarnessReloadResult,
   HarnessResourceSnapshot,
+  HarnessRunMetrics,
   HarnessSettingsSaveResult,
   HarnessSettingsSnapshot,
   HarnessThreadDetails,
@@ -855,6 +856,24 @@ const isModelFallback = (value: unknown): boolean =>
   (value.active === undefined || isModelRef(value.active)) &&
   typeof value.message === 'string'
 
+/** 本轮运行统计守卫；运行中允许缺失耗时。 */
+export const isRunMetrics = (value: unknown): value is HarnessRunMetrics =>
+  isRecord(value) &&
+  (value.status === 'running' ||
+    value.status === 'completed' ||
+    value.status === 'failed' ||
+    value.status === 'cancelled') &&
+  Number.isFinite(value.outputTokens) &&
+  (value.outputTokens as number) >= 0 &&
+  (value.durationMs === undefined ||
+    (typeof value.durationMs === 'number' &&
+      Number.isFinite(value.durationMs) &&
+      value.durationMs >= 0)) &&
+  (value.firstResponseMs === undefined ||
+    (typeof value.firstResponseMs === 'number' &&
+      Number.isFinite(value.firstResponseMs) &&
+      value.firstResponseMs >= 0))
+
 const isToolExecutionSnapshot = (value: unknown): boolean =>
   isRecord(value) &&
   typeof value.toolCallId === 'string' &&
@@ -888,6 +907,7 @@ export const isThreadMetadata = (value: unknown): value is HarnessThreadMetadata
   isOptionalString(value.runningRunId) &&
   isThreadConfig(value.config) &&
   (value.contextUsage === undefined || isContextUsage(value.contextUsage)) &&
+  (value.runMetrics === undefined || isRunMetrics(value.runMetrics)) &&
   isOptionalString(value.sessionFile) &&
   isOptionalString(value.parentSessionPath) &&
   isOptionalNumber(value.messageCount) &&

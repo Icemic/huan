@@ -10,6 +10,22 @@
 
 import type { HarnessModelInfo } from './thread.js'
 
+/**
+ * 本轮运行统计。
+ *
+ * 统计范围为一次 `agent_start` 到 `agent_settled`（含重试、工具与等待）：
+ * `outputTokens` 只汇总本轮助手消息的服务商用量；耗时用单调时钟，仅运行中
+ * 采集，未计时或没有正输出时消费方显示占位。
+ */
+export type HarnessRunMetrics = {
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  outputTokens: number
+  /** 本轮已运行耗时；运行中持续更新，结束后冻结。 */
+  durationMs?: number
+  /** 启动到首次非空思考/正文/工具调用内容的耗时。 */
+  firstResponseMs?: number
+}
+
 /** 压缩触发原因（与 Pi 事件一致）。 */
 export type HarnessCompactionReason = 'manual' | 'threshold' | 'overflow'
 

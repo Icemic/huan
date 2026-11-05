@@ -47,6 +47,7 @@ import type { HostUiBridge } from '../host-ui.js'
 import type { SessionCatalogInfo } from '../metadata.js'
 import type { ProjectTrustResult, ProjectTrustState } from '../project-trust.js'
 import type { BoundResourceLoaderTrust } from '../resource-reload.js'
+import type { RunMetricsRecorder } from '../run-metrics.js'
 import type { ResolvedSessionDir } from '../session-dir.js'
 import type { WorkspaceSnapshot } from '../workspace-path.js'
 
@@ -280,6 +281,8 @@ export type ThreadRecord = {
   inFlight: Set<InFlightSend>
   /** 当前运行的归属与结局候选（agent_start 建立、agent_settled 结算）。 */
   currentRun: CurrentRun | undefined
+  /** 本轮运行统计；运行中持续更新，主会话结算值按分支节点独立保存。 */
+  runMetrics: RunMetricsRecorder
   /** 当前/最近一条用户 Shell；持久化为历史消息后才清除。 */
   bash: UserBashRun | undefined
   /** 当前/最近一次压缩操作；失败/取消不写日志，进程重启后由 Pi entry 重建成功记录。 */

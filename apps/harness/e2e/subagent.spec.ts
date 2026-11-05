@@ -6,8 +6,14 @@
  * 子agent 定义只存在于测试启动器创建的隔离 agentDir 中，不读写个人空间。
  * 链式调度由 core/unit 覆盖，本文件只保留单个与并行两条最小浏览器链路。
  */
+import type { HarnessRunMetrics } from '@huan/protocol'
 import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
+import {
+  formatRunMetricsDuration,
+  formatRunMetricsSpeed,
+  runMetricsSpeed,
+} from '../src/lib/run-metrics.js'
 import { E2E_HOST_URL } from './config.js'
 import {
   assistantMessages,
@@ -48,12 +54,12 @@ type SnapshotMessage = {
 }
 
 type ThreadSnapshot = {
-  metadata: { id: string; title?: string }
+  metadata: { id: string; title?: string; runMetrics?: HarnessRunMetrics }
   messages: SnapshotMessage[]
 }
 
 type TaskView = {
-  task: { status: string }
+  task: { status: string; runMetrics?: HarnessRunMetrics }
   requests: Array<{ kind?: string; title?: string }>
 }
 
@@ -195,7 +201,7 @@ async function expectNoChildInLists(page: Page, request: APIRequestContext): Pro
   ).toHaveCount(0)
 }
 
-test('单个子任务：确认后完成，刷新父工具仍可打开冷记录', async ({ page, request }) => {
+test('单个子任务：确认后完成，刷新父工具仍可打开冷记录', async ({ page, request }, testInfo) => {
   const run = Date.now().toString(36)
   const title = `子任务单个-${run}`
   await openApp(page)
@@ -203,10 +209,13 @@ test('单个子任务：确认后完成，刷新父工具仍可打开冷记录',
   await selectModel(page)
 
   await scriptTurns(request, [
-    { tool: { name: 'subagent', args: { agent: 'e2e-worker', task: 'CHILD-TASK' } } },
-    { tool: { name: 'e2e-child-ask', args: { note: 'single-note' } } },
-    { text: 'CHILD-RESULT' },
-    { text: 'PARENT-SINGLE-DONE' },
+    {
+      tool: { name: 'subagent', args: { agent: 'e2e-worker', task: 'CHILD-TASK' } },
+      outputTokens: 10,
+    },
+    { tool: { name: 'e2e-child-ask', args: { note: 'single-note' } }, outputTokens: 20 },
+    { text: 'CHILD-RESULT', outputTokens: 30 },
+    { text: 'PARENT-SINGLE-DONE', outputTokens: 40 },
   ])
   await sendMessage(page, title)
 
@@ -225,6 +234,26 @@ test('单个子任务：确认后完成，刷新父工具仍可打开冷记录',
   // 服务端视图与面板一致：任务运行中且恰好有一个待答 confirm。
   const running = await getTaskView(request, parent.metadata.id, taskId)
   expect(running.task.status).toBe('running')
+  expect(running.task.runMetrics?.status).toBe('running')
+  await expect(card).toContainText('tok/s')
+  const initialDuration = running.task.runMetrics?.durationMs ?? 0
+  await expect
+    .poll(
+      async () =>
+        (await getTaskView(request, parent.metadata.id, taskId)).task.runMetrics?.durationMs ?? 0,
+    )
+    .toBeGreaterThan(initialDuration + 500)
+  await expect(card).toContainText('首响应')
+  await closeDialog(page)
+  await page.locator('[data-huan-context-usage-trigger]').click()
+  const runningMetrics = page.locator('[data-slot="huan-context-usage-run"]')
+  await expect(runningMetrics).toContainText('tok/s')
+  await expect(runningMetrics).toContainText('已用时间')
+  await expect(runningMetrics).toContainText('首响应')
+  await expect(page.locator('[data-huan-context-usage]')).toHaveCSS('opacity', '1')
+  await page.screenshot({ path: testInfo.outputPath('run-metrics-running.png') })
+  await page.keyboard.press('Escape')
+  await openTaskView(page, 'CHILD-TASK')
   expect(running.requests.filter((item) => item.kind === 'confirm')).toHaveLength(1)
 
   await requestCard.getByRole('button', { name: '允许' }).click()
@@ -244,6 +273,22 @@ test('单个子任务：确认后完成，刷新父工具仍可打开冷记录',
     .toContain('CHILD-RESULT')
   await expectNoChildInLists(page, request)
 
+  const childMetrics = (await getTaskView(request, parent.metadata.id, taskId)).task.runMetrics
+  const parentMetrics = (await threadSnapshotByTitle(request, title)).metadata.runMetrics
+  expect(childMetrics?.outputTokens).toBe(50)
+  expect(parentMetrics?.outputTokens).toBe(50)
+  expect(childMetrics?.durationMs).toBeGreaterThan(childMetrics?.firstResponseMs ?? 0)
+  expect(parentMetrics?.durationMs).toBeGreaterThan(childMetrics?.durationMs ?? 0)
+  const childSpeed = formatRunMetricsSpeed(runMetricsSpeed(childMetrics))
+  await expect(card).toContainText(childSpeed)
+  await page.locator('[data-huan-context-usage-trigger]').click()
+  const metricsView = page.locator('[data-slot="huan-context-usage-run"]')
+  await expect(metricsView).toContainText(formatRunMetricsSpeed(runMetricsSpeed(parentMetrics)))
+  await expect(metricsView).toContainText(formatRunMetricsDuration(parentMetrics?.firstResponseMs))
+  await expect(page.locator('[data-huan-context-usage]')).toHaveCSS('opacity', '1')
+  await page.screenshot({ path: testInfo.outputPath('run-metrics.png') })
+  await page.keyboard.press('Escape')
+
   // 刷新页面后父工具结果来自持久会话；子任务只能从父卡重开冷记录。
   await page.reload()
   await waitForApp(page)
@@ -254,9 +299,12 @@ test('单个子任务：确认后完成，刷新父工具仍可打开冷记录',
   const coldCard = taskCard(page, 'CHILD-TASK')
   await expect(coldCard).toHaveAttribute('data-status', 'completed')
   await expect(coldCard).toContainText('CHILD-RESULT')
+  await expect(coldCard).toContainText(childSpeed)
+  expect((await threadSnapshotByTitle(request, title)).metadata.runMetrics).toEqual(parentMetrics)
   const coldDialog = await openTaskView(page, 'CHILD-TASK')
   await expectChildCompleted(coldDialog, 'CHILD-RESULT')
   await expectChildToolOutput(coldDialog)
+  await expect(coldDialog).toContainText(childSpeed)
   await closeDialog(page)
 })
 

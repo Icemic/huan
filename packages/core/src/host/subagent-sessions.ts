@@ -39,6 +39,7 @@ import type {
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
 } from '@huan/protocol'
+import { isRunMetrics } from '@huan/protocol'
 import type { HostUiBridge } from '../host-ui.js'
 import { createHostUiBridge } from '../host-ui.js'
 import { projectSessionRecord } from '../metadata.js'
@@ -47,6 +48,7 @@ import {
   globalModelPatterns,
   resolveModelScopePatterns,
 } from '../model-catalog.js'
+import { type RunMetricsFinalStatus, RunMetricsRecorder } from '../run-metrics.js'
 import { aggregateSessionStats } from '../session-stats.js'
 import type { SubagentAgentDefinition } from '../subagent-definitions.js'
 import type {
@@ -157,6 +159,8 @@ type TaskState = {
   started: boolean
   finished: boolean
   progress?: (task: HarnessSubagentTask) => void
+  /** 子任务最近一轮运行统计；与主会话共用采集器但实例独立。 */
+  runMetrics: RunMetricsRecorder
   session?: AgentSession
   sessionManager?: SessionManager
   record?: ThreadRecord
@@ -243,6 +247,7 @@ export class SubagentSessions implements SubagentTaskRunner {
       progress: context.onProgress,
       started: false,
       finished: false,
+      runMetrics: new RunMetricsRecorder(),
     }
     this.states.set(taskId, state)
     if (context.signal) this.attachSignal(state, context.signal)
@@ -264,7 +269,10 @@ export class SubagentSessions implements SubagentTaskRunner {
     if (state) {
       if (state.task.parentThreadId !== parentThreadId) throw unknownTask()
       const snapshot = state.record ? this.deps.events.snapshotOf(state.record) : undefined
-      if (snapshot) snapshot.metadata.status = threadStatusOf(state.task.status)
+      if (snapshot) {
+        snapshot.metadata.status = threadStatusOf(state.task.status)
+        if (state.task.runMetrics) snapshot.metadata.runMetrics = { ...state.task.runMetrics }
+      }
       return {
         task: publicTask(state.task),
         snapshot,
@@ -525,6 +533,7 @@ export class SubagentSessions implements SubagentTaskRunner {
           this.persistSessionIfMissing(state)
           state.session.dispose()
         }
+        state.runMetrics.dispose()
         state.unsubscribe?.()
         if (prepared) prepared.guard.record = undefined
       } finally {
@@ -550,6 +559,11 @@ export class SubagentSessions implements SubagentTaskRunner {
   ): HarnessSubagentTask {
     if (state.finished) return publicTask(state.task)
     state.finished = true
+    // 正常路径已在 agent_settled 结算；缺少结算事件时按任务终态兜底一次。
+    if (state.runMetrics.current()?.status === 'running') {
+      const metrics = state.runMetrics.settle(status)
+      if (metrics) state.task.runMetrics = metrics
+    }
     this.harvestSession(state)
     state.task.status = status
     if (patch.output !== undefined) state.task.output = patch.output
@@ -836,6 +850,7 @@ export class SubagentSessions implements SubagentTaskRunner {
       mcp: prepared.mcp,
       inFlight: new Set(),
       currentRun: undefined,
+      runMetrics: state.runMetrics,
       bash: undefined,
       compactionReason: undefined,
       lastCompactionError: undefined,
@@ -857,6 +872,23 @@ export class SubagentSessions implements SubagentTaskRunner {
     if (!record) return
     record.seq += 1
     if (event.type === 'turn_start') record.turnIndex += 1
+    if (event.type === 'agent_start') {
+      // 新一轮开始：重置统计并让父工具立即看到“统计中”。
+      state.task.runMetrics = state.runMetrics.begin()
+      state.runMetrics.publish((metrics) => {
+        state.task.runMetrics = metrics
+        this.emitProgress(state)
+      })
+      this.writeStored(state.task)
+      this.emitProgress(state)
+    }
+    if (event.type === 'message_update') {
+      state.runMetrics.observeDelta(event.assistantMessageEvent)
+      state.runMetrics.observePartial(event.message)
+    }
+    if (event.type === 'message_end') {
+      state.runMetrics.observeMessage(event.message)
+    }
     if (event.type === 'compaction_start') {
       record.compactionReason = event.reason
       record.lastCompactionAborted = false
@@ -891,7 +923,21 @@ export class SubagentSessions implements SubagentTaskRunner {
     } else if (event.type === 'tool_execution_end') {
       record.activeTools.delete(event.toolCallId)
     }
-    if (event.type === 'agent_settled') record.activeTools.clear()
+    if (event.type === 'agent_settled') {
+      // agent_end 可能重试/继续，只有 settled 才结算本轮耗时与结局。
+      const outcome: RunMetricsFinalStatus = event.aborted
+        ? 'cancelled'
+        : state.session
+          ? terminalOutcome(state.session).status
+          : state.task.status === 'failed'
+            ? 'failed'
+            : 'completed'
+      const metrics = state.runMetrics.settle(outcome)
+      if (metrics) state.task.runMetrics = metrics
+      record.activeTools.clear()
+      this.writeStored(state.task)
+      this.emitProgress(state)
+    }
   }
 
   private emitProgress(state: TaskState): void {
@@ -941,6 +987,7 @@ export class SubagentSessions implements SubagentTaskRunner {
       id: task.taskId,
       title: subagentTitle(task),
       status: threadStatusOf(task.status),
+      ...(task.runMetrics ? { runMetrics: { ...task.runMetrics } } : {}),
       workspacePath: task.cwd || sessionManager.getCwd(),
       ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
       ...(model
@@ -1032,6 +1079,7 @@ export class SubagentSessions implements SubagentTaskRunner {
     }
     const task = parsed as unknown as StoredSubagentTask
     if (!isRecord(task.usage)) task.usage = zeroUsage()
+    if (task.runMetrics !== undefined && !isRunMetrics(task.runMetrics)) delete task.runMetrics
     return task
   }
 }
@@ -1082,6 +1130,7 @@ function publicTask(task: StoredSubagentTask): HarnessSubagentTask {
     ...(task.output !== undefined ? { output: task.output } : {}),
     ...(task.error !== undefined ? { error: task.error } : {}),
     ...(task.pendingRequestCount ? { pendingRequestCount: task.pendingRequestCount } : {}),
+    ...(task.runMetrics ? { runMetrics: { ...task.runMetrics } } : {}),
     usage: { ...task.usage },
   }
 }
@@ -1128,6 +1177,9 @@ function endedWithoutService(task: StoredSubagentTask): StoredSubagentTask {
   return {
     ...task,
     status: 'cancelled',
+    ...(task.runMetrics?.status === 'running'
+      ? { runMetrics: { ...task.runMetrics, status: 'cancelled' as const } }
+      : {}),
     error: '任务已结束（服务不再持有）。',
   }
 }

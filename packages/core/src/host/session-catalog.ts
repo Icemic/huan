@@ -20,6 +20,7 @@ import type {
 import { deriveContextUsage } from '../context-usage.js'
 import { mapColdMetadata, mapSessionInfo, type SessionCatalogInfo } from '../metadata.js'
 import { getModelReadiness } from '../model-catalog.js'
+import { latestRunMetricsFromBranch } from '../run-metrics.js'
 import { defaultSessionsRoot, isPathWithinScope, type ResolvedSessionDir } from '../session-dir.js'
 import { aggregateSessionStats } from '../session-stats.js'
 import { applyStoredSessionLeaf, buildSessionTree, sessionTreeRevision } from '../session-tree.js'
@@ -312,6 +313,7 @@ export class SessionCatalog {
           ?.contextWindow ?? 0)
       : 0
     const contextUsage = deriveContextUsage(contextWindow, branch, context.messages)
+    const runMetrics = latestRunMetricsFromBranch(sessionManager)
     const storedWorkspaceId = this.deps.workspaceStore.sessionWorkspace(this.deps.storeId, info.id)
     const workspaceMetadata = this.deps.events.sessionWorkspaceFields(
       info.id,
@@ -332,6 +334,7 @@ export class SessionCatalog {
           ...(contextUsage ? { contextUsage } : {}),
         },
       ),
+      ...(runMetrics ? { runMetrics } : {}),
       leafId: sessionManager.getLeafId(),
       treeRevision: sessionTreeRevision(sessionManager),
       ...(() => {
