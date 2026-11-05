@@ -21,7 +21,7 @@ import {
   RefreshCwIcon,
   Settings2Icon,
 } from 'lucide-react'
-import { memo, useMemo } from 'react'
+import { memo, useId, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -280,6 +280,9 @@ export function WorkspaceSidebar() {
   const setNamedOnly = useWorkspaceStore((state) => state.setNamedOnly)
   const setShowArchived = useWorkspaceStore((state) => state.setShowArchived)
   const openWorkspaceForm = useWorkspaceStore((state) => state.openWorkspaceForm)
+  const unassignedExpanded = useWorkspaceStore((state) => state.unassignedExpanded)
+  const toggleUnassigned = useWorkspaceStore((state) => state.toggleUnassigned)
+  const unassignedSessionsId = useId()
 
   const threads = useMemo(
     () =>
@@ -496,19 +499,38 @@ export function WorkspaceSidebar() {
               ))}
               {scope === 'all' && grouped.unassigned.length > 0 && (
                 <div data-slot="huan-unassigned-group" className="mt-2 flex flex-col gap-0.5">
-                  <div className="text-muted-foreground flex items-center gap-1 px-2 py-1 text-xs font-medium">
-                    <Trans>未归属会话</Trans>
-                    <span>({grouped.unassigned.length})</span>
-                  </div>
-                  <div className="ms-3 flex flex-col gap-0.5">
-                    {grouped.unassigned.map((thread) => (
-                      <SessionRow
-                        key={thread.id}
-                        thread={thread}
-                        unassigned
-                        active={activeThreadId === thread.id}
-                      />
-                    ))}
+                  <button
+                    type="button"
+                    data-slot="huan-unassigned-trigger"
+                    className="flex h-8 items-center gap-1 rounded-md px-1 text-start text-sm font-medium hover:bg-muted/60"
+                    aria-expanded={unassignedExpanded}
+                    aria-controls={unassignedSessionsId}
+                    onClick={() => toggleUnassigned()}
+                  >
+                    <span className="text-muted-foreground flex size-6 shrink-0 items-center justify-center">
+                      {unassignedExpanded ? (
+                        <ChevronDownIcon aria-hidden className="size-4" />
+                      ) : (
+                        <ChevronRightIcon aria-hidden className="size-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      <Trans>未归属会话</Trans>
+                    </span>
+                    <span className="text-muted-foreground ms-1 text-xs">
+                      ({grouped.unassigned.length})
+                    </span>
+                  </button>
+                  <div id={unassignedSessionsId} className="ms-3 flex flex-col gap-0.5">
+                    {unassignedExpanded &&
+                      grouped.unassigned.map((thread) => (
+                        <SessionRow
+                          key={thread.id}
+                          thread={thread}
+                          unassigned
+                          active={activeThreadId === thread.id}
+                        />
+                      ))}
                   </div>
                 </div>
               )}

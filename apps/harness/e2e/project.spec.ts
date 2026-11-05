@@ -260,14 +260,55 @@ test('工作区改名跨窗口可见，显式刷新不掩盖状态更新', async
   await expect(workspaceGroup(page2, oldName)).toHaveCount(0)
 })
 
-test('未归属会话不自动猜测，GUI 明确加入工作区', async ({ page }) => {
+test('未归属会话折叠可恢复，不自动猜测归属，GUI 明确加入工作区', async ({ page }, testInfo) => {
   await openApp(page)
-  const row = page
-    .locator('[data-slot="huan-session-row"]')
-    .filter({ hasText: E2E_UNASSIGNED_TITLE })
-  await expect(row).toBeVisible()
   const unassigned = page.locator('[data-slot="huan-unassigned-group"]')
+  const toggle = unassigned.locator('[data-slot="huan-unassigned-trigger"]')
+  const rows = unassigned.locator('[data-slot="huan-session-row"]')
+  const row = rows.filter({ hasText: E2E_UNASSIGNED_TITLE })
+  await expect(row).toBeVisible()
   await expect(unassigned).toContainText(E2E_UNASSIGNED_TITLE)
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  expect(await toggle.getAttribute('aria-controls')).toBeTruthy()
+  const headerText = ((await toggle.textContent()) ?? '').replace(/\s+/g, ' ').trim()
+
+  // 鼠标收起：保留标题与数量，隐藏会话行。
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(toggle).toHaveText(headerText)
+  await expect(row).toBeHidden()
+  await page.screenshot({ path: testInfo.outputPath('unassigned-collapsed.png') })
+
+  // 显式刷新与筛选都不重置用户的收起选择。
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes('/api/pi/threads?')),
+    page.getByRole('button', { name: '刷新工作区', exact: true }).click(),
+  ])
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row).toBeHidden()
+  const search = page.getByLabel('搜索会话')
+  await search.fill('绝不匹配的筛选词')
+  await expect(unassigned).toHaveCount(0)
+  await search.fill('')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row).toBeHidden()
+
+  // 页面重载用于验证窗口偏好恢复。
+  await page.reload()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(row).toBeHidden()
+
+  // 键盘展开/收起后仍可正常选中并由操作菜单明确加入工作区。
+  await toggle.focus()
+  await page.keyboard.press('Space')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(row).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await expect(row).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('unassigned-expanded.png') })
 
   // 明确加入要在选中该会话后由会话操作菜单触发；宿主不按 cwd 猜测归属。
   await row.locator('[data-slot="huan-session-trigger"]').click()

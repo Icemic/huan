@@ -117,6 +117,8 @@ apps/harness
 
 树由公开 `SessionManager.getTree/getEntries/getLeafId` 按需读取，节点使用实际 entryId；快照只携带 `leafId`、`treeRevision`（条目数 + 活动节点指纹）与 `treeOperation`，不随 token 附带整棵树。导航、标签、模型/Thinking、重命名共享每会话结构闸门：占用在 SDK await 前同步完成，发送预检看到闸门时明确拒绝 busy，结构操作与 run admission 不互相等待。运行中导航必须显式 `stopRunning`，先按停止语义失效预检、取回整体队列并等待运行结束；标签写 Pi label entry 后恢复原位置并刷新 sidecar 水位。导航返回的 `editorText` 只交给发起窗口，成功后广播权威快照；sidecar 保存失败时恢复可恢复的位置并如实报告，摘要已追加则标明不可逆。路径与失败边界见[会话树迭代](iteration/2026-10/2026-10-31-feat-session-tree.md)。
 
+未归属会话以独立的可折叠分组展示，标题行与工作区样式一致；默认展开，展开偏好归应用workspace store，以独立sessionStorage键按服务地址与存储作用域保存。该分组保持未归属语义，工作区ID集合与服务端元数据保持原样。实现与验证见[分组折叠迭代](iteration/2026-11/2026-11-05-feat-unassigned-collapse.md)。
+
 归档标记与归属共用原子串行存储，允许未归属会话单独保存 archived；更新归属保留归档，不改工作区 revision。删除文件后清理元数据，跨文件失败报告并支持重试；已知状态损坏时提前拒绝删除。显式刷新重扫当前会话存储作用域，服务端缓存与浏览器响应均防止旧扫描覆盖新结果。设计与验证见[会话管理迭代](iteration/2026-10/2026-10-31-feat-session-management-stats.md)。
 
 ### 3.2.4 独立分支与 JSONL 导入

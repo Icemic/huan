@@ -222,6 +222,45 @@ describe('workspace-store：存储作用域隔离', () => {
     expect(other.getState().expandedWorkspaceIds.size).toBe(0)
     expect(other.getState().startProjectByWorkspace).toEqual({})
   })
+
+  it('未归属分组展开独立保存，按作用域恢复且刷新不重置', async () => {
+    const { client } = createClient()
+    const storage = memoryStorage()
+    const first = createStore(createBrowser(client), storage)
+    first.getState().setStorageScope('agent|sessions')
+    expect(first.getState().unassignedExpanded).toBe(true)
+
+    first.getState().toggleUnassigned()
+    expect(first.getState().unassignedExpanded).toBe(false)
+    // 独立状态不进入工作区 ID 集合，也不写入工作区展开键。
+    expect(first.getState().expandedWorkspaceIds.size).toBe(0)
+    expect(storage.values.get('huan.expandedWorkspaces:agent|sessions')).toBe('[]')
+
+    await first.getState().refresh()
+    expect(first.getState().unassignedExpanded).toBe(false)
+
+    const restored = createStore(createBrowser(client), storage)
+    restored.getState().setStorageScope('agent|sessions')
+    expect(restored.getState().unassignedExpanded).toBe(false)
+
+    const other = createStore(createBrowser(client), storage)
+    other.getState().setStorageScope('other-agent|sessions')
+    expect(other.getState().unassignedExpanded).toBe(true)
+  })
+
+  it('dispose 清理未归属展开，之后切换不再生效', () => {
+    const { client } = createClient()
+    const store = createStore(createBrowser(client), memoryStorage())
+    store.getState().toggleUnassigned()
+    expect(store.getState().unassignedExpanded).toBe(false)
+
+    store.getState().dispose()
+    expect(store.getState().disposed).toBe(true)
+    expect(store.getState().unassignedExpanded).toBe(true)
+
+    store.getState().toggleUnassigned()
+    expect(store.getState().unassignedExpanded).toBe(true)
+  })
 })
 
 describe('workspace-store：目录变化与工作区表单', () => {

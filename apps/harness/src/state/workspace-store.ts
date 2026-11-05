@@ -102,6 +102,8 @@ export interface WorkspaceFeatureState {
   storageScope: string
   activeWorkspaceId: string | undefined
   expandedWorkspaceIds: ReadonlySet<string>
+  /** 未归属会话分组是否展开；独立于工作区展开集合保存。 */
+  unassignedExpanded: boolean
   startProjectByWorkspace: Readonly<Record<string, string>>
   search: string
   scope: WorkspaceThreadScope
@@ -128,6 +130,8 @@ export interface WorkspaceFeatureState {
   syncSelection: () => void
   selectWorkspace: (workspaceId: string) => void
   toggleWorkspace: (workspaceId: string) => void
+  /** 切换未归属会话分组展开；不影响任何工作区的展开状态。 */
+  toggleUnassigned: () => void
   /** 选择已有会话：windowStore 保存唯一选择，本 store 只同步活动工作区。 */
   selectThread: (threadId: string) => void
   /** 读取工作区当前起始项目偏好（无效/缺失时回退首个项目）。 */
@@ -189,6 +193,7 @@ export interface CreateWorkspaceFeatureStoreOptions {
 const storageKeys = (scope: string) => ({
   active: `huan.activeWorkspace:${scope}`,
   expanded: `huan.expandedWorkspaces:${scope}`,
+  unassigned: `huan.unassignedExpanded:${scope}`,
   start: `huan.workspaceStartProject:${scope}`,
 })
 
@@ -484,6 +489,7 @@ export const createWorkspaceFeatureStore = (
       storageScope: browser.windowStore.getState().storageScope,
       activeWorkspaceId: undefined,
       expandedWorkspaceIds: new Set(),
+      unassignedExpanded: true,
       startProjectByWorkspace: {},
       search: '',
       scope: 'all',
@@ -562,6 +568,8 @@ export const createWorkspaceFeatureStore = (
         if (state.disposed || scope === state.storageScope) return
         const keys = storageKeys(scope)
         const expanded = readExpanded(storage, keys.expanded)
+        // 未归属分组独立恢复；缺省或非法值回到默认展开。
+        const unassignedExpanded = readString(storage, keys.unassigned) !== 'false'
         const startProjectByWorkspace = readStartPreferences(storage, keys.start)
         const storedActive = readString(storage, keys.active)
         const active =
@@ -571,6 +579,7 @@ export const createWorkspaceFeatureStore = (
           storageScope: scope,
           activeWorkspaceId: active,
           expandedWorkspaceIds: expanded,
+          unassignedExpanded,
           startProjectByWorkspace,
         })
         persistLocked(scope, active, expanded, startProjectByWorkspace)
@@ -611,6 +620,18 @@ export const createWorkspaceFeatureStore = (
           state.startProjectByWorkspace,
         )
         set({ expandedWorkspaceIds: expanded })
+      },
+
+      toggleUnassigned: () => {
+        const state = get()
+        if (state.disposed) return
+        const unassignedExpanded = !state.unassignedExpanded
+        writeString(
+          storage,
+          storageKeys(state.storageScope).unassigned,
+          unassignedExpanded ? 'true' : 'false',
+        )
+        set({ unassignedExpanded })
       },
 
       selectThread: (threadId) => {
@@ -1390,6 +1411,7 @@ export const createWorkspaceFeatureStore = (
           disposed: true,
           activeWorkspaceId: undefined,
           expandedWorkspaceIds: new Set(),
+          unassignedExpanded: true,
           startProjectByWorkspace: {},
           form: emptyForm(),
           newSession: emptyNewSession(),
