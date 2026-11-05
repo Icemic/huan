@@ -5,11 +5,12 @@
  * 不读取个人配置、不启动 CLI、不访问 8799/8788。装配用 `prepareProjectTrust`
  * 的最小 PreparedProject 夹具替代完整 host，只验证本服务的所有权与投影。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSession, InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { McpConnectionManager, McpIntegration } from '@huan/mcp'
 import type {
+  HarnessAgentMessage,
   HarnessHostUiResponse,
   HarnessSubagentTask,
   HarnessSubagentTaskView,
@@ -797,5 +798,22 @@ describe('SubagentSessions', () => {
     )
     writeFileSync(sessionFile, 'not-json\n', 'utf8')
     await expect(f.service.getTask(f.parent.threadId, summary.taskId)).rejects.toThrow()
+  })
+
+  it('恢复扫描遇到损坏的任务摘要明确报错，不伪造卡片', async () => {
+    const f = await fixture()
+    const taskDir = join(env.agentDir, 'huan', 'subagents', f.parent.threadId, 'broken-task')
+    mkdirSync(taskDir, { recursive: true })
+    writeFileSync(join(taskDir, 'task.json'), 'not-json', 'utf8')
+    const messages = [
+      {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'call-parent', name: 'subagent', arguments: {} }],
+      },
+    ] as unknown as HarnessAgentMessage[]
+
+    expect(() => f.service.recoverToolExecutions(f.parent.threadId, messages)).toThrow(
+      /子任务摘要损坏/,
+    )
   })
 })

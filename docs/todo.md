@@ -40,6 +40,12 @@ pnpm dev                                  # 终端 2：前端 → http://localho
 
 官方transformer高亮已修正：文件diff按两侧代码语法展示，彩色括号与ANSI前景/背景/装饰已接通；34项单测、6条Chromium及应用类型通过，见[消息流§10](iteration/2026-11/2026-11-04-feat-message-stream-presentation.md#10-官方transformer文件差异语法与ansi)。ANSI空白背景合并及空参数重置的遗漏已修正，2条专项Chromium通过，见同迭代§10.5。两种Shell执行颜色保留已完成，45项相关单测、core/应用类型及6条Shell/消息Chromium通过。追加9条合并回归为7通过、2失败：既有分段流未出现assistant、Chromium新页面崩溃，均保留未确定原因，见同迭代§10.4。
 
+### 子agent中断后的卡片恢复（✅ 开发完成）
+
+记录：[中断恢复](iteration/2026-11/2026-11-05-bugfix-subagent-interrupted-cards.md)
+
+服务退出后重新打开父会话，缺少最终结果的subagent调用从task.json恢复专有卡片，已完成项保持结果，孤立运行和排队项显示已取消。子详情可读取保存的聊天，待答状态清除。主agent亲验33项定向测试、全仓类型与1条Chromium通过，截图已读取；未全仓测试/build。
+
 ### 子agent三模式调用修复（✅ 开发完成）
 
 记录：[调用修复](iteration/2026-11/2026-11-05-bugfix-subagent-invocation.md)

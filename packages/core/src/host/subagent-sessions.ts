@@ -12,8 +12,10 @@
  */
 import { randomUUID } from 'node:crypto'
 import {
+  type Dirent,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -32,12 +34,14 @@ import type { McpServerOverrides } from '@huan/mcp'
 import type {
   HarnessAgentMessage,
   HarnessHostUiResponse,
+  HarnessSubagentDetails,
   HarnessSubagentTask,
   HarnessSubagentTaskStatus,
   HarnessSubagentTaskView,
   HarnessSubagentUsage,
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
+  HarnessToolExecutionSnapshot,
 } from '@huan/protocol'
 import { isRunMetrics } from '@huan/protocol'
 import type { HostUiBridge } from '../host-ui.js'
@@ -280,12 +284,59 @@ export class SubagentSessions implements SubagentTaskRunner {
       }
     }
     const stored = this.readStored(parentThreadId, taskId)
-    const view = isTerminal(stored.status) ? stored : endedWithoutService(stored)
+    const view = recoveredTask(stored)
     return {
       task: publicTask(view),
       snapshot: this.coldSnapshot(view),
       requests: [],
     }
+  }
+
+  /**
+   * 按父会话当前分支投影恢复缺少最终结果的 subagent 工具执行。
+   *
+   * 只读取该父会话自己的任务目录一次，并只用持久 `toolCallId` 与当前消息里
+   * 尚无 toolResult 的调用精确关联；旧分支、已有最终结果和没有任务摘要的
+   * 调用都不会产生恢复项。已完成/失败的摘要保持原样，running/waiting 按
+   * 服务不再持有投影为 cancelled，并清掉待答计数。本方法只读，不写回
+   * task.json；调用方负责让真实活动工具优先于恢复项。
+   */
+  recoverToolExecutions(
+    parentThreadId: string,
+    messages: readonly HarnessAgentMessage[],
+  ): HarnessToolExecutionSnapshot[] {
+    this.assertId(parentThreadId, '父会话 ID')
+    const calls = missingSubagentCalls(messages)
+    // 当前服务仍持有的任务由实时进度负责，不读取或恢复为停止状态。
+    for (const state of this.states.values()) {
+      if (state.task.parentThreadId === parentThreadId && !state.finished) {
+        calls.delete(state.task.toolCallId)
+      }
+    }
+    if (calls.size === 0) return []
+    const tasksByCall = this.readRecoverableTasks(parentThreadId)
+    const recovered: HarnessToolExecutionSnapshot[] = []
+    for (const [toolCallId, args] of calls) {
+      const tasks = tasksByCall.get(toolCallId)
+      if (!tasks || tasks.length === 0) continue
+      const details: HarnessSubagentDetails = {
+        kind: 'huan-subagent',
+        mode: subagentModeOfArguments(args),
+        tasks: tasks.map((task) => publicTask(recoveredTask(task))),
+      }
+      recovered.push({
+        toolCallId,
+        toolName: 'subagent',
+        args,
+        // 父调用没有最终结果，表示执行被中断；子卡仍保留各任务自己的结局。
+        partialResult: {
+          content: [{ type: 'text', text: '工具执行已中断（服务不再持有）。' }],
+          details,
+        },
+        status: 'error',
+      })
+    }
+    return recovered
   }
 
   /** 取消单个任务；等待项直接标 cancelled，运行项中止子会话并等待清理。 */
@@ -1077,10 +1128,67 @@ export class SubagentSessions implements SubagentTaskRunner {
     ) {
       throw unknownTask()
     }
-    const task = parsed as unknown as StoredSubagentTask
-    if (!isRecord(task.usage)) task.usage = zeroUsage()
-    if (task.runMetrics !== undefined && !isRunMetrics(task.runMetrics)) delete task.runMetrics
-    return task
+    return normalizeStoredTask(parsed as unknown as StoredSubagentTask)
+  }
+
+  /**
+   * 扫描单个父会话的任务目录并按持久 toolCallId 分组。
+   *
+   * 缺 task.json 的目录可能是尚未写完/已清理的残留，直接跳过；存在但无法
+   * 解析或字段不完整的摘要明确报错，不静默当作没有任务。
+   */
+  private readRecoverableTasks(parentThreadId: string): Map<string, StoredSubagentTask[]> {
+    const parentDir = join(this.root, parentThreadId)
+    let entries: Dirent[]
+    try {
+      entries = readdirSync(parentDir, { withFileTypes: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return new Map()
+      throw new Error(
+        `子任务目录不可用（${parentDir}）：${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      )
+    }
+    const groups = new Map<string, StoredSubagentTask[]>()
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !SAFE_ID.test(entry.name)) continue
+      const file = this.taskPath(parentThreadId, entry.name)
+      let raw: string
+      try {
+        raw = readFileSync(file, 'utf8')
+      } catch (error) {
+        // 任务目录可能先于 task.json 创建；缺摘要的目录不参与恢复。
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw new Error(
+          `子任务摘要不可读（${file}）：${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw)
+      } catch (error) {
+        throw new Error(
+          `子任务摘要损坏（${file}）：${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
+      }
+      if (
+        !isRecord(parsed) ||
+        parsed.taskId !== entry.name ||
+        parsed.parentThreadId !== parentThreadId ||
+        !isTaskStatus(parsed.status) ||
+        typeof parsed.toolCallId !== 'string' ||
+        parsed.toolCallId.length === 0
+      ) {
+        throw new Error(`子任务摘要损坏（${file}）：字段不完整或与父会话不匹配。`)
+      }
+      const task = normalizeStoredTask(parsed as unknown as StoredSubagentTask)
+      const group = groups.get(task.toolCallId)
+      if (group) group.push(task)
+      else groups.set(task.toolCallId, [task])
+    }
+    return groups
   }
 }
 
@@ -1174,14 +1282,63 @@ function isTerminal(status: HarnessSubagentTaskStatus): boolean {
 
 /** 冷读发现非终态摘要说明服务不再持有该任务；仅覆盖视图，不写回恢复。 */
 function endedWithoutService(task: StoredSubagentTask): StoredSubagentTask {
-  return {
-    ...task,
-    status: 'cancelled',
-    ...(task.runMetrics?.status === 'running'
-      ? { runMetrics: { ...task.runMetrics, status: 'cancelled' as const } }
-      : {}),
-    error: '任务已结束（服务不再持有）。',
+  const view = withoutPendingRequests(task)
+  view.status = 'cancelled'
+  if (view.runMetrics?.status === 'running') {
+    view.runMetrics = { ...view.runMetrics, status: 'cancelled' }
   }
+  view.error = '任务已结束（服务不再持有）。'
+  return view
+}
+
+/** 恢复卡中的终态保留结果；非终态统一按服务不再持有投影。 */
+function recoveredTask(task: StoredSubagentTask): StoredSubagentTask {
+  return isTerminal(task.status) ? withoutPendingRequests(task) : endedWithoutService(task)
+}
+
+/** 待答请求属于存活服务；冷读/恢复视图不能继续显示可应答计数。 */
+function withoutPendingRequests(task: StoredSubagentTask): StoredSubagentTask {
+  const view = { ...task }
+  delete view.pendingRequestCount
+  return view
+}
+
+function normalizeStoredTask(task: StoredSubagentTask): StoredSubagentTask {
+  if (!isRecord(task.usage)) task.usage = zeroUsage()
+  if (task.runMetrics !== undefined && !isRunMetrics(task.runMetrics)) delete task.runMetrics
+  return task
+}
+
+/** 当前消息投影中尚无 toolResult 的 subagent 调用；旧分支不会进入本列表。 */
+function missingSubagentCalls(
+  messages: readonly HarnessAgentMessage[],
+): Map<string, Record<string, unknown>> {
+  const results = new Set<string>()
+  for (const message of messages) {
+    if (message.role !== 'toolResult') continue
+    const toolCallId = (message as { toolCallId?: unknown }).toolCallId
+    if (typeof toolCallId === 'string') results.add(toolCallId)
+  }
+  const calls = new Map<string, Record<string, unknown>>()
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    const content = (message as { content?: unknown }).content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (!isRecord(part) || part.type !== 'toolCall' || part.name !== 'subagent') continue
+      const id = part.id
+      if (typeof id !== 'string' || id.length === 0 || results.has(id) || calls.has(id)) continue
+      calls.set(id, isRecord(part.arguments) ? part.arguments : {})
+    }
+  }
+  return calls
+}
+
+/** 与工具入口同一口径：空占位不算模式，无法判断时用 single。 */
+function subagentModeOfArguments(args: Record<string, unknown>): HarnessSubagentDetails['mode'] {
+  if (Array.isArray(args.tasks) && args.tasks.length > 0) return 'parallel'
+  if (Array.isArray(args.chain) && args.chain.length > 0) return 'chain'
+  return 'single'
 }
 
 function threadStatusOf(status: HarnessSubagentTaskStatus): HarnessThreadMetadata['status'] {

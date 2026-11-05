@@ -26,6 +26,49 @@ import {
   waitForApp,
 } from './helpers.js'
 
+test('服务中断后保留并行卡片、已完成结果与停止状态，刷新后仍可查看记录', async ({
+  page,
+  request,
+}, testInfo) => {
+  const seeded = await request.post(`${E2E_HOST_URL}/__e2e__/sessions/interrupted-subagents`)
+  expect(seeded.ok()).toBe(true)
+  const { id } = (await seeded.json()) as { id: string }
+  await openApp(page)
+  await waitForApp(page)
+  await threadListItem(page, '中断的并行子任务').click()
+  await ensureSubagentToolOpen(page)
+  const completed = taskCard(page, 'RECOVER-COMPLETED')
+  const stopped = taskCard(page, 'RECOVER-RUNNING')
+  const waiting = taskCard(page, 'RECOVER-WAITING')
+  await expect(completed).toHaveAttribute('data-status', 'completed')
+  await expect(completed).toContainText('已保存的完成结果')
+  await expect(stopped).toHaveAttribute('data-status', 'cancelled')
+  await expect(waiting).toHaveAttribute('data-status', 'cancelled')
+  const body = page.locator('[data-slot="huan-subagent-tool"]')
+  await expect(body).not.toContainText('等待你的答复')
+  await expect(body.locator('[data-status="running"]')).toHaveCount(0)
+  await expect(body.getByRole('button', { name: '取消', exact: true })).toHaveCount(0)
+  const view = await getTaskView(request, id, 'interrupted-task-1')
+  expect(view.task.status).toBe('cancelled')
+  expect(view.task.runMetrics?.status).toBe('cancelled')
+  expect(view.requests).toEqual([])
+  const dialog = await openTaskView(page, 'RECOVER-RUNNING')
+  await expect(dialog.locator('[data-slot="huan-subagent-status"]')).toHaveAttribute(
+    'data-status',
+    'cancelled',
+  )
+  await expect(dialog.locator('[data-slot="huan-subagent-messages"]')).toContainText(
+    '已保存内容 running',
+  )
+  await closeDialog(page)
+  await page.reload()
+  await waitForApp(page)
+  await ensureSubagentToolOpen(page)
+  await expect(stopped).toHaveAttribute('data-status', 'cancelled')
+  await expect(completed).toHaveAttribute('data-status', 'completed')
+  await page.screenshot({ path: testInfo.outputPath('interrupted-subagents.png'), fullPage: true })
+})
+
 test.describe.configure({ mode: 'serial' })
 
 let browserErrors: string[] = []

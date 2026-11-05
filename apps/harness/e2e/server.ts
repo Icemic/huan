@@ -663,6 +663,95 @@ app.post('/__e2e__/sessions', async (c) => {
   })
   return c.json({ id: manager.getSessionId(), path: manager.getSessionFile() ?? null })
 })
+// 中断后的保存状态：没有最终工具结果，任务摘要由新服务冷读恢复。
+app.post('/__e2e__/sessions/interrupted-subagents', async (c) => {
+  const manager = SessionManager.create(env.workspace, env.defaultSessionDir(env.workspace))
+  manager.appendModelChange('huan-test', 'test-model-a')
+  manager.appendMessage({
+    role: 'user',
+    content: [{ type: 'text', text: '中断的并行子任务' }],
+    timestamp: Date.now(),
+  })
+  const usage = {
+    input: 10,
+    output: 5,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 15,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  }
+  manager.appendMessage({
+    role: 'assistant',
+    api: 'openai-completions',
+    provider: 'huan-test',
+    model: 'test-model-a',
+    usage,
+    stopReason: 'toolUse',
+    timestamp: Date.now(),
+    content: [
+      {
+        type: 'toolCall',
+        id: 'interrupted-call',
+        name: 'subagent',
+        arguments: {
+          tasks: [
+            { agent: 'e2e-worker', task: 'RECOVER-COMPLETED' },
+            { agent: 'e2e-worker', task: 'RECOVER-RUNNING' },
+            { agent: 'e2e-worker', task: 'RECOVER-WAITING' },
+          ],
+        },
+      },
+    ],
+  })
+  const parentId = manager.getSessionId()
+  for (const [index, status] of ['completed', 'running', 'waiting'].entries()) {
+    const taskId = `interrupted-task-${index}`
+    const dir = join(env.agentDir, 'huan', 'subagents', parentId, taskId)
+    await mkdir(dir, { recursive: true })
+    const child = SessionManager.create(env.workspace, dir)
+    child.appendMessage({
+      role: 'user',
+      content: [{ type: 'text', text: `子任务记录 ${status}` }],
+      timestamp: Date.now(),
+    })
+    child.appendMessage({
+      role: 'assistant',
+      api: 'openai-completions',
+      provider: 'huan-test',
+      model: 'test-model-a',
+      usage,
+      stopReason: 'stop',
+      timestamp: Date.now(),
+      content: [{ type: 'text', text: `已保存内容 ${status}` }],
+    })
+    await writeFile(
+      join(dir, 'session.jsonl'),
+      `${[child.getHeader(), ...child.getEntries()].map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+    )
+    await writeFile(
+      join(dir, 'task.json'),
+      JSON.stringify({
+        taskId,
+        parentThreadId: parentId,
+        toolCallId: 'interrupted-call',
+        agent: 'e2e-worker',
+        task: `RECOVER-${status.toUpperCase()}`,
+        status,
+        cwd: env.workspace,
+        createdAt: new Date().toISOString(),
+        usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, cost: 0 },
+        ...(status === 'completed' ? { output: '已保存的完成结果' } : { pendingRequestCount: 1 }),
+        runMetrics: {
+          status: status === 'completed' ? 'completed' : 'running',
+          outputTokens: 5,
+          durationMs: 1000,
+        },
+      }),
+    )
+  }
+  return c.json({ id: parentId })
+})
+
 // 无消息历史的导入源：用真实 SessionManager 生成 header、model_change 与
 // session_info；setup-only 条目按 SDK 规则不会自动落盘，这里写成合法 JSONL
 // 源文件，供浏览器走真实预览/导入/打开路径。

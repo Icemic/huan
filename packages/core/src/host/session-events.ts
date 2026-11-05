@@ -20,6 +20,7 @@ import type {
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
   HarnessThreadTreeOperation,
+  HarnessToolExecutionSnapshot,
 } from '@huan/protocol'
 import { mapSessionEvent } from '../event-mapping.js'
 import type { HostInteractions } from '../host-interactions.js'
@@ -51,6 +52,14 @@ export type SessionEventsDeps = {
   invalidateCatalog: (cwd: string) => void
   coordinator: OperationCoordinator
   interactions: HostInteractions
+  /**
+   * 按父会话当前消息投影恢复服务已结束的子agent工具卡；调用方负责排除
+   * 仍在活动工具表中的 toolCallId，避免恢复项覆盖真实运行。
+   */
+  recoverSubagentToolExecutions?: (
+    threadId: string,
+    messages: readonly HarnessAgentMessage[],
+  ) => readonly HarnessToolExecutionSnapshot[]
 }
 
 /** 每会话扩展 UI 空状态。 */
@@ -596,13 +605,23 @@ export class SessionEvents {
     const pending = record.uiBridge.pending()
     const hostUi = this.hostUiViewOf(record)
     const activeTools = [...record.activeTools.values()]
+    const activeToolIds = new Set(activeTools.map((tool) => tool.toolCallId))
+    const recoveredTools =
+      this.deps.recoverSubagentToolExecutions?.(
+        record.threadId,
+        record.session.messages as HarnessAgentMessage[],
+      ) ?? []
+    const toolExecutions = [
+      ...activeTools,
+      ...recoveredTools.filter((tool) => !activeToolIds.has(tool.toolCallId)),
+    ]
     const messages = isolateMessages(record.session.messages)
     const entryIds = messageEntryIds(record.sessionManager, record.session.messages)
     return jsonSafeSnapshot({
       metadata: this.metadataOf(record),
       messages,
       messageEntryIds: entryIds,
-      ...(activeTools.length ? { toolExecutions: activeTools } : {}),
+      ...(toolExecutions.length ? { toolExecutions } : {}),
       ...(record.bash ? { bash: bashViewOf(record.bash) } : {}),
       compaction: compactionPhaseOf(record, entryIds),
       readiness: getModelReadiness(

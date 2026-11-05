@@ -466,7 +466,7 @@ export type HarnessThreadDetails = {
   branchEntryCount: number
 }
 
-/** 活动工具执行的瞬态快照（结束后不保留为第二份历史）。 */
+/** 工具执行的快照；也可从子任务摘要投影被服务退出中断的调用。 */
 export interface HarnessToolExecutionSnapshot {
   toolCallId: string
   toolName?: string
@@ -485,7 +485,7 @@ export type HarnessThreadSnapshot = {
    * 消息投影据此保留 sourceEntryId，供树定位与后续 fork 复用。
    */
   messageEntryIds?: (string | null)[]
-  /** 当前活动的工具调用（重连后恢复运行中提示；结束即移除）。 */
+  /** 活动工具及缺少最终结果的中断调用，用于重连与冷记录展示恢复。 */
   toolExecutions?: readonly HarnessToolExecutionSnapshot[]
   /** 待处理的阻断式 Host UI 请求（存活于宿主 record，重连后仍可见）。 */
   hostUiRequests?: readonly HarnessHostUiRequest[]

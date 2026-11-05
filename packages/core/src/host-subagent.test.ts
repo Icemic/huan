@@ -7,10 +7,12 @@
  */
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import type {
   HarnessSubagentDetails,
   HarnessSubagentTask,
   HarnessThreadSnapshot,
+  HarnessToolExecutionSnapshot,
   HarnessUsage,
 } from '@huan/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,6 +23,7 @@ import {
   type IsolatedPiEnv,
   TEST_BASE_URL,
   TEST_MODEL_A,
+  TEST_PROVIDER,
   TEST_RESOURCE_ISOLATION,
 } from './test-support.js'
 
@@ -416,6 +419,129 @@ async function readApprovalLines(filePath: string): Promise<string[]> {
   }
 }
 
+const ZERO_USAGE: HarnessUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+}
+
+/** 构造父会话中的 subagent 工具调用消息。 */
+function subagentCallMessage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+): Parameters<SessionManager['appendMessage']>[0] {
+  return {
+    role: 'assistant' as const,
+    content: [{ type: 'toolCall' as const, id: toolCallId, name: 'subagent', arguments: args }],
+    api: 'openai-completions',
+    provider: TEST_PROVIDER,
+    model: TEST_MODEL_A,
+    usage: ZERO_USAGE,
+    stopReason: 'toolUse' as const,
+    timestamp: Date.now(),
+  } as Parameters<SessionManager['appendMessage']>[0]
+}
+
+/**
+ * 用真实 SessionManager 模拟崩溃前已保存的父记录。
+ *
+ * 旧分支上的 subagent 调用不应恢复；当前分支保留一个缺最终结果的调用和
+ * 一个已有最终结果的调用，供冷/热快照和分支过滤共同验证。
+ */
+function seedInterruptedParent(): { parentId: string; sessionFile: string } {
+  const manager = SessionManager.create(env.workspace, env.defaultSessionDir(env.workspace))
+  const userId = manager.appendMessage({
+    role: 'user',
+    content: [{ type: 'text', text: '崩溃恢复父会话' }],
+    timestamp: 1_760_000_000_000,
+  })
+  manager.appendMessage(
+    subagentCallMessage('call_old_branch', { agent: 'review', task: '旧分支任务' }),
+  )
+  manager.branch(userId)
+  manager.appendMessage(
+    subagentCallMessage('call_interrupted', {
+      agent: '',
+      task: '',
+      tasks: [{ agent: 'review', task: '并行任务一' }],
+    }),
+  )
+  manager.appendMessage(
+    subagentCallMessage('call_final_result', { agent: 'review', task: '已有最终结果' }),
+  )
+  manager.appendMessage({
+    role: 'toolResult',
+    toolCallId: 'call_final_result',
+    toolName: 'subagent',
+    content: [{ type: 'text', text: 'FINAL_RESULT_TEXT' }],
+    isError: false,
+    timestamp: 1_760_000_000_003,
+  })
+  manager.appendMessage(
+    subagentCallMessage('call_chain', {
+      agent: '',
+      task: '',
+      chain: [{ agent: 'review', task: '链式任务一' }],
+    }),
+  )
+  const sessionFile = manager.getSessionFile()
+  if (!sessionFile) throw new Error('恢复探针父会话未落盘')
+  return { parentId: manager.getSessionId(), sessionFile }
+}
+
+type RecoveryTaskFixture = {
+  taskId: string
+  toolCallId: string
+  status: HarnessSubagentTask['status']
+  task: string
+  output?: string
+  pendingRequestCount?: number
+  runMetrics?: HarnessSubagentTask['runMetrics']
+}
+
+/** 写入隔离的 task.json；不创建子会话记录，只验证父工具卡恢复。 */
+async function writeRecoveryTask(
+  parentThreadId: string,
+  fixture: RecoveryTaskFixture,
+): Promise<void> {
+  const dir = join(env.agentDir, 'huan', 'subagents', parentThreadId, fixture.taskId)
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    join(dir, 'task.json'),
+    `${JSON.stringify(
+      {
+        taskId: fixture.taskId,
+        parentThreadId,
+        agent: 'review',
+        task: fixture.task,
+        status: fixture.status,
+        usage: { input: 10, output: 5, cacheRead: 1, cacheWrite: 2, cost: 0.02 },
+        toolCallId: fixture.toolCallId,
+        cwd: env.workspace,
+        createdAt: '2026-11-05T00:00:00.000Z',
+        ...(fixture.output === undefined ? {} : { output: fixture.output }),
+        ...(fixture.pendingRequestCount === undefined
+          ? {}
+          : { pendingRequestCount: fixture.pendingRequestCount }),
+        ...(fixture.runMetrics === undefined ? {} : { runMetrics: fixture.runMetrics }),
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  )
+}
+
+function recoveredDetailsOf(execution: HarnessToolExecutionSnapshot): HarnessSubagentDetails {
+  if (!isRecord(execution.partialResult) || !isRecord(execution.partialResult.details)) {
+    throw new Error('恢复工具执行缺少 details')
+  }
+  return execution.partialResult.details as unknown as HarnessSubagentDetails
+}
+
 describe('宿主级 SDK 子agent', () => {
   it('真实父会话执行 chain，子上下文隔离，父工具 usage 与累计统计只计一次', async () => {
     const parentMarker = 'PARENT_PRIVATE_MARKER_DO_NOT_LEAK'
@@ -666,5 +792,229 @@ export default function (pi) {
     } finally {
       unsubscribe()
     }
+  }, 60_000)
+
+  it('服务重启后冷/热快照恢复父subagent卡片，完成项保留且孤立任务取消', async () => {
+    const { parentId } = seedInterruptedParent()
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-completed',
+      toolCallId: 'call_interrupted',
+      status: 'completed',
+      task: '已完成任务',
+      output: 'COMPLETED_OUTPUT',
+      runMetrics: { status: 'completed', outputTokens: 5, durationMs: 900 },
+    })
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-running',
+      toolCallId: 'call_interrupted',
+      status: 'running',
+      task: '运行中任务',
+      pendingRequestCount: 2,
+      runMetrics: { status: 'running', outputTokens: 8, durationMs: 1_200 },
+    })
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-waiting',
+      toolCallId: 'call_interrupted',
+      status: 'waiting',
+      task: '等待中任务',
+      pendingRequestCount: 1,
+    })
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-chain-done',
+      toolCallId: 'call_chain',
+      status: 'completed',
+      task: '链式任务一',
+      output: 'CHAIN_OUTPUT',
+    })
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-chain-stopped',
+      toolCallId: 'call_chain',
+      status: 'cancelled',
+      task: '链式任务二',
+      output: 'CHAIN_STOPPED_OUTPUT',
+    })
+    // 旧分支和已有最终结果的调用都留有摘要，但不得被恢复。
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-old-branch',
+      toolCallId: 'call_old_branch',
+      status: 'running',
+      task: '旧分支任务',
+    })
+    await writeRecoveryTask(parentId, {
+      taskId: 'task-final-result',
+      toolCallId: 'call_final_result',
+      status: 'completed',
+      task: '已有最终结果',
+      output: 'RECOVERED_MUST_NOT_APPEAR',
+    })
+
+    const target = await createTestHost()
+    host = target
+    const cold = await target.getThread(parentId)
+    const coldExecutions = cold.toolExecutions ?? []
+    expect(coldExecutions.map((execution) => execution.toolCallId)).toEqual([
+      'call_interrupted',
+      'call_chain',
+    ])
+    const coldExecution = coldExecutions[0]
+    if (!coldExecution) throw new Error('冷快照缺少恢复的 subagent 工具执行')
+    expect(coldExecution).toMatchObject({ toolName: 'subagent', status: 'error' })
+    const coldDetails = recoveredDetailsOf(coldExecution)
+    expect(coldDetails.mode).toBe('parallel')
+    const coldTasks = new Map(coldDetails.tasks.map((task) => [task.taskId, task]))
+    expect(coldTasks.get('task-completed')).toMatchObject({
+      status: 'completed',
+      output: 'COMPLETED_OUTPUT',
+      runMetrics: { status: 'completed', outputTokens: 5 },
+      usage: { input: 10, output: 5, cacheRead: 1, cacheWrite: 2, cost: 0.02 },
+    })
+    expect(coldTasks.get('task-running')).toMatchObject({
+      status: 'cancelled',
+      error: '任务已结束（服务不再持有）。',
+      runMetrics: { status: 'cancelled', outputTokens: 8 },
+    })
+    expect(coldTasks.get('task-running')?.pendingRequestCount).toBeUndefined()
+    expect(coldTasks.get('task-waiting')).toMatchObject({
+      status: 'cancelled',
+      error: '任务已结束（服务不再持有）。',
+    })
+    expect(coldTasks.get('task-waiting')?.pendingRequestCount).toBeUndefined()
+    expect(coldTasks.has('task-old-branch')).toBe(false)
+    expect(coldTasks.has('task-final-result')).toBe(false)
+
+    const chainExecution = coldExecutions[1]
+    if (!chainExecution) throw new Error('冷快照缺少链式恢复项')
+    const chainDetails = recoveredDetailsOf(chainExecution)
+    expect(chainDetails.mode).toBe('chain')
+    const chainTasks = new Map(chainDetails.tasks.map((task) => [task.taskId, task]))
+    expect(chainTasks.get('task-chain-done')).toMatchObject({
+      status: 'completed',
+      output: 'CHAIN_OUTPUT',
+    })
+    expect(chainTasks.get('task-chain-stopped')).toMatchObject({
+      status: 'cancelled',
+      output: 'CHAIN_STOPPED_OUTPUT',
+    })
+
+    let hot: HarnessThreadSnapshot | undefined
+    const unsubscribe = target.subscribe(parentId, (event) => {
+      if (event.type === 'snapshot') hot = event.snapshot
+    })
+    try {
+      await waitFor(() => hot !== undefined, '等待热快照超时')
+      if (!hot) throw new Error('缺少热快照')
+      expect(hot.toolExecutions).toEqual(cold.toolExecutions)
+    } finally {
+      unsubscribe()
+    }
+
+    const runningView = await target.getSubagentTask(parentId, 'task-running')
+    expect(runningView.task).toMatchObject({
+      status: 'cancelled',
+      error: '任务已结束（服务不再持有）。',
+      runMetrics: { status: 'cancelled' },
+    })
+    expect(runningView.task.pendingRequestCount).toBeUndefined()
+    expect(runningView.requests).toEqual([])
+    expect(runningView.snapshot).toBeUndefined()
+
+    const waitingView = await target.getSubagentTask(parentId, 'task-waiting')
+    expect(waitingView.task).toMatchObject({ status: 'cancelled' })
+    expect(waitingView.task.pendingRequestCount).toBeUndefined()
+    expect(waitingView.requests).toEqual([])
+
+    // 恢复只覆盖视图；崩溃前保存的摘要保持原状。
+    const runningFile = join(
+      env.agentDir,
+      'huan',
+      'subagents',
+      parentId,
+      'task-running',
+      'task.json',
+    )
+    expect(JSON.parse(await readFile(runningFile, 'utf8'))).toMatchObject({
+      status: 'running',
+      pendingRequestCount: 2,
+    })
+  }, 30_000)
+
+  it('真实活动 subagent 优先于同一 toolCallId 的恢复摘要', async () => {
+    const childMarker = 'CHILD_ACTIVE_RECOVERY_MARKER'
+    const approvalLog = join(env.workspace, 'child-active-recovery.log')
+    await writeAgent('review', `${childMarker} 子agent正文`)
+
+    const extensionDir = join(env.agentDir, 'extensions')
+    await mkdir(extensionDir, { recursive: true })
+    await writeFile(
+      join(extensionDir, 'hold-active-recovery.ts'),
+      `
+import { appendFileSync } from 'node:fs'
+
+export default function (pi) {
+  pi.on('before_agent_start', async (event, ctx) => {
+    if (event.messageType !== 'user' || !event.prompt.includes(${JSON.stringify(childMarker)})) return
+    appendFileSync(${JSON.stringify(approvalLog)}, event.prompt + String.fromCharCode(10))
+    await ctx.ui.confirm('子任务审批', '测试：真实活动优先')
+  })
+}
+`,
+      'utf8',
+    )
+
+    fetchStub = installScriptedFetch((request) => {
+      const lastUser = lastUserText(request.body)
+      if (lastUser.includes(childMarker)) {
+        return textResponse('UNEXPECTED_CHILD_MODEL_REQUEST', { input: 1, output: 1 })
+      }
+      return toolCallResponse(
+        'call_live_override',
+        { agent: 'review', task: childMarker },
+        { input: 20, output: 4 },
+      )
+    })
+
+    const target = await createTestHost()
+    host = target
+    const created = await target.createThread()
+    const parentId = created.metadata.id
+    await writeRecoveryTask(parentId, {
+      taskId: 'stale-running',
+      toolCallId: 'call_live_override',
+      status: 'running',
+      task: 'STALE_RECOVERED_TASK',
+      pendingRequestCount: 2,
+    })
+
+    await target.sendMessage(parentId, {
+      content: 'ACTIVE_PARENT_MARKER 请委派一个等待审批的子任务。',
+    })
+    const snapshot = await waitForSnapshot(
+      target,
+      parentId,
+      (current) => {
+        const execution = (current.toolExecutions ?? []).find(
+          (item) => item.toolCallId === 'call_live_override',
+        )
+        if (!execution) return false
+        const details = recoveredDetailsOf(execution)
+        return details.tasks.some((task) => task.task.includes(childMarker))
+      },
+      '等待真实活动子任务快照超时',
+    )
+    const executions = (snapshot.toolExecutions ?? []).filter(
+      (item) => item.toolCallId === 'call_live_override',
+    )
+    expect(executions).toHaveLength(1)
+    expect(executions[0]?.status).toBe('running')
+    const details = recoveredDetailsOf(executions[0] as HarnessToolExecutionSnapshot)
+    expect(details.tasks.some((task) => task.taskId === 'stale-running')).toBe(false)
+
+    await target.cancelRun(parentId)
+    await waitForSnapshot(
+      target,
+      parentId,
+      (current) => current.metadata.status === 'idle',
+      '等待活动恢复用例取消后空闲超时',
+    )
   }, 60_000)
 })

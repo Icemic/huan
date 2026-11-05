@@ -295,6 +295,7 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
   let live!: LiveSessions
   let configuration!: ConfigurationService
   let operations!: SessionOperations
+  let subagents!: SubagentSessions
   let mcpHost: McpHost | undefined
 
   const coordinator = new OperationCoordinator({
@@ -320,6 +321,8 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     invalidateCatalog: (cwd) => catalog.invalidateCatalog(cwd),
     coordinator,
     interactions,
+    recoverSubagentToolExecutions: (threadId, messages) =>
+      subagents.recoverToolExecutions(threadId, messages),
   })
   const catalog = new SessionCatalog({
     agentDir,
@@ -329,8 +332,9 @@ export async function createHarnessHost(options: HarnessHostOptions): Promise<Ha
     storeId,
     modelRuntime,
     events,
+    recoverSubagentToolExecutions: (threadId, messages) =>
+      subagents.recoverToolExecutions(threadId, messages),
   })
-  let subagents: SubagentSessions
   const assembly = new ProjectAssembly({
     agentDir,
     workspacePath,

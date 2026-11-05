@@ -16,6 +16,7 @@ import type {
   HarnessThreadMetadata,
   HarnessThreadSnapshot,
   HarnessThreadTree,
+  HarnessToolExecutionSnapshot,
 } from '@huan/protocol'
 import { deriveContextUsage } from '../context-usage.js'
 import { mapColdMetadata, mapSessionInfo, type SessionCatalogInfo } from '../metadata.js'
@@ -48,6 +49,11 @@ export type SessionCatalogDeps = {
   storeId: string
   modelRuntime: SharedModelRuntime
   events: Pick<SessionEvents, 'sessionWorkspaceFields'>
+  /** 冷快照恢复服务已结束的子agent工具卡；只传当前分支消息。 */
+  recoverSubagentToolExecutions?: (
+    threadId: string,
+    messages: readonly HarnessAgentMessage[],
+  ) => readonly HarnessToolExecutionSnapshot[]
 }
 
 export class SessionCatalog {
@@ -367,10 +373,16 @@ export class SessionCatalog {
       cold.context.messages.length,
       entryIds,
     )
+    const toolExecutions =
+      this.deps.recoverSubagentToolExecutions?.(
+        info.id,
+        cold.context.messages as HarnessAgentMessage[],
+      ) ?? []
     return jsonSafeSnapshot({
       metadata: cold.metadata,
       messages: cold.context.messages as HarnessAgentMessage[],
       messageEntryIds: entryIds,
+      ...(toolExecutions.length ? { toolExecutions } : {}),
       ...(compaction ? { compaction } : {}),
       readiness: getModelReadiness(
         this.deps.modelRuntime,
