@@ -36,6 +36,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import { type TSchema, Type } from 'typebox'
+import { colorShellContext } from './shell.js'
 import {
   owningRoot,
   pathKey,
@@ -272,7 +273,7 @@ function createBashExecute(state: RuntimeState): ToolExecute {
       target = resolveToolPath(input, state)
     }
     delete params.cwd
-    const definition = createBashToolDefinition(requireSessionCwd(state))
+    const definition = createBashToolDefinition(requireSessionCwd(state), { spawnHook: colorShellContext })
     const execute = definition.execute as unknown as ToolExecute
     // 必须传 ctx 才能让 SDK 注入 PI_* 会话环境变量；上游在显式 cwd 分支丢弃
     // ctx，导致这些变量被删除。这里只替换 cwd，其余会话信息原样保留。

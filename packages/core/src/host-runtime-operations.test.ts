@@ -311,6 +311,22 @@ afterEach(async () => {
 })
 
 describe('用户 Shell（! / !!）', () => {
+  it('跨chunk ANSI保留到实时输出和重新读取的历史', async () => {
+    const threadId = await createTurn('建立颜色历史', 'ok')
+    const collector = collectEvents(threadId)
+    const command = "printf '\\033[3'; sleep 0.1; printf '1m红色\\n下一行\\033[0m\\n'"
+    await host.runThreadBash(threadId, { command })
+    const end = await waitBashEvent(collector, command)
+    const expected = '\u001b[31m红色\n下一行\u001b[0m\n'
+    expect(end.run.output).toBe(expected)
+    expect(collector.events.filter((event) => event.type === 'bash_output').map((event) => event.type === 'bash_output' ? event.delta : '').join('')).toBe(expected)
+    const snapshot = await host.getThread(threadId)
+    expect(snapshot.messages.find((message) => message.role === 'bashExecution')).toMatchObject({output:expected})
+    collector.unsubscribe()
+    await restartHost()
+    expect((await host.getThread(threadId)).messages.find((message) => message.role === 'bashExecution')).toMatchObject({output:expected})
+  })
+
   it('! 实时输出、退出码与历史消息，且输出进入模型上下文', async () => {
     const threadId = await createEmptyThread()
     const collector = collectEvents(threadId)

@@ -346,6 +346,8 @@ export type UserBashRun = {
   result?: HarnessBashResult
   /** 覆盖 user_bash 扩展等待窗口，防取消后再启动命令。 */
   cancelRequested: boolean
+  /** 宿主持有本次公开工具执行的取消句柄。 */
+  controller: AbortController
   /** SDK 已接受结果；等待其 pending 队列落盘后可释放完成卡。 */
   recorded: boolean
   /** 实际执行结束（含取消/失败）时 resolve。 */

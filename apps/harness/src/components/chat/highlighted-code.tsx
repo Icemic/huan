@@ -1,7 +1,7 @@
 /**
  * 代码语法高亮的业务组合。
  *
- * 完整代码交给 code-highlighter 同步高亮；diff 只把每个 hunk 的修改前/
+ * 完整代码交给lib/highlighter同步高亮；diff只把每个hunk的修改前/
  * 修改后代码交给对应文件语言，再把高亮行映回原补丁顺序。文件头、hunk
  * 头、增删前缀与旧版行号均保留原文，复制仍由调用方使用原字符串。
  */
@@ -48,7 +48,7 @@ export const HighlightedCodeContent = memo(function HighlightedCodeContent({
   diff = false,
 }: HighlightedCodeContentProps) {
   const highlight = useCodeHighlighter(language)
-  // 普通代码块的末尾换行不额外渲染空行；diff 的行数组必须保留末尾空行。
+  // 末尾换行不额外渲染空行；内部空行保持原位置。
   const code = diff ? value : value.replace(/\r?\n$/, '')
 
   const rendered = useMemo(() => {

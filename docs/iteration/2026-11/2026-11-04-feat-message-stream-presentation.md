@@ -339,7 +339,7 @@ ANSI输出使用Shiki的完整内容解析，颜色跨行保留；CSS同时接�
 
 ### 10.2 Shell阶段
 
-bash工具通过公开spawnHook设置默认颜色环境：缺少NO_COLOR且未设置FORCE_COLOR时使用FORCE_COLOR=1，保留显式环境选择；TERM/COLORTERM缺省提供xterm-256color/truecolor。手工Shell复用公开`createLocalBashOperations`或扩展返回的operations，使用同样默认环境，保留流式UTF-8与ANSI原文。沿用Shell配置的路径和commandPrefix，支持AbortSignal、取消进程、非零退出码、截断及完整输出文件；完成调用公开`recordBashResult`，由SDK保留运行中延迟记录和excludeFromContext语义。新增的执行取消句柄由已有UserBashRun持有，停止、删除、退出均清理，不扩展协议或复制执行状态。扩展直接返回result时仍按原逻辑使用。
+bash工具通过公开spawnHook设置默认颜色环境：缺少NO_COLOR且未设置FORCE_COLOR时使用FORCE_COLOR=1，保留显式环境选择；TERM/COLORTERM缺省提供xterm-256color/truecolor。手工Shell复用公开`createBashTool`的输出累积器，执行委托`createLocalBashOperations`或扩展返回的operations，使用同样默认环境，保留流式UTF-8与ANSI原文。沿用Shell配置的路径和commandPrefix，支持AbortSignal、取消进程、非零退出码、截断及完整输出文件；完成调用公开`recordBashResult`，由SDK保留运行中延迟记录和excludeFromContext语义。新增的执行取消句柄由已有UserBashRun持有，停止、删除、退出均清理，不扩展协议或复制执行状态。扩展直接返回result时仍按原逻辑使用。
 
 仅捕获新执行本身产生的颜色，历史已去色结果保持原样。颜色环境无法强迫所有CLI输出颜色；本轮覆盖支持FORCE_COLOR的工具及显式ANSI。保持管道执行，不建设交互终端。主agent亲自验证输出前景/背景/装饰、跨行及分块、两个执行入口、历史重开、复制、取消、并发与退出清理，完成后第二次本地提交，不push。
 
@@ -347,3 +347,16 @@ bash工具通过公开spawnHook设置默认颜色环境：缺少NO_COLOR且未�
 ### 10.3 高亮阶段验证记录
 
 主agent亲自接手并完成review修正：删除重复高亮模块与旧hook，移除手写ANSI清理正则，统一使用strip-ansi。34项定向单测、应用/server/e2e类型与6条Chromium通过。浏览器检查diff新增行的const与字符串颜色不同、括号跨行同层同色且不同层不同色、ANSI跨行颜色延续、RGB背景、粗体与下划线。保留六条原有流程及长代码原文验证，读取`transformers-ansi.png`截图。未运行全仓测试/build。日志为本机临时目录`huan-transformer-unit.log`、`huan-transformer-types.log`、`huan-transformer-e2e.log`。
+
+### 10.4 Shell阶段执行记录
+
+主agent实现共用颜色环境，通过公开工具工厂保留手工Shell的ANSI。直接复用SDK最终输出快照、截断及完整文件，不新增累积器；取消时让SDK完成输出收尾，由已有UserBashRun持有AbortController。扩展result/operations、Shell配置、非零退出码、运行中延迟记录与上下文排除均沿用。
+
+浏览器6条流程通过，包括四工具展示、历史参数、Shell颜色、双窗重连与独立取消、手动压缩。首次截图发生于展开动画中，随后补等待展开内容高度并重新运行，读取新截图，历史正文红色输出可见。定向单测新增跨chunk ANSI、重开历史、实际工具颜色环境、完整日志等；重开测试初次使用未保存会话文件的空会话导致Unknown thread，改为先完成一轮合成对话再检查重开。未使用retry或刷新制造通过。最终验证结果在收尾记录。
+
+
+最终Shell定向验证为3文件45项单测通过，core及应用/server/e2e类型通过，日志`huan-shell-unit-final.log`、`huan-shell-types-final.log`、`huan-shell-harness-types.log`。6条Shell/消息Chromium在最终快照调整后通过（`huan-shell-e2e-final.log`），历史展开截图已读取。此前高亮阶段34项/6条通过记录保留。
+
+追加9条合并回归为7通过、2失败（`huan-color-complete-e2e.log`）：分段流再次未出现assistant消息，trace含release请求成功，失败页面仅用户消息，原因未确定；最后一条压缩在新建页面时Chromium Target crashed。该合并回归未通过，不替代前述分阶段结果。没有重试、跳过、刷新或放宽断言。未执行全仓测试/build；新Shell采用管道，CLI是否产生颜色仍取决于其是否接受颜色环境或主动输出ANSI，历史已去色内容无法恢复。
+
+收尾检查：6文件79项高亮/Shell定向单测通过（`huan-color-final-unit.log`），12文件代码检查无告警；本次全部Markdown风格检查零命中、相对链接与git diff检查通过。

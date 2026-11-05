@@ -40,6 +40,7 @@ import {
   resolveForkTarget,
 } from '../session-fork.js'
 import { sessionTreeRevision } from '../session-tree.js'
+import { executeColoredBash } from '../shell.js'
 import type { WorkspaceStore } from '../workspace-store.js'
 import type { LiveSessions } from './live-sessions.js'
 import type { OperationCoordinator } from './operation-coordinator.js'
@@ -1084,6 +1085,7 @@ export class SessionOperations {
       outputTruncated: false,
       startedAt: new Date().toISOString(),
       cancelRequested: false,
+      controller: new AbortController(),
       recorded: false,
       done,
     }
@@ -1122,14 +1124,17 @@ export class SessionOperations {
           run.output = custom.output
           run.outputTruncated = false
         } else {
-          const sdkResult = await record.session.executeBash(command, onChunk, {
-            excludeFromContext,
-            id: run.id,
+          const sdkResult = await executeColoredBash(command, record.workspacePath, {
+            signal: run.controller.signal,
+            onChunk,
+            shellPath: record.settingsManager.getShellPath(),
+            commandPrefix: record.settingsManager.getShellCommandPrefix(),
             ...(extensionResult?.operations ? { operations: extensionResult.operations } : {}),
           })
+          record.session.recordBashResult(command, sdkResult, { excludeFromContext })
           run.recorded = true
           result = this.bashResultOf(sdkResult)
-          // 完成态以 SDK 的清理/截断后输出为准（同时消除实时缓冲差异）。
+          // 完成态以SDK累积器的截断后输出为准，同时消除实时缓冲差异。
           run.output = sdkResult.output
           run.outputTruncated = false
         }
@@ -1160,6 +1165,7 @@ export class SessionOperations {
     const record = this.live.get(threadId)
     if (record?.bash?.status !== 'running') return { status: 'idle' }
     record.bash.cancelRequested = true
+    record.bash.controller.abort()
     record.session.abortBash()
     record.uiBridge.dismissAll()
     return { status: 'requested' }

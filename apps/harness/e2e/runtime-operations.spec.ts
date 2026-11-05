@@ -79,7 +79,7 @@ test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, r
   const dialog = await openPanel(page)
   await dialog
     .getByRole('textbox', { name: 'Shell 命令' })
-    .fill(`printf 'shell-live-${run}'; sleep 5; printf -- '-done\\n'`)
+    .fill(`printf '\\033[31mshell-live-${run}'; sleep 5; printf -- '-done\\033[0m\\n'`)
   await dialog.getByRole('button', { name: '运行 Shell' }).click()
   await expect(dialog.getByText('运行中', { exact: true })).toBeVisible()
   await expect(dialog.locator('[data-slot="huan-shell-output"]')).toContainText(`shell-live-${run}`)
@@ -87,11 +87,17 @@ test('Shell 实时输出、历史卡片与 !! 排除上下文', async ({ page, r
 
   // 空闲会话完成后立即持久化，运行卡由历史卡片取代（不重复展示）。
   const includeCard = page.locator('[data-slot="huan-bash-message"]').last()
-  await expect(includeCard).toContainText(`printf 'shell-live-${run}'`, { timeout: 10_000 })
+  await expect(includeCard).toContainText(`shell-live-${run}` , { timeout: 10_000 })
   await expect(includeCard).toContainText('退出码 0')
   await expect(includeCard).not.toContainText('不进入上下文')
   await includeCard.getByRole('button').first().click()
   await expect(includeCard).toContainText(`shell-live-${run}-done`)
+  const colored = includeCard.locator('[data-slot="huan-user-shell-output"] .huan-syntax-token').filter({ hasText: `shell-live-${run}-done` })
+  await expect(colored).toBeVisible()
+  await expect(includeCard.locator('[data-slot="huan-user-shell-output"]')).toBeInViewport()
+  expect(await colored.evaluate((node) => getComputedStyle(node).color)).not.toBe(await includeCard.evaluate((node) => getComputedStyle(node).color))
+  await expect.poll(() => includeCard.locator('[data-slot="trace-collapsible-content"]').evaluate((node) => Math.round(node.getBoundingClientRect().height))).toBeGreaterThan(100)
+  await page.screenshot({path:test.info().outputPath('shell-ansi-history.png'),fullPage:true})
 
   // `!!`：选择排除上下文后，历史卡片明确标注。
   const second = await openPanel(page)

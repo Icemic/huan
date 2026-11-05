@@ -648,6 +648,7 @@ export class LiveSessions {
     const run = record.bash
     if (run?.status !== 'running') return
     run.cancelRequested = true
+    run.controller.abort()
     record.uiBridge.dismissAll()
     await withTimeout(run.done, RETIRE_ABORT_TIMEOUT_MS, 'Shell 命令').catch(() => {})
   }

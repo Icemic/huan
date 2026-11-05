@@ -14,6 +14,7 @@ import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
 import { createHighlighterCore, type HighlighterCore, type ShikiTransformer } from 'shiki/core'
 import { createJavaScriptRegexEngine } from 'shiki/engine/javascript'
 import { type BundledLanguage, bundledLanguages } from 'shiki/langs'
+import stripAnsi from 'strip-ansi'
 
 // 与 index.css 的主题 class 对应；颜色键同时决定 --shiki-* 变量名。
 const THEMES = {
@@ -148,7 +149,7 @@ export function useCodeHighlighter(language: string | undefined) {
 
   return useMemo(() => {
     return (value: string) => {
-      if (!name || !instance) return plainLines(value)
+      if (!name || !instance) return plainLines(name === 'ansi' ? stripAnsi(value) : value)
       return highlightLines(instance, name, value)
     }
   }, [name, instance])

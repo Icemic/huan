@@ -26,6 +26,10 @@ import { createWorkspaceToolsExtension } from './workspace-tools.js'
 
 // 子进程环境隔离：避免把运行本测试的 Pi 会话变量带入 bash 用例。
 const TESTED_ENV_KEYS = [
+  'NO_COLOR',
+  'FORCE_COLOR',
+  'TERM',
+  'COLORTERM',
   'PI_PROVIDER',
   'PI_MODEL',
   'PI_MODEL_ID',
@@ -224,6 +228,15 @@ function toolCallSse(name: string, args: Record<string, unknown>): Response {
 }
 
 describe('工作区文件工具与 bash cwd', () => {
+  it('bash工具默认提供颜色环境并原样保留ANSI', async () => {
+    const harness = await openSession({cwd:env.workspace,workspace:makeWorkspace(1,[])})
+    const result = await callTool(harness,'bash',{command:"node -e 'process.stdout.write(JSON.stringify({force:process.env.FORCE_COLOR,term:process.env.TERM,color:process.env.COLORTERM}) + \"\\u001b[31mred\\u001b[0m\")'"})
+    expect(resultText(result)).toContain('"force":"1"')
+    expect(resultText(result)).toContain('"term":"xterm-256color"')
+    expect(resultText(result)).toContain('"color":"truecolor"')
+    expect(resultText(result)).toContain('\u001b[31mred\u001b[0m')
+  })
+
   it('@别名 跨成员读写、编辑与搜索，裸路径锚定会话 cwd', async () => {
     const alpha = await makeDir('alpha')
     const sessionCwd = join(alpha, 'app')
