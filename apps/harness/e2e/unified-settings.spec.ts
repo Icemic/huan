@@ -2,10 +2,8 @@
  * 统一设置导航浏览器验收：唯一顶栏入口、七页垂直导航与键盘切换、
  * 全局设置跨页共享草稿、保存写盘与外观主题切换。
  *
- * 明暗截图同时写入固定审阅目录并作为测试附件，供人工核对界面密度与配色。
+ * 明暗截图写入本次运行的测试产物目录并作为测试附件，供人工核对界面密度与配色。
  */
-import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
 import { type APIRequestContext, expect, type Page, type TestInfo, test } from '@playwright/test'
 import { E2E_HOST_URL } from './config.js'
 import {
@@ -27,8 +25,6 @@ const SETTINGS_PAGES = [
   '服务与诊断',
 ] as const
 
-const REVIEW_DIR = 'C:/Users/Icemic/AppData/Local/Temp/huan-settings-review'
-
 async function readUserSettings(request: APIRequestContext): Promise<string | null> {
   const response = await request.get(`${E2E_HOST_URL}/__e2e__/settings-file`, {
     params: { scope: 'user' },
@@ -47,14 +43,13 @@ async function writeUserSettings(
   expect(response.ok()).toBe(true)
 }
 
-/** 保存明暗截图到审阅目录，并作为附件挂到测试结果。 */
+/** 截图保存到本次运行的测试产物目录，并作为附件挂到测试结果。 */
 async function captureSettings(
   page: Page,
   testInfo: TestInfo,
   name: 'unified-settings-light' | 'unified-settings-dark',
 ): Promise<void> {
-  const target = join(REVIEW_DIR, `${name}.png`)
-  await mkdir(REVIEW_DIR, { recursive: true })
+  const target = testInfo.outputPath(`${name}.png`)
   await settingsDialog(page).screenshot({ path: target })
   await testInfo.attach(name, { path: target, contentType: 'image/png' })
 }
@@ -154,7 +149,7 @@ test('全局设置跨页共享草稿、保存写盘，外观明暗可截图', as
         } else {
           await expect(dialog.getByRole('button', { name: '保存', exact: true })).toBeVisible()
         }
-        const path = join(REVIEW_DIR, `${section}-${theme}.png`)
+        const path = testInfo.outputPath(`${section}-${theme}.png`)
         await dialog.screenshot({ path })
         await testInfo.attach(`${section}-${theme}`, { path, contentType: 'image/png' })
         const bounds = await dialog.evaluate((element) => ({

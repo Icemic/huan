@@ -23,10 +23,10 @@
 
 | 检查 | 结果 | 记录 |
 | --- | --- | --- |
-| `pnpm check` | 82 个测试文件、993 项通过、2 项 POSIX 权限测试在 Windows 跳过；lint 与全仓类型检查通过 | `C:/Users/Icemic/AppData/Local/Temp/huan-r9-main-check.log` |
-| `pnpm build` | 通过；默认 JS 约 1124.5kB，保留既有大 chunk 警告 | `C:/Users/Icemic/AppData/Local/Temp/huan-r9-main-build.log` |
-| `pnpm test:e2e` | 85/85 通过；8899/8898、单 worker、零重试 | `C:/Users/Icemic/AppData/Local/Temp/huan-r9-main-e2e.log` |
-| 生产预览性能 | 250/1000 目录输入无关行执行 0、流式 0 且 SSE 不增；输入往返中位约 33/50ms；Markdown 60ms、240 节点树 671ms、1000 目录首次布局 454ms；JS 传输 335025B、解码 1125294B | `C:/Users/Icemic/AppData/Local/Temp/huan-r9-main-preview.log` |
+| `pnpm check` | 82 个测试文件、993 项通过、2 项 POSIX 权限测试在 Windows 跳过；lint 与全仓类型检查通过 | `huan-r9-main-check.log` |
+| `pnpm build` | 通过；默认 JS 约 1124.5kB，保留既有大 chunk 警告 | `huan-r9-main-build.log` |
+| `pnpm test:e2e` | 85/85 通过；8899/8898、单 worker、零重试 | `huan-r9-main-e2e.log` |
+| 生产预览性能 | 250/1000 目录输入无关行执行 0、流式 0 且 SSE 不增；输入往返中位约 33/50ms；Markdown 60ms、240 节点树 671ms、1000 目录首次布局 454ms；JS 传输 335025B、解码 1125294B | `huan-r9-main-preview.log` |
 | frozen-lockfile | 主agent通过；Lingui主agent提取438条、无msgid变更，行号引用变化已还原 | R8 记录 |
 | 视觉 | 未实际读取截图产物，不宣称视觉合格 | 本轮记录 |
 

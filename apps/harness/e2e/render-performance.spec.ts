@@ -440,10 +440,10 @@ test('大量历史下输入与流式输出不刷新无关会话行', async ({ pa
       body: report,
       contentType: 'application/json',
     })
-    // 主 agent 需要直接读取的测量结果（不进仓库）。
+    // 测量结果默认写入本次运行的测试产物目录（不进仓库），便于直接读取；
+    // 需要固定路径时由 HUAN_PERF_REPORT 覆盖。
     await writeFile(
-      process.env.HUAN_PERF_REPORT ??
-        'C:/Users/Icemic/AppData/Local/Temp/huan-r8/render-performance-report.json',
+      process.env.HUAN_PERF_REPORT ?? testInfo.outputPath('render-performance-report.json'),
       report,
     )
   }

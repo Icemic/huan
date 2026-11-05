@@ -106,7 +106,7 @@ MCP 服务器配置与 Pi TUI 共用：用户 `<agentDir>/mcp.json`、可信项�
 - 隔离调试：`pnpm dev:e2e` 启动页面 http://127.0.0.1:8899 与服务端 8898，临时用户空间和确定性模型，无需个人凭据。默认模型故意缺少凭据，可登录合成认证provider或先选 Test Model A 再发送。Ctrl+C 退出；Windows 强制结束时残留位于 `apps/harness/test-results/e2e`，可删除。自动测试有统一清理。
 - 项目 `.pi/mcp.json` 配置 Playwright MCP，执行 `/reload` 后接入工具；使用独立内存浏览器，复用上述安装的 Chromium。依赖已锁定，无需每次 npx 下载。先启动隔离页面，再调用导航/快照/点击工具。MCP 输出位于 `apps/harness/test-results/mcp`。
 - 生产性能对照：`HUAN_E2E_PREVIEW=1 pnpm dev:e2e`（PowerShell 先设置 `$env:HUAN_E2E_PREVIEW='1'`）。复用相同隔离服务与端口，启动时按当前源码构建带测试计数的临时产物，再启动 Vite preview；默认 `pnpm build` 不包含计数。不要与其他浏览器测试同时运行。输入/流式测试在 `e2e/render-performance.spec.ts`，覆盖 250/1,000 条合成历史，测试附件记录往返时间与组件入口计数；开发模式含 StrictMode，时间包含自动化与双帧开销。
-- Playwright 产物隔离：需要排查默认 `test-results` 下产物消失或并行外部工具干扰时，可用 `HUAN_E2E_OUTPUT_DIR="C:/Users/Icemic/AppData/Local/Temp/huan-playwright-run" pnpm test:e2e` 指定独立输出目录；仍单 worker、同一时刻只运行一套隔离服务。该选项不改变测试断言或应用行为。
+- Playwright 产物隔离：需要排查默认 `test-results` 下产物消失或并行外部工具干扰时，可用 `HUAN_E2E_OUTPUT_DIR="test-results/playwright-isolated" pnpm test:e2e` 指定独立输出目录；仍单 worker、同一时刻只运行一套隔离服务。该选项不改变测试断言或应用行为。
 - 浏览器失败产物位于 `apps/harness/test-results`，包括截图和 trace；使用 `pnpm --filter @huan/harness exec playwright show-trace <trace.zip路径>` 查看。产物不入 Git。
 - 容器与检查的覆盖范围：typecheck 覆盖全部 workspace 包；测试根运行（`vitest.config.ts` 统一 include）。
 
