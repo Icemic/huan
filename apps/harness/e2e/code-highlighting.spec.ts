@@ -5,6 +5,7 @@ import {
   assistantMessages,
   configureStream,
   finishStream,
+  messageInput,
   openApp,
   releaseSegment,
   resetStream,
@@ -13,6 +14,45 @@ import {
   startNewSession,
   streamState,
 } from './helpers.js'
+
+test('ANSI八色空白背景经bash工具与用户Shell完整保留', async ({ page, request }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await openApp(page)
+  await startNewSession(page, 'workspace')
+  await selectModel(page)
+  const command = "printf '\\033[41m   \\033[42m   \\033[43m   \\033[44m   \\033[45m   \\033[46m   \\033[47m   \\033[100m   \\033[m\\nplain\\n'"
+  const response = await request.post(`${E2E_HOST_URL}/__e2e__/model-turns`, {
+    data: {turns:[{tool:{name:'bash',args:{command}}},{text:'色块完成'}]},
+  })
+  expect(response.ok()).toBe(true)
+  await sendMessage(page, '验证ANSI空白色块')
+  await expect(assistantMessages(page).last()).toContainText('色块完成')
+  await page.getByRole('button', {name:`执行 ${command}`,exact:true}).click()
+  const toolOutput = page.locator('[data-slot="huan-output-block"]').last()
+  await expect(toolOutput.locator('.huan-syntax-token')).toHaveCount(9)
+  await messageInput(page).fill(`!!${command}`)
+  await messageInput(page).press('Enter')
+  const card = page.locator('[data-slot="huan-bash-message"]').last()
+  await expect(card).toContainText('退出码 0')
+  await card.getByRole('button').first().click()
+  const userOutput = card.locator('[data-slot="huan-user-shell-output"]')
+  await expect(userOutput.locator('.huan-syntax-token')).toHaveCount(9)
+  for (const output of [toolOutput, userOutput]) {
+    for (const theme of ['', 'dark', 'dark one-dark', 'solarized-light']) {
+      await page.evaluate((name) => { document.documentElement.className = name }, theme)
+      const colors = await output.locator('.huan-syntax-token').evaluateAll((nodes) => nodes.map((node) => ({text:node.textContent,bg:getComputedStyle(node).backgroundColor})))
+      expect(colors.slice(0,8).map((item) => item.text)).toEqual(Array(8).fill('   '))
+      expect(new Set(colors.slice(0,8).map((item) => item.bg)).size).toBe(8)
+      expect(colors.slice(0,8).every((item) => item.bg !== 'rgba(0, 0, 0, 0)')).toBe(true)
+      expect(colors[8]).toEqual({text:'plain',bg:'rgba(0, 0, 0, 0)'})
+    }
+    await output.hover()
+    await output.getByRole('button', {name:'复制输出',exact:true}).click()
+    await expect.poll(async () => (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g,'\n')).toBe(`${' '.repeat(24)}\nplain\n`)
+  }
+  await userOutput.scrollIntoViewIfNeeded()
+  await page.screenshot({path:test.info().outputPath('ansi-palette.png'),fullPage:true})
+})
 
 const tokens = '[style*="--shiki-light"]'
 

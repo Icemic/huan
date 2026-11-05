@@ -107,10 +107,15 @@ function highlightLines(
   language: LanguageName | 'ansi',
   value: string,
 ): ReactNode[] {
-  const tree = instance.codeToHast(value, {
+  // Shiki 4.5把空参数SGR当作无操作；标准ESC[m等价于ESC[0m。
+  // 仅调整交给解析器的文本，原始输出及复制内容保持不变。
+  const input = language === 'ansi' ? value.replaceAll('\u001b[m', '\u001b[0m') : value
+  const tree = instance.codeToHast(input, {
     lang: language,
     themes: THEMES,
     defaultColor: false,
+    // ANSI的纯空格也可能携带背景色，不能合并到相邻token。
+    mergeWhitespaces: language !== 'ansi',
     // 与实测一致：超长单行保留原文，其他行继续高亮。
     tokenizeMaxLineLength: 2_000,
     // ANSI 只解析控制序列，不参与括号配对。

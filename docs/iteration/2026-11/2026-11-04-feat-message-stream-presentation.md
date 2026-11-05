@@ -360,3 +360,11 @@ bash工具通过公开spawnHook设置默认颜色环境：缺少NO_COLOR且未�
 追加9条合并回归为7通过、2失败（`huan-color-complete-e2e.log`）：分段流再次未出现assistant消息，trace含release请求成功，失败页面仅用户消息，原因未确定；最后一条压缩在新建页面时Chromium Target crashed。该合并回归未通过，不替代前述分阶段结果。没有重试、跳过、刷新或放宽断言。未执行全仓测试/build；新Shell采用管道，CLI是否产生颜色仍取决于其是否接受颜色环境或主动输出ANSI，历史已去色内容无法恢复。
 
 收尾检查：6文件79项高亮/Shell定向单测通过（`huan-color-final-unit.log`），12文件代码检查无告警；本次全部Markdown风格检查零命中、相对链接与git diff检查通过。
+
+
+### 10.5 ANSI纯空白背景修正
+
+用户反馈仍无颜色后，只读检查当前fastfetch历史：背景SGR序列仍在，logo和字段没有前景SGR。Shiki默认mergeWhitespaces=true合并不同背景的空白token，八色色块变成末项灰色。ANSI路径设置mergeWhitespaces=false，保留每段背景；其他语言保持默认。补测两种Shell输出的纯空白八色色块、主题切换和可读文本复制。fastfetch管道模式使用其公开--pipe false选项产生logo及字段颜色，应用不替用户改写命令。
+
+
+同时确认Shiki 4.5忽略空参数SGR重置ESC[m，造成下一行空白继承背景。仅解析前替换为等价ESC[0m，持久文本与复制内容保持原样。新增专项用例通过两种Shell执行同一printf，四主题分别检查八个空白token的背景互异、重置后plain无背景、复制仅保留可读文本。与既有组件/括号/ANSI用例合计2条Chromium通过（huan-ansi-palette-final.log）；应用/server/e2e类型通过，读取ansi-palette.png。初次用例按钮定位写错，第二次剪贴板比较未规范Windows换行，均修正测试后重新执行完整断言。当前用户页面只读核对已保存fastfetch历史，修正后16个背景token可见，未重新执行用户命令或修改会话。

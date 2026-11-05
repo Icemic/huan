@@ -48,7 +48,7 @@ SOFTWARE.
 | empty、field、input、input-group、item、label、message、popover、radio-group、scroll-area | 同上 |
 | select、separator、skeleton、switch、tabs、textarea、tooltip、trace、combobox、dropdown-menu、button-group | 同上 |
 
-registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装高亮hook、highlighter及Shiki依赖；经用户授权重构后，删除旧增量hook，`src/lib/highlighter.tsx`为唯一业务高亮入口，采用`codeToHast()`、官方彩色括号transformer及HAST到React转换。普通代码按完整内容匹配括号，ANSI按整段解析并保留前景、背景及文字装饰；diff的两侧代码交给文件语言高亮，补丁结构由业务适配。四主题及单行2,000字符限制继续保留。此文件已注明与CLI内容的差异，纳入项目检查；ui目录保持安装结果。新增`@shikijs/colorized-brackets@4.5.0`（Shiki项目，MIT）、`hast-util-to-jsx-runtime@2.3.7`（syntax-tree项目，MIT）与`strip-ansi@7.2.0`（sindresorhus项目，MIT），许可随包分发。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
+registry地址形式为`https://ui.shadcn.com/r/styles/base-nova/{name}.json`。CLI同时安装高亮hook、highlighter及Shiki依赖；经用户授权重构后，删除旧增量hook，`src/lib/highlighter.tsx`为唯一业务高亮入口，采用`codeToHast()`、官方彩色括号transformer及HAST到React转换。普通代码按完整内容匹配括号，ANSI按整段解析并保留前景、背景及文字装饰，关闭空白token合并以保留色块，解析前将空参数SGR重置规范成ESC[0m；diff的两侧代码交给文件语言高亮，补丁结构由业务适配。四主题及单行2,000字符限制继续保留。此文件已注明与CLI内容的差异，纳入项目检查；ui目录保持安装结果。新增`@shikijs/colorized-brackets@4.5.0`（Shiki项目，MIT）、`hast-util-to-jsx-runtime@2.3.7`（syntax-tree项目，MIT）与`strip-ansi@7.2.0`（sindresorhus项目，MIT），许可随包分发。`shadcn@4.23.0`作为依赖提供`shadcn/tailwind.css`，由全局CSS导入，主题tokens继续在应用维护。
 
 原自写`menu.tsx`、`model-selector.tsx`与`model-selection.ts`已删除。模型/Thinking在`pi-model-selector.tsx`组合官方Combobox与独立思考强度DropdownMenuRadioGroup；TooltipIconButton移至业务组件目录。ScrollArea在调用处组合Select、DropdownMenu、Combobox、CodeBlock和AttachmentGroup，不在上游文件内插入滚动结构。设置弹层业务布局继续参考官方sidebar-13示例；ReUI尚未采用。
 
